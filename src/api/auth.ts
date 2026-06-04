@@ -5,6 +5,7 @@ import type { Env, UserPermission, OperatorUser } from '../types';
 import { ALL_PERMISSIONS } from '../types';
 import { verifyInternalArtifactRequest, verifyMultipartRequest } from '../utils';
 import { createSessionCookie, verifySessionCookie, clearSessionCookie, hashPassword, verifyPassword, SESSION_COOKIE } from '../password';
+import { verifyStudioSessionCookie } from './studio-auth';
 
 const auth = new Hono<{ Bindings: Env; Variables: { user: OperatorUser | null } }>();
 
@@ -60,6 +61,12 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
 
   if (c.env.APP_ENV === 'development') {
     c.set("user", await resolveUser(c));
+    return next();
+  }
+
+  // Studio session cookie auth (for studio portal routes)
+  const studioSession = await verifyStudioSessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);
+  if (studioSession) {
     return next();
   }
 
