@@ -2,7 +2,30 @@
 
 ## Current state
 
-This handoff reflects the current implementation state on `2026-05-15`.
+This handoff reflects the current implementation state on `2026-06-04`.
+
+The codebase has been imported into a new standalone GitHub repository:
+- https://github.com/Musalah2013/audiobooks-app
+- Local repository root: this folder only, not the parent `/Users/musalah/Library/CloudStorage/GoogleDrive-muhammed.salah25@gmail.com/Other computers/My PC/Programming` Git worktree.
+- Initial import includes Worker API source, Cloudflare deployment config, D1 migrations, container runtime, frontend React/Vite app, and operational docs.
+- Local artifacts were excluded from the published repo via `.gitignore`, including `.playwright-mcp/`, `.DS_Store`, `env-vars.txt`, and `*.xlsx`.
+
+## Repository map
+
+Key source boundaries and deployment layers in this repo:
+
+- `src/index.ts` — Cloudflare Worker entrypoint, Hono router, auth, API routes, and queue handler
+- `src/workflows.ts` — Cloudflare Workflow entrypoints for processing and dossier generation
+- `src/pipeline.ts` — intake normalization, metadata parsing, batch/report orchestration, and pipeline state transitions
+- `src/db.ts` — D1 data access repository using raw SQL and row mapping
+- `src/types.ts` — shared application types, API contract imports, and environment bindings
+- `src/container.ts` + `container/server.mjs` — Cloudflare Container runtime and Worker<->container integration for audio processing
+- `src/api/*` — REST endpoints for dashboard, ingestions, candidates, books, files, settings, and integrations
+- `ui/` — React SPA frontend served from `./ui/dist`
+- `wrangler.toml` — Cloudflare deployment config for assets, D1, R2, queues, workflows, and containers
+- `migrations/` — D1 schema migrations and versioned database setup
+- `STACK.md` — stack reference and architectural guidance for the project
+- `README.md` — developer startup and deployment commands
 
 ## Latest changes — download links + UI cleanup (2026-05-15)
 
