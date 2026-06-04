@@ -52,7 +52,7 @@ studioAuth.post('/request', async (c) => {
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   await repo.createStudioMagicLink(studio.id, token, expiresAt);
 
-  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
+  const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
   const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
   await sendEmail({
     to: studio.contact_email,

@@ -93,7 +93,7 @@ studios.post('/:id/magic-link', requirePermission('users'), async (c) => {
   const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   await repo.createStudioMagicLink(studio.id, token, expiresAt);
-  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
+  const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
   const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
   await sendEmail({ to: studio.contact_email, toName: studio.name, subject: 'رابط الدخول إلى بوابة سماوي', html: magicLinkEmail(link, studio.name), emailBinding: c.env.EMAIL });
   return c.json({ ok: true });
@@ -150,7 +150,7 @@ studios.post('/:id/production-file-upload-url', requirePermission('users'), asyn
   const upload = await createUploadUrl(c.env, key, contentType);
   const fileId = await repo.createStudioProductionFile({ studioId, name: fileName, objectKey: key, contentType, sizeBytes: sizeBytes ?? 0, uploadedBy: actorEmail(c.req.raw) });
   // Notify studio
-  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
+  const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
     subject: 'ملف إنتاج جديد متاح في بوابتك',
@@ -184,7 +184,7 @@ studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async 
   const sample = await repo.getStudioSample(sampleId);
   if (!studio || !sample) return c.json({ error: 'Not found' }, 404);
   await repo.reviewStudioSample(sampleId, status, actorEmail(c.req.raw), note ?? null);
-  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
+  const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
   const statusAr = status === 'approved' ? 'موافقة' : 'رفض';
   await sendEmail({
     to: studio.contact_email, toName: studio.name,

@@ -96,7 +96,7 @@ studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
   if (studio) {
     const operators = await repo.listOperatorUsers();
     const activeOps = operators.filter((op) => op.isActive);
-    const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
+    const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
     await Promise.allSettled(activeOps.map((op) =>
       sendEmail({
         to: op.email,
