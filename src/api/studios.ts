@@ -5,7 +5,7 @@ import { Repository } from '../db';
 import { requirePermission, actorEmail } from './auth';
 import { createUploadUrl } from '../pipeline';
 import { sendEmail, magicLinkEmail, notifyOperatorsEmail } from '../email';
-import { keySegments, nowIso } from '../utils';
+import { keySegments, nowIso, signInternalArtifactUrl } from '../utils';
 
 const studios = new Hono<{ Bindings: Env }>();
 
@@ -95,7 +95,22 @@ studios.post('/:id/magic-link', requirePermission('users'), async (c) => {
   await repo.createStudioMagicLink(studio.id, token, expiresAt);
   const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
   const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
-  await sendEmail({ to: studio.contact_email, toName: studio.name, subject: 'رابط الدخول إلى بوابة سماوي', html: magicLinkEmail(link, studio.name), emailBinding: c.env.EMAIL });
+
+  // Build signed studio logo URL if available
+  let studioLogoUrl: string | undefined;
+  if (studio.logo_object_key) {
+    const logoExpiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    studioLogoUrl = await signInternalArtifactUrl({
+      baseUrl: c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`,
+      path: `/api/files/${studio.logo_object_key}`,
+      key: studio.logo_object_key,
+      method: 'GET',
+      secret: c.env.INTERNAL_API_SECRET,
+      expiresAt: logoExpiresAt,
+    });
+  }
+
+  await sendEmail({ to: studio.contact_email, toName: studio.name, subject: 'رابط الدخول إلى بوابة سماوي', html: magicLinkEmail(link, studio.name, studioLogoUrl), emailBinding: c.env.EMAIL });
   return c.json({ ok: true });
 });
 
