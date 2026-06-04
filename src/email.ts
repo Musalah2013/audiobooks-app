@@ -14,7 +14,7 @@ export async function sendEmail(options: {
   try {
     await binding.send({
       to: { email: options.to, name: options.toName ?? options.to },
-      from: { email: options.from ?? "noreply@samawy.com", name: options.fromName ?? "Samawy Audiobooks Ops" },
+      from: { email: options.from ?? "noreply@samawy-ops.com", name: options.fromName ?? "Samawy Audiobooks Ops" },
       subject: options.subject,
       html: options.html,
     });
