@@ -60,6 +60,7 @@ export function useApi<T>(endpoint: string, options?: FetchOptions) {
         const response = await fetch(`${API_BASE}${endpoint}`, {
           method: options?.method || 'GET',
           cache: 'no-store',
+          credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
             'Cache-Control': 'no-cache',
@@ -105,6 +106,7 @@ export async function apiRequest<T>(endpoint: string, options?: FetchOptions): P
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: options?.method || 'GET',
     cache: 'no-store',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-cache',
