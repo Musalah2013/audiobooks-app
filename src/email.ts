@@ -29,9 +29,6 @@ const SAMAWY_LOGO_URL = "https://audiobooks.samawy-ops.com/samawy/assets/logo-pr
 
 export function magicLinkEmail(link: string, recipientName?: string, studioLogoUrl?: string): string {
   const name = recipientName ? recipientName : "فريق العمل";
-  const studioLogoHtml = studioLogoUrl
-    ? `<div style="text-align:center;margin-bottom:20px;"><img src="${studioLogoUrl}" alt="شعار الاستوديو" width="56" height="56" style="border-radius:10px;display:inline-block;vertical-align:middle;"></div>`
-    : "";
 
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -53,12 +50,21 @@ export function magicLinkEmail(link: string, recipientName?: string, studioLogoU
           <tr>
             <td style="padding:40px 32px 32px;">
 
-              <!-- Samawy Logo -->
-              <div style="text-align:center;margin-bottom:24px;">
-                <img src="${SAMAWY_LOGO_URL}" alt="سماوي" width="120" style="display:inline-block;vertical-align:middle;">
-              </div>
-
-              ${studioLogoHtml}
+              <!-- Logos Row -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px;">
+                <tr>
+                  <td align="center">
+                    <table cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="padding:0 12px;">
+                          <img src="${SAMAWY_LOGO_URL}" alt="سماوي" width="120" style="display:block;">
+                        </td>
+                        ${studioLogoUrl ? `<td style="padding:0 12px;"><img src="${studioLogoUrl}" alt="شعار الاستوديو" width="56" height="56" style="display:block;border-radius:10px;"></td>` : ''}
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
 
               <!-- Greeting -->
               <p style="margin:0 0 12px;font-family:Arial,Tahoma,sans-serif;font-size:18px;font-weight:bold;color:#1a202c;line-height:26px;">
