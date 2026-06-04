@@ -39,6 +39,13 @@ export async function resolveUser(c: Context<any>): Promise<OperatorUser | null>
 }
 
 export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { user: OperatorUser | null } }>, next: Next) {
+  const path = c.req.path;
+
+  // Public studio-auth endpoints (magic link request + verify)
+  if (path === '/api/studio-auth/request' || path === '/api/studio-auth/verify') {
+    return next();
+  }
+
   const internalSecret = c.req.header('X-Internal-Secret');
   if (internalSecret === c.env.INTERNAL_API_SECRET) {
     return next();
