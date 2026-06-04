@@ -57,7 +57,7 @@ acquisitionAuth.post('/request', async (c) => {
     toName: user.name,
     subject: 'رابط الدخول — بوابة الاقتناء',
     html: magicLinkEmail(link, user.name),
-    resendApiKey: c.env.RESEND_API_KEY,
+    emailBinding: c.env.EMAIL,
   });
   return c.json({ ok: true });
 });

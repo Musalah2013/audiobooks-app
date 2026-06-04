@@ -5,28 +5,23 @@ export async function sendEmail(options: {
   html: string;
   from?: string;
   fromName?: string;
-  resendApiKey?: string;
+  emailBinding?: SendEmail;
 }): Promise<void> {
-  const apiKey = options.resendApiKey;
-  if (!apiKey) {
-    throw new Error("RESEND_API_KEY is not configured. Set it as a Worker secret to enable email sending.");
+  const binding = options.emailBinding;
+  if (!binding) {
+    throw new Error("EMAIL binding is not configured. Add [[send_email]] to wrangler.toml.");
   }
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      from: `${options.fromName ?? "Samawy Audiobooks Ops"} <${options.from ?? "noreply@samawy.com"}>`,
-      to: options.to,
+  try {
+    await binding.send({
+      to: { email: options.to, name: options.toName ?? options.to },
+      from: { email: options.from ?? "noreply@samawy.com", name: options.fromName ?? "Samawy Audiobooks Ops" },
       subject: options.subject,
       html: options.html,
-    }),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`Email send failed (${response.status}): ${body}`);
+    });
+  } catch (error) {
+    const code = (error as any).code ?? "UNKNOWN";
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Email send failed (${code}): ${message}`);
   }
 }
 

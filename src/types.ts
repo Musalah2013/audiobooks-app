@@ -233,7 +233,7 @@ export interface Env {
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;
   R2_ACCOUNT_ID?: string;
-  RESEND_API_KEY?: string;
+  EMAIL?: SendEmail;
 }
 
 

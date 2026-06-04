@@ -59,7 +59,7 @@ studioAuth.post('/request', async (c) => {
     toName: studio.name,
     subject: 'رابط الدخول إلى بوابة سماوي',
     html: magicLinkEmail(link, studio.name),
-    resendApiKey: c.env.RESEND_API_KEY,
+    emailBinding: c.env.EMAIL,
   });
   return c.json({ ok: true });
 });
