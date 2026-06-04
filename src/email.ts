@@ -25,85 +25,92 @@ export async function sendEmail(options: {
   }
 }
 
-const SAMAWY_LOGO_URL = "https://samawy-ops.com/samawy/assets/logo-on-dark.png";
+const SAMAWY_LOGO_URL = "https://samawy-ops.com/samawy/assets/logo-primary.png";
 
 export function magicLinkEmail(link: string, recipientName?: string, studioLogoUrl?: string): string {
-  const name = recipientName ? `<strong style="color:#0a1628;">${recipientName}</strong>` : "<strong style=\"color:#0a1628;\">فريق العمل</strong>";
+  const name = recipientName ? recipientName : "فريق العمل";
   const studioLogoHtml = studioLogoUrl
-    ? `<tr><td align="center" style="padding:0 0 20px;"><img src="${studioLogoUrl}" alt="شعار الاستوديو" width="64" height="64" style="display:block;border-radius:12px;object-fit:cover;"></td></tr>`
+    ? `<div style="text-align:center;margin-bottom:20px;"><img src="${studioLogoUrl}" alt="شعار الاستوديو" width="56" height="56" style="border-radius:10px;display:inline-block;vertical-align:middle;"></div>`
     : "";
+
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <title>رابط الدخول إلى بوابة سماوي</title>
 </head>
-<body style="margin:0;padding:0;background:#f0f2f5;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;-webkit-font-smoothing:antialiased;">
+<body style="margin:0;padding:0;background-color:#f4f6f8;direction:rtl;text-align:right;">
 
-  <!-- Header -->
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0a1628;">
+  <!-- Wrapper -->
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f6f8;">
     <tr>
-      <td align="center" style="padding:36px 20px 28px;">
-        <img src="${SAMAWY_LOGO_URL}" alt="سماوي" width="150" style="display:block;border:0;outline:none;">
-      </td>
-    </tr>
-  </table>
+      <td align="center" style="padding:40px 16px;">
 
-  <!-- Body -->
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f0f2f5;">
-    <tr>
-      <td align="center" style="padding:36px 16px 48px;">
-        <table role="presentation" width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;width:100%;background:#ffffff;border-radius:20px;box-shadow:0 8px 32px rgba(10,22,40,0.08);">
+        <!-- Card -->
+        <table width="480" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:480px;background-color:#ffffff;border-radius:16px;border:1px solid #e2e8f0;">
           <tr>
-            <td style="padding:44px 40px 40px;">
+            <td style="padding:40px 32px 32px;">
+
+              <!-- Samawy Logo -->
+              <div style="text-align:center;margin-bottom:24px;">
+                <img src="${SAMAWY_LOGO_URL}" alt="سماوي" width="120" style="display:inline-block;vertical-align:middle;">
+              </div>
 
               ${studioLogoHtml}
 
               <!-- Greeting -->
-              <p style="margin:0 0 16px;font-size:20px;font-weight:700;color:#0a1628;line-height:1.5;">
+              <p style="margin:0 0 12px;font-family:Arial,Tahoma,sans-serif;font-size:18px;font-weight:bold;color:#1a202c;line-height:26px;">
                 مرحباً ${name} 👋
               </p>
 
               <!-- Message -->
-              <p style="margin:0 0 28px;font-size:15px;color:#4a5568;line-height:1.8;">
-                لقد طلبتَ رابط الدخول إلى <strong style="color:#0a1628;">بوابة سماوي للاستوديوهات</strong>. اضغط على الزر أدناه للدخول مباشرة. الرابط صالح لمدة <strong style="color:#0a1628;">24 ساعة</strong> فقط لأسباب أمنية.
+              <p style="margin:0 0 24px;font-family:Arial,Tahoma,sans-serif;font-size:14px;color:#4a5568;line-height:22px;">
+                لقد طلبتَ رابط الدخول إلى <strong style="color:#1a202c;">بوابة سماوي للاستوديوهات</strong>. اضغط على الزر أدناه للدخول مباشرة. الرابط صالح لمدة <strong style="color:#1a202c;">24 ساعة</strong> فقط.
               </p>
 
-              <!-- CTA Button -->
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <!-- Button (bulletproof for Outlook) -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px;">
                 <tr>
-                  <td align="center" style="padding:8px 0 28px;">
-                    <a href="${link}" style="display:inline-block;padding:16px 40px;background:#0b80ff;color:#ffffff;text-decoration:none;border-radius:12px;font-weight:700;font-size:16px;box-shadow:0 4px 16px rgba(11,128,255,0.25);">
-                      الدخول إلى البوابة
-                    </a>
+                  <td align="center">
+                    <table cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td align="center" style="background-color:#0b80ff;border-radius:10px;">
+                          <a href="${link}" style="display:inline-block;padding:14px 36px;font-family:Arial,Tahoma,sans-serif;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;">
+                            الدخول إلى البوابة
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
               </table>
 
               <!-- Divider -->
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr><td style="border-top:1px solid #edf2f7;padding-top:24px;"></td></tr>
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;">
+                <tr><td style="border-top:1px solid #e2e8f0;font-size:0;line-height:0;">&nbsp;</td></tr>
               </table>
 
               <!-- Security Note -->
-              <p style="margin:0;font-size:13px;color:#8898aa;line-height:1.7;text-align:center;">
-                🔒 إذا لم تطلب هذا الرابط، يمكنك تجاهل هذا البريد بأمان. لا أحد يمكنه الدخول بدون الوصول إلى بريدك الإلكتروني.
+              <p style="margin:0;font-family:Arial,Tahoma,sans-serif;font-size:12px;color:#718096;line-height:18px;text-align:center;">
+                إذا لم تطلب هذا الرابط، يمكنك تجاهل هذا البريد بأمان.
               </p>
 
             </td>
           </tr>
         </table>
-      </td>
-    </tr>
-  </table>
 
-  <!-- Footer -->
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f0f2f5;">
-    <tr>
-      <td align="center" style="padding:0 20px 40px;">
-        <p style="margin:0 0 6px;font-size:13px;color:#8898aa;font-weight:600;">سماوي — منصة الكتب الصوتية</p>
-        <p style="margin:0;font-size:12px;color:#a0aec0;">© 2026 Samawy. جميع الحقوق محفوظة.</p>
+        <!-- Footer -->
+        <table width="480" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:480px;margin-top:20px;">
+          <tr>
+            <td align="center" style="padding:0 16px;">
+              <p style="margin:0 0 4px;font-family:Arial,Tahoma,sans-serif;font-size:12px;color:#718096;font-weight:bold;">سماوي — منصة الكتب الصوتية</p>
+              <p style="margin:0;font-family:Arial,Tahoma,sans-serif;font-size:11px;color:#a0aec0;">© 2026 Samawy. جميع الحقوق محفوظة.</p>
+            </td>
+          </tr>
+        </table>
+
       </td>
     </tr>
   </table>
