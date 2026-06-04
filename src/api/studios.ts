@@ -95,7 +95,7 @@ studios.post('/:id/magic-link', requirePermission('users'), async (c) => {
   await repo.createStudioMagicLink(studio.id, token, expiresAt);
   const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
   const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
-  await sendEmail({ to: studio.contact_email, toName: studio.name, subject: 'رابط الدخول إلى بوابة سماوي', html: magicLinkEmail(link, studio.name) });
+  await sendEmail({ to: studio.contact_email, toName: studio.name, subject: 'رابط الدخول إلى بوابة سماوي', html: magicLinkEmail(link, studio.name), resendApiKey: c.env.RESEND_API_KEY });
   return c.json({ ok: true });
 });
 
@@ -155,6 +155,7 @@ studios.post('/:id/production-file-upload-url', requirePermission('users'), asyn
     to: studio.contact_email, toName: studio.name,
     subject: 'ملف إنتاج جديد متاح في بوابتك',
     html: notifyOperatorsEmail('ملف إنتاج جديد', `تم رفع ملف جديد بعنوان "<strong>${fileName}</strong>" إلى بوابة ${studio.name}. يمكنك تنزيله من <a href="${baseUrl}/studio/${studio.slug}">البوابة</a>.`),
+    resendApiKey: c.env.RESEND_API_KEY,
   });
   return c.json({ ...upload, objectKey: key, fileId });
 });
@@ -189,6 +190,7 @@ studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async 
     to: studio.contact_email, toName: studio.name,
     subject: `تحديث حالة العينة — ${statusAr}`,
     html: notifyOperatorsEmail(`تحديث العينة: ${sample.name}`, `تم ${statusAr} العينة "<strong>${sample.name}</strong>"${note ? `<br>ملاحظة: ${note}` : ''}. <a href="${baseUrl}/studio/${studio.slug}">فتح البوابة</a>`),
+    resendApiKey: c.env.RESEND_API_KEY,
   });
   return c.json({ ok: true });
 });
@@ -224,7 +226,7 @@ studios.post('/acquisition-users/:id/magic-link', requirePermission('users'), as
   await repo.createAcquisitionMagicLink(user.id, token, expiresAt);
   const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
   const link = `${baseUrl}/api/acquisition-auth/verify?token=${token}`;
-  await sendEmail({ to: user.email, toName: user.name, subject: 'رابط الدخول — بوابة الاقتناء', html: magicLinkEmail(link, user.name) });
+  await sendEmail({ to: user.email, toName: user.name, subject: 'رابط الدخول — بوابة الاقتناء', html: magicLinkEmail(link, user.name), resendApiKey: c.env.RESEND_API_KEY });
   return c.json({ ok: true });
 });
 

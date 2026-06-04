@@ -102,6 +102,7 @@ studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
         to: op.email,
         subject: `استوديو ${studio.name} رفع ملفاً جديداً`,
         html: notifyOperatorsEmail(`ملف جديد من ${studio.name}`, `رفع الاستوديو ملف جديد بعنوان "<strong>${upload.name}</strong>". سيتم مزامنته مع Google Drive قريباً. <a href="${baseUrl}/studios/${studio.id}">إدارة الاستوديو</a>`),
+        resendApiKey: c.env.RESEND_API_KEY,
       })
     ));
   }
@@ -127,6 +128,7 @@ studioPortal.post('/:slug/sample-upload-url', async (c) => {
       to: op.email,
       subject: `عينة جديدة من ${studio.name}`,
       html: notifyOperatorsEmail(`عينة جديدة: ${fileName}`, `رفع استوديو ${studio.name} عينة جديدة بعنوان "<strong>${fileName}</strong>" تنتظر مراجعتك. <a href="${baseUrl}/studios/${studio.id}">مراجعة العينات</a>`),
+      resendApiKey: c.env.RESEND_API_KEY,
     })
   ));
   return c.json({ ...upload, objectKey: key, sampleId });

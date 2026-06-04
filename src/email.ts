@@ -5,23 +5,26 @@ export async function sendEmail(options: {
   html: string;
   from?: string;
   fromName?: string;
+  resendApiKey?: string;
 }): Promise<void> {
-  const response = await fetch("https://api.mailchannels.net/tx/v1/send", {
+  const apiKey = options.resendApiKey;
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY is not configured. Set it as a Worker secret to enable email sending.");
+  }
+  const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "authorization": `Bearer ${apiKey}`,
+    },
     body: JSON.stringify({
-      personalizations: [
-        { to: [{ email: options.to, name: options.toName ?? options.to }] },
-      ],
-      from: {
-        email: options.from ?? "noreply@samawy.com",
-        name: options.fromName ?? "Samawy Audiobooks Ops",
-      },
+      from: `${options.fromName ?? "Samawy Audiobooks Ops"} <${options.from ?? "noreply@samawy.com"}>`,
+      to: options.to,
       subject: options.subject,
-      content: [{ type: "text/html", value: options.html }],
+      html: options.html,
     }),
   });
-  if (!response.ok && response.status !== 202) {
+  if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(`Email send failed (${response.status}): ${body}`);
   }
