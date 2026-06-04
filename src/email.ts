@@ -25,7 +25,7 @@ export async function sendEmail(options: {
   }
 }
 
-const SAMAWY_LOGO_URL = "https://samawy-ops.com/samawy/assets/logo-primary.png";
+const SAMAWY_LOGO_URL = "https://audiobooks.samawy-ops.com/samawy/assets/logo-primary.png";
 
 export function magicLinkEmail(link: string, recipientName?: string, studioLogoUrl?: string): string {
   const name = recipientName ? recipientName : "فريق العمل";
