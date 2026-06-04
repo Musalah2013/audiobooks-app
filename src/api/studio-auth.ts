@@ -59,8 +59,9 @@ studioAuth.post('/request', async (c) => {
   let studioLogoUrl: string | undefined;
   if (studio.logo_object_key) {
     const logoExpiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    const logoBaseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
     studioLogoUrl = await signInternalArtifactUrl({
-      baseUrl: c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`,
+      baseUrl: logoBaseUrl,
       path: `/api/files/${studio.logo_object_key}`,
       key: studio.logo_object_key,
       method: 'GET',
