@@ -78,4 +78,4 @@ enabled = true
 
 [[send_email]]
 name = "EMAIL"
-allowed_sender_addresses = ["noreply@samawy-ops.com", "ops@samawy-ops.com"]
+allowed_sender_addresses = ["noreply@audiobooks.samawy-ops.com", "ops@audiobooks.samawy-ops.com"]
