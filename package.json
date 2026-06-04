@@ -1,0 +1,35 @@
+{
+  "name": "audiobooks-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "ui"
+  ],
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:ui": "npm run dev --workspace ui",
+    "build": "npm run build --workspace ui && tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && npm run build --workspace ui",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate:local": "wrangler d1 migrations apply audiobooks_app_dev --local",
+    "db:migrate:remote": "wrangler d1 migrations apply audiobooks_app_dev --remote",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.2.0",
+    "aws4fetch": "^1.0.20",
+    "hono": "^4.10.5",
+    "jszip": "^3.10.1",
+    "xlsx": "^0.18.5",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260510.0",
+    "@types/jszip": "^3.4.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.44.0"
+  }
+}

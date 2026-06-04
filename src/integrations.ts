@@ -1,0 +1,559 @@
+import { AwsClient } from "aws4fetch";
+import * as XLSX from "xlsx";
+import type { Env, MetadataRow, SamawyBookCandidate, SamawySeller, SourceManifestItem } from "./types";
+import { similarity, toNumber } from "./utils";
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableDriveStatus(status: number) {
+  return [408, 425, 429, 500, 502, 503, 504].includes(status);
+}
+
+function isGoogleNativeMimeType(mimeType: string) {
+  return mimeType.startsWith("application/vnd.google-apps.");
+}
+
+async function fetchDriveApiWithRetry(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  attempts = 4,
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(new Error("drive_api_timeout")), 30_000);
+    try {
+      const response = await fetch(input, {
+        ...init,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok && isRetryableDriveStatus(response.status) && attempt < attempts) {
+        await sleep(Math.min(8_000, attempt * 1_500));
+        continue;
+      }
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      lastError = error;
+      if (attempt >= attempts) break;
+      await sleep(Math.min(8_000, attempt * 1_500));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+function extractDriveId(input: string): string {
+  // Match the folder ID segment from Drive URLs: /folders/<ID> or /drive/folders/<ID>
+  const folderMatch = input.match(/\/folders\/([a-zA-Z0-9_-]{10,})/);
+  if (folderMatch) return folderMatch[1];
+  const queryId = (() => {
+    try {
+      const url = new URL(input);
+      return url.searchParams.get("id");
+    } catch {
+      return null;
+    }
+  })();
+  if (queryId && /^[a-zA-Z0-9_-]{10,}$/.test(queryId)) return queryId;
+  // Fallback: first long alphanumeric segment
+  const fallback = input.match(/[a-zA-Z0-9_-]{25,}/);
+  if (!fallback) throw new Error("Unable to extract a Google Drive folder ID from the provided link.");
+  return fallback[0];
+}
+
+async function assertDriveFolderAccessible(
+  env: Env,
+  folderId: string,
+  token: string,
+): Promise<void> {
+  const params = new URLSearchParams({
+    fields: "id,name,mimeType",
+    supportsAllDrives: "true",
+  });
+  const resp = await fetchDriveApiWithRetry(`${env.GOOGLE_DRIVE_API_BASE_URL}/files/${folderId}?${params}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (resp.ok) return;
+
+  if (resp.status === 404) {
+    throw new Error(
+      "Google Drive folder is not accessible to the configured service account. " +
+      "Share the folder with vm-audiobooks-service-account@samawy.iam.gserviceaccount.com and retry.",
+    );
+  }
+
+  const body = await resp.text().catch(() => "");
+  throw new Error(`Failed to access Drive folder ${folderId}: ${resp.status}${body ? ` ${body}` : ""}`);
+}
+
+function toBase64Url(input: string | Uint8Array): string {
+  const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+export async function getServiceAccountToken(env: Env): Promise<string> {
+  if (!env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) {
+    throw new Error(
+      "Google Drive service account credentials are not configured. " +
+      "Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY as worker secrets.",
+    );
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = toBase64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const payload = toBase64Url(JSON.stringify({
+    iss: env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    scope: "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly",
+    aud: "https://oauth2.googleapis.com/token",
+    exp: now + 3600,
+    iat: now,
+  }));
+
+  const signingInput = `${header}.${payload}`;
+
+  const pem = env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.replace(/\\n/g, "\n");
+  const pemBody = pem
+    .replace(/-----BEGIN PRIVATE KEY-----/, "")
+    .replace(/-----END PRIVATE KEY-----/, "")
+    .replace(/\s/g, "");
+  const keyBytes = Uint8Array.from(atob(pemBody), (c) => c.charCodeAt(0));
+
+  const cryptoKey = await crypto.subtle.importKey(
+    "pkcs8",
+    keyBytes,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    cryptoKey,
+    new TextEncoder().encode(signingInput),
+  );
+
+  const jwt = `${signingInput}.${toBase64Url(new Uint8Array(signature))}`;
+
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`Service account token exchange failed: ${resp.status} ${body}`);
+  }
+
+  const data = (await resp.json()) as { access_token: string };
+  return data.access_token;
+}
+
+function isMacJunk(name: string): boolean {
+  // Skip macOS AppleDouble resource fork files and other junk
+  return name.startsWith("._") || name === ".DS_Store" || name.startsWith("__MACOSX");
+}
+
+export async function listDriveFiles(
+  env: Env,
+  driveLink: string,
+  token: string,
+  recursive = true,
+  onProgress?: (state: { filesFound: number; foldersVisited: number; currentFolder: string }) => Promise<void>,
+): Promise<SourceManifestItem[]> {
+  const folderId = extractDriveId(driveLink);
+  await assertDriveFolderAccessible(env, folderId, token);
+  const results: SourceManifestItem[] = [];
+  const visitedFolders = new Set<string>();
+  const visitedFiles = new Set<string>();
+  let traversedEntries = 0;
+
+  async function listFolder(folderId: string, parentPath: string) {
+    if (visitedFolders.has(folderId)) return;
+    visitedFolders.add(folderId);
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({
+        q: `'${folderId}' in parents and trashed = false`,
+        fields: "nextPageToken,files(id,name,mimeType,size,shortcutDetails(targetId,targetMimeType))",
+        supportsAllDrives: "true",
+        includeItemsFromAllDrives: "true",
+        pageSize: "1000",
+      });
+      if (pageToken) params.set("pageToken", pageToken);
+
+      const resp = await fetchDriveApiWithRetry(`${env.GOOGLE_DRIVE_API_BASE_URL}/files?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!resp.ok) throw new Error(`Failed to list Drive folder ${folderId}: ${resp.status}`);
+
+      const payload = (await resp.json()) as {
+        nextPageToken?: string;
+        files: Array<{
+          id: string;
+          name: string;
+          mimeType: string;
+          size?: string;
+          shortcutDetails?: {
+            targetId?: string;
+            targetMimeType?: string;
+          };
+        }>;
+      };
+
+      for (const file of payload.files) {
+        traversedEntries += 1;
+        if (isMacJunk(file.name)) continue;
+        if (file.mimeType === "application/vnd.google-apps.folder") {
+          if (recursive) {
+            const subPath = parentPath ? `${parentPath}/${file.name}` : file.name;
+            await listFolder(file.id, subPath);
+          }
+        } else if (file.mimeType === "application/vnd.google-apps.shortcut") {
+          const targetId = file.shortcutDetails?.targetId;
+          const targetMimeType = file.shortcutDetails?.targetMimeType;
+          if (!targetId || !targetMimeType) continue;
+          if (targetMimeType === "application/vnd.google-apps.folder") {
+            if (recursive) {
+              const subPath = parentPath ? `${parentPath}/${file.name}` : file.name;
+              await listFolder(targetId, subPath);
+            }
+          } else if (!visitedFiles.has(targetId)) {
+            visitedFiles.add(targetId);
+            results.push({
+              key: targetId,
+              name: file.name,
+              mimeType: targetMimeType,
+              sizeBytes: toNumber(file.size),
+              parentPath,
+            });
+          }
+        } else if (!isGoogleNativeMimeType(file.mimeType)) {
+          if (visitedFiles.has(file.id)) continue;
+          visitedFiles.add(file.id);
+          results.push({
+            key: file.id,
+            name: file.name,
+            mimeType: file.mimeType,
+            sizeBytes: toNumber(file.size),
+            parentPath,
+          });
+        }
+      }
+
+      pageToken = payload.nextPageToken;
+      if (onProgress) {
+        await onProgress({
+          filesFound: results.length,
+          foldersVisited: visitedFolders.size,
+          currentFolder: parentPath || "(root)",
+        });
+      }
+    } while (pageToken);
+  }
+
+  await listFolder(folderId, "");
+  if (results.length === 0) {
+    throw new Error(
+      traversedEntries === 0
+        ? "Google Drive folder is accessible but empty."
+        : "Google Drive folder was traversed, but no downloadable source files were found. Check whether the folder contains only unsupported Google-native files, inaccessible shortcuts, or empty subfolders.",
+    );
+  }
+  return results;
+}
+
+export async function fetchDriveFileResponse(env: Env, driveFileId: string, token: string): Promise<Response> {
+  const resp = await fetchDriveApiWithRetry(
+    `${env.GOOGLE_DRIVE_API_BASE_URL}/files/${driveFileId}?alt=media&supportsAllDrives=true`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+
+  if (!resp.ok) {
+    throw new Error(`Failed to download Drive file ${driveFileId}: ${resp.status}`);
+  }
+
+  return resp;
+}
+
+export function parseMetadataWorkbook(buffer: ArrayBuffer): MetadataRow[] {
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: "" });
+  return rows.map((row, index) => ({
+    rowIndex: index + 1,
+    title: String(row.title || row.Title || row["Audiobook Title"] || ""),
+    publisher: String(row.publisher || row.Publisher || ""),
+    subtitle: row.subtitle ? String(row.subtitle) : row.Subtitle ? String(row.Subtitle) : undefined,
+    genre: row.genre ? String(row.genre) : row.Genre ? String(row.Genre) : undefined,
+    blurb: row.blurb ? String(row.blurb) : row.Blurb ? String(row.Blurb) : undefined,
+    author: row.author ? String(row.author) : row.Author ? String(row.Author) : undefined,
+    isbn: row.isbn ? String(row.isbn) : row.ISBN ? String(row.ISBN) : undefined,
+    pubYear: row.pub_year ? String(row.pub_year) : row["Publishing Year"] ? String(row["Publishing Year"]) : undefined,
+    narrator: row.narrator ? String(row.narrator) : row["Narrator Name"] ? String(row["Narrator Name"]) : undefined,
+    trackCount: toNumber(row.track_count ?? row["Tracks Count"], 0) || undefined,
+    sellingType:
+      row.selling_type === "subscription" || row["Selling Type"] === "subscription"
+        ? "subscription"
+        : row.selling_type === "a_la_carte" || row["Selling Type"] === "a la carte"
+          ? "a_la_carte"
+          : undefined,
+    price: toNumber(row.price ?? row["Selling Price"], NaN),
+    totalOriginalBookSizeBytes: toNumber(row.total_original_book_size_bytes, NaN),
+    totalLengthSeconds: toNumber(row.total_length_seconds, NaN),
+    importancePoints: toNumber(row.importance_points ?? row["Book Importance Points"], NaN),
+  }));
+}
+
+export async function searchSamawySellers(env: Env, query: string): Promise<SamawySeller[]> {
+  if (!env.SAMAWY_DB_PROXY_BASE_URL) {
+    return [
+      { id: 101, name: "العبيكان" },
+      { id: 102, name: "دار الشروق" },
+    ].filter((seller) => seller.name.includes(query) || String(seller.id).includes(query));
+  }
+
+  const response = await fetch(
+    `${env.SAMAWY_DB_PROXY_BASE_URL}/publishers?search=${encodeURIComponent(query)}&limit=50&offset=0`,
+    {
+      headers: {
+        "CF-Access-Client-Id": env.SAMAWY_DB_PROXY_CLIENT_ID ?? "",
+        "CF-Access-Client-Secret": env.SAMAWY_DB_PROXY_CLIENT_SECRET ?? "",
+      },
+    },
+  );
+  if (!response.ok) throw new Error(`Seller search failed: ${response.status}`);
+  const rows = (await response.json()) as Array<{ id: number; name: string; email?: string | null; active?: boolean | null }>;
+  return rows
+    .filter((row) => row.active !== false)
+    .map((row) => ({ id: row.id, name: row.name }));
+}
+
+export async function lookupSamawyCandidates(
+  env: Env,
+  sellerId: number,
+  metadata: MetadataRow,
+): Promise<SamawyBookCandidate[]> {
+  if (!env.SAMAWY_DB_PROXY_BASE_URL) {
+    if (!metadata.title) return [];
+    return [
+      {
+        externalId: `${sellerId}:${metadata.title}`,
+        title: metadata.title,
+        subtitle: metadata.subtitle,
+        author: metadata.author,
+        isbn: metadata.isbn,
+        confidence: metadata.isbn ? 0.9 : 0.62,
+        reasons: metadata.isbn ? ["stub ISBN match"] : ["stub title/author match"],
+      },
+    ];
+  }
+
+  const response = await fetch(
+    `${env.SAMAWY_DB_PROXY_BASE_URL}/booksets/eligible-pool?seller_id=${sellerId}&limit=200&offset=0`,
+    {
+      headers: {
+        "CF-Access-Client-Id": env.SAMAWY_DB_PROXY_CLIENT_ID ?? "",
+        "CF-Access-Client-Secret": env.SAMAWY_DB_PROXY_CLIENT_SECRET ?? "",
+      },
+    },
+  );
+  if (!response.ok) throw new Error(`Samawy candidate lookup failed: ${response.status}`);
+  const rows = (await response.json()) as Array<{
+    id: number;
+    sellerId: number;
+    bookId: number | null;
+    isbn: string | null;
+    title: string | null;
+    sellingPrice: number | null;
+    publishYear: number | null;
+  }>;
+
+  const candidates: SamawyBookCandidate[] = [];
+  for (const row of rows) {
+    if (!row.title) continue;
+    const reasons: string[] = [];
+    let confidence = 0.5;
+
+    if (metadata.isbn && row.isbn && metadata.isbn === row.isbn) {
+      confidence = 0.95;
+      reasons.push("ISBN exact match");
+    }
+    if (metadata.title && row.title) {
+      const titleSim = similarity(metadata.title, row.title);
+      if (titleSim > 0.8) {
+        confidence = Math.max(confidence, 0.85);
+        reasons.push("Title strong match");
+      } else if (titleSim > 0.5) {
+        confidence = Math.max(confidence, 0.65);
+        reasons.push("Title partial match");
+      }
+    }
+    if (metadata.author && row.title) {
+      const authorSim = similarity(metadata.author, row.title);
+      if (authorSim > 0.6) {
+        confidence = Math.max(confidence, 0.7);
+        reasons.push("Author match");
+      }
+    }
+
+    if (reasons.length > 0) {
+      candidates.push({
+        externalId: `${row.sellerId}:${row.id}`,
+        title: row.title,
+        isbn: row.isbn ?? undefined,
+        publishYear: row.publishYear ? String(row.publishYear) : undefined,
+        confidence,
+        reasons,
+      });
+    }
+  }
+
+  return candidates.sort((a, b) => b.confidence - a.confidence);
+}
+
+export async function createClickUpTask(
+  env: Env,
+  listId: string,
+  input: {
+    name: string;
+    markdownDescription: string;
+    customFields: Array<{ id: string; value: unknown }>;
+    priority?: number;
+    statusName?: string;
+  },
+): Promise<{ id: string; url: string }> {
+  if (!env.CLICKUP_API_TOKEN) {
+    return {
+      id: crypto.randomUUID(),
+      url: `https://app.clickup.com/t/stub-${crypto.randomUUID()}`,
+    };
+  }
+  const body: Record<string, unknown> = {
+    name: input.name,
+    markdown_description: input.markdownDescription,
+    custom_fields: input.customFields,
+  };
+  if (input.priority != null) body.priority = input.priority;
+  if (input.statusName) body.status = input.statusName;
+  const response = await fetch(`${env.CLICKUP_API_BASE_URL}/list/${listId}/task`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: env.CLICKUP_API_TOKEN },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`ClickUp task creation failed: ${response.status}`);
+  const payload = (await response.json()) as { id: string; url: string };
+  return { id: payload.id, url: payload.url };
+}
+
+export async function updateClickUpTask(
+  env: Env,
+  taskId: string,
+  input: {
+    name: string;
+    markdownDescription: string;
+    customFields: Array<{ id: string; value: unknown }>;
+    priority?: number;
+    statusName?: string;
+  },
+): Promise<{ id: string; url: string }> {
+  if (!env.CLICKUP_API_TOKEN) {
+    return { id: taskId, url: `https://app.clickup.com/t/${taskId}` };
+  }
+  // Update task name, description, optional priority, and optional status
+  const updateBody: Record<string, unknown> = { name: input.name, markdown_description: input.markdownDescription };
+  if (input.priority != null) updateBody.priority = input.priority;
+  if (input.statusName) updateBody.status = input.statusName;
+  const taskResp = await fetch(`${env.CLICKUP_API_BASE_URL}/task/${taskId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: env.CLICKUP_API_TOKEN },
+    body: JSON.stringify(updateBody),
+  });
+  if (!taskResp.ok) throw new Error(`ClickUp task update failed: ${taskResp.status}`);
+  const task = (await taskResp.json()) as { id: string; url: string };
+  // Update custom fields one at a time (ClickUp requires individual PATCH per field)
+  await Promise.allSettled(
+    input.customFields.map((field) =>
+      fetch(`${env.CLICKUP_API_BASE_URL}/task/${taskId}/field/${field.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: env.CLICKUP_API_TOKEN! },
+        body: JSON.stringify({ value: field.value }),
+      }),
+    ),
+  );
+  return { id: task.id, url: task.url ?? `https://app.clickup.com/t/${taskId}` };
+}
+
+export async function attachCoverToClickUpTask(
+  env: Env,
+  taskId: string,
+  coverData: ArrayBuffer,
+  filename: string,
+  contentType: string,
+): Promise<void> {
+  if (!env.CLICKUP_API_TOKEN) return;
+  const form = new FormData();
+  form.append("attachment", new Blob([coverData], { type: contentType }), filename);
+  await fetch(`${env.CLICKUP_API_BASE_URL}/task/${taskId}/attachment`, {
+    method: "POST",
+    headers: { Authorization: env.CLICKUP_API_TOKEN },
+    body: form,
+  });
+}
+
+export async function uploadFileToDrive(
+  env: Env,
+  folderId: string,
+  fileName: string,
+  fileData: ArrayBuffer,
+  mimeType: string,
+): Promise<{ id: string; name: string; webViewLink: string }> {
+  const token = await getServiceAccountToken(env);
+  const metadata = JSON.stringify({ name: fileName, parents: [folderId] });
+  const boundary = "samawy_boundary_" + crypto.randomUUID().replace(/-/g, "");
+  const encoder = new TextEncoder();
+  const metaPart = encoder.encode(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`,
+  );
+  const filePart = encoder.encode(`--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`);
+  const closePart = encoder.encode(`\r\n--${boundary}--`);
+  const combined = new Uint8Array(metaPart.byteLength + filePart.byteLength + fileData.byteLength + closePart.byteLength);
+  combined.set(metaPart, 0);
+  combined.set(filePart, metaPart.byteLength);
+  combined.set(new Uint8Array(fileData), metaPart.byteLength + filePart.byteLength);
+  combined.set(closePart, metaPart.byteLength + filePart.byteLength + fileData.byteLength);
+  const response = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body: combined,
+    },
+  );
+  if (!response.ok) {
+    const err = await response.text().catch(() => "");
+    throw new Error(`Drive upload failed (${response.status}): ${err}`);
+  }
+  return response.json() as Promise<{ id: string; name: string; webViewLink: string }>;
+}
+
+export function createR2Signer(env: Env) {
+  if (!env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY || !env.R2_ACCOUNT_ID) return null;
+  return new AwsClient({
+    accessKeyId: env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+  });
+}

@@ -1,0 +1,12 @@
+ALTER TABLE audiobook_record ADD COLUMN metadata_snapshot_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE audiobook_record ADD COLUMN storage_base_path TEXT;
+ALTER TABLE audiobook_record ADD COLUMN clickup_sync_status TEXT NOT NULL DEFAULT 'never_synced';
+ALTER TABLE audiobook_record ADD COLUMN clickup_sync_error TEXT;
+ALTER TABLE audiobook_record ADD COLUMN clickup_synced_at TEXT;
+ALTER TABLE audiobook_record ADD COLUMN sample_track_id TEXT;
+ALTER TABLE audiobook_record ADD COLUMN sample_start_seconds REAL;
+ALTER TABLE audiobook_record ADD COLUMN sample_end_seconds REAL;
+ALTER TABLE audiobook_record ADD COLUMN sample_object_key TEXT;
+ALTER TABLE audiobook_record ADD COLUMN sample_generated_at TEXT;
+ALTER TABLE audiobook_record ADD COLUMN storage_cleanup_status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE audiobook_record ADD COLUMN storage_cleanup_error TEXT;

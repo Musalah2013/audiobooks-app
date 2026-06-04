@@ -1,0 +1,77 @@
+name = "audiobooks-ops"
+main = "src/index.ts"
+compatibility_date = "2026-05-10"
+account_id = "57c62fa1489cd9eb335442b570c4a5bd"
+
+[assets]
+directory = "./ui/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
+[vars]
+APP_ENV = "production"
+GOOGLE_DRIVE_API_BASE_URL = "https://www.googleapis.com/drive/v3"
+CLICKUP_API_BASE_URL = "https://api.clickup.com/api/v2"
+CLICKUP_AUDIOBOOKS_LIST_ID = "901211916918"
+SOURCE_BUCKET_NAME = "audiobooks-ops-prod-20260510"
+INTERNAL_API_SECRET = "dev-internal-api-secret"
+APP_BASE_URL = "https://audiobooks-ops.samawy.workers.dev"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "audiobooks_app_prod_20260510"
+database_id = "32169cba-de43-4a78-9124-9cc35a321aa0"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "ASSET_BUCKET"
+bucket_name = "audiobooks-ops-prod-20260510"
+
+[[queues.producers]]
+binding = "INGEST_QUEUE"
+queue = "audiobooks-ingest-prod-20260510"
+
+[[queues.consumers]]
+queue = "audiobooks-ingest-prod-20260510"
+max_batch_size = 10
+max_batch_timeout = 5
+
+[[queues.producers]]
+binding = "STUDIO_DRIVE_SYNC_QUEUE"
+queue = "studio-drive-sync-prod"
+
+[[queues.consumers]]
+queue = "studio-drive-sync-prod"
+max_batch_size = 1
+max_retries = 3
+
+[[workflows]]
+name = "processing-workflow"
+binding = "PROCESSING_WORKFLOW"
+class_name = "ProcessingWorkflow"
+
+[[workflows]]
+name = "dossier-workflow"
+binding = "DOSSIER_WORKFLOW"
+class_name = "DossierWorkflow"
+
+[[containers]]
+class_name = "AudioProcessorContainer"
+image = "./container/Dockerfile"
+instance_type = "standard-1"
+max_instances = 12
+
+[[durable_objects.bindings]]
+name = "AUDIO_PROCESSOR_CONTAINER"
+class_name = "AudioProcessorContainer"
+
+[ai]
+binding = "AI"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AudioProcessorContainer"]
+
+[observability]
+enabled = true

@@ -1,0 +1,14 @@
+{
+  "name": "audiobooks-container",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "fast-xml-parser": "^5.3.0",
+    "jszip": "^3.10.1",
+    "xlsx": "^0.18.5"
+  }
+}

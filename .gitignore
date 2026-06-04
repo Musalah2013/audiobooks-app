@@ -1,0 +1,11 @@
+node_modules/
+ui/node_modules/
+ui/dist/
+.wrangler/
+worker-configuration.d.ts
+coverage/
+dist/
+.DS_Store
+env-vars.txt
+*.xlsx
+.playwright-mcp/

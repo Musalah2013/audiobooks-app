@@ -1,0 +1,432 @@
+/**
+ * api-contracts.ts — Single source of truth for every API request/response shape.
+ *
+ * Rules:
+ *  - NO Cloudflare Workers or Node.js-specific imports (Env, R2Bucket, etc.)
+ *  - NO framework imports (Hono, React, etc.)
+ *  - Both backend (src/) and frontend (ui/src/ via @api alias) import from here
+ *
+ * Adding a field? Do it here. TypeScript will error at every call site that
+ * doesn't handle the new field — the compiler becomes your checklist.
+ */
+
+// ─── Permissions & Users ──────────────────────────────────────────────────────
+
+export type UserPermission = "intake" | "metadata" | "matching" | "processing" | "dossier" | "users";
+export const ALL_PERMISSIONS: UserPermission[] = ["intake", "metadata", "matching", "processing", "dossier", "users"];
+
+export interface OperatorUser {
+  email: string;
+  name: string | null;
+  permissions: UserPermission[];
+  isActive: boolean;
+  createdAt: string;
+}
+
+// ─── Status enums ─────────────────────────────────────────────────────────────
+
+export type SourceType = "drive" | "upload";
+
+export type BatchStatus =
+  | "intake_queued" | "normalizing" | "normalized" | "intake_failed"
+  | "metadata_sheet_pending" | "metadata_sheet_selected" | "parsing_metadata"
+  | "metadata_parsed" | "seller_locked"
+  | "reconciliation_in_review" | "reconciliation_approved"
+  | "records_created";
+
+export type ProcessingStatus = "pending" | "queued" | "running" | "failed" | "succeeded";
+export type DossierStatus = "pending" | "sample_pending" | "generating" | "ready" | "failed";
+export type ClickUpSyncStatus = "never_synced" | "syncing" | "synced" | "failed";
+export type TrackApprovalStatus = "pending" | "approved";
+
+// ─── Source manifest & groups ─────────────────────────────────────────────────
+
+export interface SourceManifestItem {
+  key: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  parentPath: string;
+  extractedFromKey?: string;
+}
+
+export interface NormalizedGroup {
+  groupKey: string;
+  displayName: string;
+  inferredTitle: string;
+  items: SourceManifestItem[];
+  coverCandidates: SourceManifestItem[];
+  confidence: number;
+  reasons: string[];
+}
+
+export interface MetadataRow {
+  rowIndex: number;
+  title: string;
+  publisher: string;
+  subtitle?: string;
+  author?: string;
+  isbn?: string;
+  narrator?: string;
+}
+
+// ─── ClickUp config ───────────────────────────────────────────────────────────
+
+export interface ClickUpFieldMappings {
+  audiobookTitle: string;
+  subtitle: string;
+  publisher: string;
+  author: string;
+  narrator: string;
+  isbn: string;
+  pubYear: string;
+  genre: string;
+  blurb: string;
+  classification: string;
+  processingStatus: string;
+  dossierStatus: string;
+  trackCount: string;
+  totalLengthHours: string;
+  importancePoints: string;
+  driveUrl: string;
+  sellingPrice: string;
+  appLink: string;
+  workbookUrl: string;
+  audioZipUrl: string;
+}
+
+export interface ClickUpDescriptionTemplate {
+  includeAppLink: boolean;
+  includeWorkbookUrl: boolean;
+  includeAudioZipUrl: boolean;
+  includeClassification: boolean;
+  includeCoverStatus: boolean;
+}
+
+export interface ClickUpConfig {
+  listId: string;
+  statusName: string;
+  updateExistingTask: boolean;
+  attachCover: boolean;
+  fieldMappings: ClickUpFieldMappings;
+  descriptionTemplate: ClickUpDescriptionTemplate;
+}
+
+// ─── API response shapes ──────────────────────────────────────────────────────
+
+export interface MeResponse {
+  user: OperatorUser | null;
+}
+
+export interface UsersResponse {
+  users: OperatorUser[];
+}
+
+export interface BookListItem {
+  id: string;
+  title: string;
+  publisherName: string;
+  processingStatus: string;
+  dossierStatus: string;
+  clickupTaskUrl: string | null;
+  clickupSyncStatus: string;
+  storageBasePath: string | null;
+  isbn: string | null;
+  author: string | null;
+  narrator: string | null;
+  totalOriginalSizeBytes: number;
+}
+
+export interface BooksResponse {
+  books: BookListItem[];
+}
+
+export interface TrackRecord {
+  id: string;
+  originalFilename: string;
+  originalDetectedTitle: string | null;
+  originalSizeBytes: number;
+  originalDurationSeconds: number;
+  originalBitrateKbps: number | null;
+  originalSampleRateHz: number | null;
+  originalChannels: number | null;
+  finalObjectKey: string | null;
+  finalTitle: string | null;
+  finalOrderIndex: number | null;
+  finalDurationSeconds: number | null;
+  finalSizeBytes: number | null;
+  finalBitrateKbps: number | null;
+  finalSampleRateHz: number | null;
+  finalChannels: number | null;
+  approvalStatus: string;
+  titleProvenance: string;
+}
+
+export interface AuditEvent {
+  id: string;
+  action: string;
+  actor?: string;
+  createdAt: string;
+  detailJson: string | null;
+}
+
+export interface BookDetail {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  publisherName: string;
+  author: string | null;
+  narrator: string | null;
+  isbn: string | null;
+  genre: string | null;
+  blurb: string | null;
+  pubYear: string | null;
+  sellingType: string | null;
+  price: number | null;
+  processingStatus: string;
+  dossierStatus: string;
+  clickupTaskUrl: string | null;
+  dossierWorkbookKey: string | null;
+  dossierAudioZipKey: string | null;
+  clickupSyncStatus: string;
+  clickupSyncError: string | null;
+  sampleTrackId: string | null;
+  sampleStartSeconds: number | null;
+  sampleEndSeconds: number | null;
+  sampleObjectKey: string | null;
+  coverObjectKey: string | null;
+  storageBasePath: string | null;
+}
+
+export interface BookDetailResponse {
+  book: BookDetail | null;
+  tracks: TrackRecord[];
+  processingRun: {
+    id: string;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+    errorJson: string | null;
+    resultJson: string | null;
+  } | null;
+  processingEvents: AuditEvent[];
+  dossierEvents: AuditEvent[];
+}
+
+export interface BatchListItem {
+  id: string;
+  sourceType: SourceType;
+  driveLink: string | null;
+  sellerId: number | null;
+  sellerName: string | null;
+  status: string;
+  intakeMode: string | null;
+  reportObjectKey: string | null;
+  createdAt: string;
+}
+
+export interface BatchesResponse {
+  batches: BatchListItem[];
+}
+
+export interface IntakeProgress {
+  phase?: string;
+  totalSourceFiles?: number;
+  copiedSourceFiles?: number;
+  totalSourceBytes?: number;
+  copiedSourceBytes?: number;
+  totalArchives?: number;
+  extractedArchives?: number;
+  extractedEntries?: number;
+  currentItem?: string | null;
+  updatedAt?: string;
+  listingFilesFound?: number;
+  listingFoldersVisited?: number;
+  listingCurrentFolder?: string;
+  activeTransfers?: Array<{
+    key: string;
+    name: string;
+    sizeBytes: number;
+    downloadedBytes: number;
+    progressPercent: number;
+  }>;
+}
+
+export interface IntakeLog {
+  at: string;
+  level: "info" | "warn" | "error";
+  message: string;
+}
+
+export interface Candidate {
+  id: string;
+  title: string;
+  author: string | null;
+  subtitle: string | null;
+  isbn: string | null;
+  narrator: string | null;
+  metadataRowIndex?: number | null;
+  sourceGroupKey: string | null;
+  sourceGroup?: {
+    groupKey: string;
+    displayName: string;
+    inferredTitle: string;
+    items?: Array<{ key: string; name: string }>;
+  } | null;
+  classificationDecision: string | null;
+  decisionReason: string | null;
+  metadataOverride: Record<string, unknown> | null;
+  samawyCandidates: Array<{ title: string; confidence: number; reasons: string[] }>;
+}
+
+export interface Seller {
+  id: number;
+  name: string;
+}
+
+export interface BatchDetailResponse {
+  batch: {
+    id: string;
+    sourceType: SourceType;
+    status: string;
+    intakeMode: string | null;
+    sellerName: string | null;
+    sellerId: number | null;
+    reportObjectKey: string | null;
+    metadataSheetObjectKey: string | null;
+    sourceManifest: SourceManifestItem[];
+    normalization: {
+      intakeError?: string;
+      metadataParseError?: string;
+      metadataRows?: MetadataRow[];
+      groups?: NormalizedGroup[];
+      metadataNormalizationReport?: {
+        mode?: string;
+        headerRowNumber?: number | null;
+        warnings?: string[];
+        columns?: Record<string, { index: number | null; header?: string | null; confidence?: number | null }>;
+        headerCells?: Array<{ col: string; index: number; header: string }>;
+      };
+      deferredArchives?: Array<{ key: string; name: string; reason: string }>;
+      intakeProgress?: IntakeProgress;
+      intakeLogs?: IntakeLog[];
+    } | null;
+  } | null;
+  candidates: Candidate[];
+  events: AuditEvent[];
+}
+
+export interface AppSettings {
+  environment: { appEnv: string; apiBaseUrl: string | null; bucketName: string };
+  storage: {
+    retainedBytes: number;
+    retainedObjects: number;
+    retainedGb: number;
+    estimatedMonthlyStorageCostUsd: number;
+    estimateType: string;
+    storageClass: string;
+  };
+  pricing: {
+    verifiedAt: string;
+    sourceUrl: string;
+    standardStorageUsdPerGbMonth: number;
+    infrequentAccessStorageUsdPerGbMonth: number;
+    classAUsdPerMillion: Record<string, number>;
+    classBUsdPerMillion: Record<string, number>;
+    retrievalUsdPerGb: Record<string, number>;
+    freeTier: { storageGbMonth: number; classAOps: number; classBOps: number; egress: string };
+  };
+}
+
+export interface ClickUpSettingsResponse {
+  config: ClickUpConfig;
+  tokenMasked: string | null;
+  tokenSource: "db" | "env" | null;
+  defaults: ClickUpConfig;
+}
+
+// ─── Studio portal ────────────────────────────────────────────────────────────
+
+export interface Studio {
+  id: string;
+  name: string;
+  slug: string;
+  contactEmail: string;
+  driveFolderId: string | null;
+  logoObjectKey: string | null;
+  isActive: boolean;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface StudioAsset {
+  id: string;
+  studioId: string;
+  name: string;
+  objectKey: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedBy: string;
+  createdAt: string;
+}
+
+export interface StudioProductionFile {
+  id: string;
+  studioId: string;
+  name: string;
+  objectKey: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedBy: string;
+  createdAt: string;
+}
+
+export interface StudioSample {
+  id: string;
+  studioId: string;
+  name: string;
+  objectKey: string;
+  contentType: string;
+  sizeBytes: number;
+  status: "pending" | "approved" | "refused";
+  reviewedBy: string | null;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+export interface StudioDriveUpload {
+  id: string;
+  studioId: string;
+  name: string;
+  status: "pending" | "uploading" | "completed" | "failed";
+  driveFileId: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+export interface StudioPortalResponse {
+  studio: Studio;
+  assets: StudioAsset[];
+  productionFiles: StudioProductionFile[];
+  samples: StudioSample[];
+  driveUploads: StudioDriveUpload[];
+}
+
+export interface AcquisitionUser {
+  id: string;
+  email: string;
+  name: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface AcquisitionPortalStudio {
+  studio: Studio;
+  productionFiles: StudioProductionFile[];
+  driveUploads: StudioDriveUpload[];
+}
+
+export interface AcquisitionPortalResponse {
+  studios: AcquisitionPortalStudio[];
+}
