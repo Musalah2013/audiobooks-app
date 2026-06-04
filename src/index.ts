@@ -34,8 +34,8 @@ app.onError((err, c) => {
   return c.json({ error: err.message || "Internal server error" }, 500);
 });
 
-// CORS
-app.use("/api/*", cors());
+// CORS — allow credentials so cookies are sent cross-origin/subdomain
+app.use("/api/*", cors({ credentials: true }));
 app.use("/api/*", async (c, next) => {
   await next();
   c.header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");

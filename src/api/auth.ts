@@ -40,6 +40,7 @@ export async function resolveUser(c: Context<any>): Promise<OperatorUser | null>
 
 export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { user: OperatorUser | null } }>, next: Next) {
   const path = c.req.path;
+  const cookieHeader = c.req.header('Cookie') ?? null;
 
   // Public studio-auth endpoints (magic link request + verify)
   if (path === '/api/studio-auth/request' || path === '/api/studio-auth/verify') {
@@ -54,7 +55,6 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
   // Signed links bypass auth (used by ClickUp file links and container downloads/uploads)
   if (c.req.query('sig')) {
     const url = new URL(c.req.url);
-    const path = c.req.path;
     const secret = c.env.INTERNAL_API_SECRET;
     const method = c.req.method;
     if (path.startsWith('/api/files/') || path === '/api/internal/artifacts') {
@@ -72,13 +72,14 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
   }
 
   // Studio session cookie auth (for studio portal routes)
-  const studioSession = await verifyStudioSessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);
+  const studioSession = await verifyStudioSessionCookie(cookieHeader, c.env.INTERNAL_API_SECRET);
   if (studioSession) {
+    console.log(`[auth] studio session ok: slug=${studioSession.slug}`);
     return next();
   }
 
   // Session cookie auth (password-based login)
-  const cookieEmail = await verifySessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);
+  const cookieEmail = await verifySessionCookie(cookieHeader, c.env.INTERNAL_API_SECRET);
   if (cookieEmail) {
     const repo = new Repository(c.env.DB);
     const user = await repo.getOperatorUser(cookieEmail);
@@ -91,6 +92,8 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
   // CF Access JWT auth
   const jwt = c.req.header('CF-Access-Jwt-Assertion');
   const email = actorEmail(c.req.raw);
+
+  console.log(`[auth] 401: path=${path} cookie=${cookieHeader ? 'present' : 'missing'} jwt=${jwt ? 'present' : 'missing'} email=${email}`);
 
   if (!jwt || email === "operator@local") {
     return c.json({ error: 'Authentication required' }, 401);

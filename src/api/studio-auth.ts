@@ -82,13 +82,21 @@ studioAuth.post('/request', async (c) => {
 
 studioAuth.get('/verify', async (c) => {
   const token = c.req.query('token');
+  console.log(`[studio-auth/verify] token=${token ? 'present' : 'missing'} host=${new URL(c.req.url).host}`);
   if (!token) return c.redirect('/');
   const repo = new Repository(c.env.DB);
   const result = await repo.verifyAndConsumeStudioMagicLink(token);
-  if (!result) return c.html('<p>رابط غير صالح أو منتهي الصلاحية. <a href="/">العودة</a></p>', 400);
+  if (!result) {
+    console.log('[studio-auth/verify] invalid or expired token');
+    return c.html('<p>رابط غير صالح أو منتهي الصلاحية. <a href="/">العودة</a></p>', 400);
+  }
   const studio = await repo.getStudio(result.studioId);
-  if (!studio) return c.html('<p>الاستوديو غير موجود.</p>', 404);
+  if (!studio) {
+    console.log('[studio-auth/verify] studio not found');
+    return c.html('<p>الاستوديو غير موجود.</p>', 404);
+  }
   const cookie = await createStudioSessionCookie(studio.id, studio.slug, c.env.INTERNAL_API_SECRET);
+  console.log(`[studio-auth/verify] setting cookie for studio=${studio.slug}`);
   c.header('Set-Cookie', cookie);
   return c.redirect(`/studio/${studio.slug}`);
 });
