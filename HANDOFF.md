@@ -27,6 +27,15 @@ Key source boundaries and deployment layers in this repo:
 - `STACK.md` — stack reference and architectural guidance for the project
 - `README.md` — developer startup and deployment commands
 
+## GitHub Action — auto-deploy on push (2026-06-04)
+
+Added `.github/workflows/deploy.yml` that triggers on every push to `main`:
+1. Installs dependencies
+2. Builds the UI
+3. Deploys the Worker via `wrangler deploy`
+
+Requires `CLOUDFLARE_API_TOKEN` secret in GitHub repo settings.
+
 ## Latest changes — download links + UI cleanup (2026-05-15)
 
 Now live (Worker version `c63359cd`):
