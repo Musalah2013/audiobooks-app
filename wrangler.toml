@@ -16,7 +16,7 @@ CLICKUP_API_BASE_URL = "https://api.clickup.com/api/v2"
 CLICKUP_AUDIOBOOKS_LIST_ID = "901211916918"
 SOURCE_BUCKET_NAME = "audiobooks-ops-prod-20260510"
 INTERNAL_API_SECRET = "dev-internal-api-secret"
-APP_BASE_URL = "https://audiobooks-ops.samawy.workers.dev"
+APP_BASE_URL = "https://samawy-ops.com"
 
 [[d1_databases]]
 binding = "DB"

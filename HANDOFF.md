@@ -80,11 +80,11 @@ Now live (Worker version `67d66b3c`):
 
 ### Root cause resolved: Cloudflare Access blocking container→Worker requests
 
-The entire `audiobooks-ops.samawy.workers.dev` domain was protected by Cloudflare Access (Zero Trust). The container had no credentials, so every request it made to the Worker (downloads, uploads, progress callbacks) was 302-redirected to the CF Access login page. Downloads "succeeded" but wrote the HTML login page to disk, causing ffprobe failures on non-audio content. Uploads failed with PUT→GET downgrade.
+The entire `samawy-ops.com` domain was protected by Cloudflare Access (Zero Trust). The container had no credentials, so every request it made to the Worker (downloads, uploads, progress callbacks) was 302-redirected to the CF Access login page. Downloads "succeeded" but wrote the HTML login page to disk, causing ffprobe failures on non-audio content. Uploads failed with PUT→GET downgrade.
 
 #### Fix applied
 
-1. **CF Access Bypass application added** (Zero Trust dashboard): A new Access application for `audiobooks-ops.samawy.workers.dev/api/internal` with a "Bypass" / Everyone policy. This lets the container reach the Worker's internal API endpoints without Access credentials. Those endpoints remain protected by their own HMAC signature + `X-Internal-Secret` auth at the Worker level.
+1. **CF Access Bypass application added** (Zero Trust dashboard): A new Access application for `samawy-ops.com/api/internal` with a "Bypass" / Everyone policy. This lets the container reach the Worker's internal API endpoints without Access credentials. Those endpoints remain protected by their own HMAC signature + `X-Internal-Secret` auth at the Worker level.
 
 2. **Service token threading** (code, defence-in-depth): `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` Worker secrets are now threaded into every container payload so the container could authenticate if the Bypass policy were removed:
    - `Env` interface in `src/types.ts`: `CF_ACCESS_CLIENT_ID?`, `CF_ACCESS_CLIENT_SECRET?`
@@ -141,7 +141,7 @@ The app is now live again after the latest deploy, and the most recent hardening
 
 ## Live environment
 
-- Worker/API + frontend: `https://audiobooks-ops.samawy.workers.dev`
+- Worker/API + frontend: `https://samawy-ops.com`
 - Current live Worker version:
   - `39887fc9-e2d9-4235-beda-821afb827ad9`
 

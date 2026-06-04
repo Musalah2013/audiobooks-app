@@ -1801,7 +1801,7 @@ export async function syncAudiobookToClickUp(env: Env, repo: Repository, audiobo
   if (!audiobook || !audiobook.dossierWorkbookKey || !audiobook.dossierAudioZipKey) {
     throw new Error("Dossier must be ready before ClickUp sync.");
   }
-  const appBaseUrl = env.APP_BASE_URL ?? "https://audiobooks-ops.samawy.workers.dev";
+  const appBaseUrl = env.APP_BASE_URL ?? "https://samawy-ops.com";
 
   // Load config and token from DB, fall back to defaults/env
   const [storedConfig, dbToken] = await Promise.all([
@@ -1912,7 +1912,7 @@ export async function generateInteractiveSample(env: Env, repo: Repository, audi
   if (input.endSeconds <= input.startSeconds) {
     throw new Error("Sample end time must be after the start time.");
   }
-  const requestBaseUrl = env.APP_BASE_URL ?? "https://audiobooks-ops.samawy.workers.dev";
+  const requestBaseUrl = env.APP_BASE_URL ?? "https://samawy-ops.com";
   const expiresAt = Date.now() + 60 * 60 * 1000;
   const sampleObjectKey = keySegments(audiobook.storageBasePath, "artifacts", "sample", "sample.mp3");
   const payload: SampleGenerationPayload & { downloadUrl: string } = {
