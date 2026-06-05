@@ -4,6 +4,19 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
+/** Extract a Google Drive folder ID from either a raw ID or a full URL */
+export function extractDriveFolderId(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  // If it's already just an ID (no slashes), return as-is
+  if (!trimmed.includes('/')) return trimmed;
+  // Extract ID from URL patterns like:
+  // https://drive.google.com/drive/folders/1EaZsrkMkj4f25WstyOEqyc4iNcX1ugQB
+  // https://drive.google.com/drive/u/0/folders/1EaZsrkMkj4f25WstyOEqyc4iNcX1ugQB
+  const match = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  return match?.[1] ?? trimmed;
+}
+
 export function jsonParse<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
   try {

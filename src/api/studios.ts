@@ -5,7 +5,7 @@ import { Repository } from '../db';
 import { requirePermission, actorEmail } from './auth';
 import { createUploadUrl } from '../pipeline';
 import { sendEmail, magicLinkEmail, notifyOperatorsEmail, sampleReviewedEmail } from '../email';
-import { keySegments, nowIso, signInternalArtifactUrl } from '../utils';
+import { keySegments, nowIso, signInternalArtifactUrl, extractDriveFolderId } from '../utils';
 
 const studios = new Hono<{ Bindings: Env }>();
 
@@ -54,7 +54,7 @@ studios.post('/', requirePermission('users'), async (c) => {
     driveFolderId: z.string().optional(),
   }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
-  const studio = await repo.createStudio({ id: crypto.randomUUID(), name: body.name, slug: body.slug, contactEmail: body.contactEmail, driveFolderId: body.driveFolderId, createdBy: actorEmail(c.req.raw) });
+  const studio = await repo.createStudio({ id: crypto.randomUUID(), name: body.name, slug: body.slug, contactEmail: body.contactEmail, driveFolderId: extractDriveFolderId(body.driveFolderId), createdBy: actorEmail(c.req.raw) });
   return c.json({ ok: true, studio: studio ? studioToApi(studio) : null }, 201);
 });
 
@@ -71,7 +71,7 @@ studios.patch('/:id', requirePermission('users'), async (c) => {
     name: body.name,
     slug: body.slug,
     contactEmail: body.contactEmail,
-    driveFolderId: body.driveFolderId,
+    driveFolderId: extractDriveFolderId(body.driveFolderId),
     isActive: body.isActive !== undefined ? (body.isActive ? 1 : 0) : undefined,
   });
   const studio = await repo.getStudio(c.req.param('id'));

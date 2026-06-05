@@ -5,7 +5,7 @@ import { Repository } from "./db";
 import { normalizeDriveIntake, normalizeUploadedBatch, parseBatchMetadata, writeIntakeReport } from "./pipeline";
 import { DossierWorkflow, ProcessingWorkflow, runProcessingPipeline } from "./workflows";
 import { AudioProcessorContainer } from "./container";
-import { nowIso } from "./utils";
+import { nowIso, extractDriveFolderId } from "./utils";
 
 // API modules
 import dashboard from "./api/dashboard";
@@ -111,7 +111,7 @@ const queueHandler = async (batch: MessageBatch<unknown>, env: Env) => {
         }
         const fileData = await r2Object.arrayBuffer();
         const mimeType = r2Object.httpMetadata?.contentType ?? "application/octet-stream";
-        const driveFile = await uploadFileToDrive(env, studio.drive_folder_id, upload.name, fileData, mimeType);
+        const driveFile = await uploadFileToDrive(env, extractDriveFolderId(studio.drive_folder_id) ?? studio.drive_folder_id, upload.name, fileData, mimeType);
         await repo.updateDriveUpload(driveUploadId, { status: "completed", driveFileId: driveFile.id });
         message.ack();
       } catch (error) {

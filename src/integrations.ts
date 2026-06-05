@@ -519,7 +519,9 @@ export async function uploadFileToDrive(
   mimeType: string,
 ): Promise<{ id: string; name: string; webViewLink: string }> {
   const token = await getServiceAccountToken(env);
-  const metadata = JSON.stringify({ name: fileName, parents: [folderId] });
+  // Extract raw folder ID from full URL if needed
+  const rawFolderId = folderId.includes('/') ? (folderId.match(/\/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? folderId) : folderId;
+  const metadata = JSON.stringify({ name: fileName, parents: [rawFolderId] });
   const boundary = "samawy_boundary_" + crypto.randomUUID().replace(/-/g, "");
   const encoder = new TextEncoder();
   const metaPart = encoder.encode(
