@@ -53,7 +53,11 @@ const App: FC = () => {
   const location = useLocation();
 
   useEffect(() => {
-    if (location.pathname === '/login') { setUser(null); return; }
+    // Skip auth check for public portal routes
+    if (location.pathname.startsWith('/studio/') || location.pathname === '/acquisition' || location.pathname === '/login') {
+      setUser(null);
+      return;
+    }
     fetch(`${API_BASE}/api/auth/me`, { credentials: 'include', cache: 'no-store' })
       .then((r) => r.json() as Promise<{ user: AuthUser | null }>)
       .then(({ user: u }) => {
@@ -61,7 +65,7 @@ const App: FC = () => {
         else { setUser(null); navigate('/login', { replace: true }); }
       })
       .catch(() => { setUser(null); navigate('/login', { replace: true }); });
-  }, [location.pathname === '/login']);
+  }, [location.pathname]);
 
   async function handleLogout() {
     await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
