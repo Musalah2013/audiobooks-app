@@ -55,7 +55,6 @@ export function useApi<T>(endpoint: string, options?: FetchOptions) {
 
   useEffect(() => {
     const fetchData = async () => {
-      console.log(`[useApi] fetching ${endpoint}`);
       try {
         if (!hasLoaded.current) setLoading(true);
         const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -91,9 +90,7 @@ export function useApi<T>(endpoint: string, options?: FetchOptions) {
         setData(result);
         setError(null);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Unknown error';
-        console.log(`[useApi] error for ${endpoint}:`, msg);
-        setError(msg);
+        setError(err instanceof Error ? err.message : 'Unknown error');
       } finally {
         setLoading(false);
       }

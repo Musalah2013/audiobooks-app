@@ -155,9 +155,7 @@ function LoginGate({ slug }: { slug: string }) {
 
 export default function StudioPortal() {
   const { slug } = useParams<{ slug: string }>();
-  console.log('[StudioPortal] mount slug=', slug);
   const { data, loading, error, refetch } = useApi<StudioPortalResponse>(`/api/studio-portal/${slug}`);
-  console.log('[StudioPortal] state loading=', loading, 'error=', error, 'data=', data ? 'present' : 'null');
   const [activeTab, setActiveTab] = useState<'overview' | 'assets' | 'production' | 'drive' | 'samples'>('overview');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -168,6 +166,35 @@ export default function StudioPortal() {
 
   const driveInputRef = useRef<HTMLInputElement>(null);
   const sampleInputRef = useRef<HTMLInputElement>(null);
+
+  // ALL hooks must be called before any conditional returns
+  const studio = data?.studio;
+  const assets = data?.assets ?? [];
+  const productionFiles = data?.productionFiles ?? [];
+  const samples = data?.samples ?? [];
+  const driveUploads = data?.driveUploads ?? [];
+
+  const filteredAssets = useMemo(() => {
+    if (!searchQuery) return assets;
+    return assets.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [assets, searchQuery]);
+
+  const filteredProduction = useMemo(() => {
+    if (!searchQuery) return productionFiles;
+    return productionFiles.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [productionFiles, searchQuery]);
+
+  const filteredSamples = useMemo(() => {
+    if (!sampleSearch) return samples;
+    return samples.filter(s => s.name.toLowerCase().includes(sampleSearch.toLowerCase()));
+  }, [samples, sampleSearch]);
+
+  const stats = useMemo(() => [
+    { label: 'الملفات المرجعية', value: assets.length, icon: Package, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'ملفات الإنتاج', value: productionFiles.length, icon: FileText, color: 'text-rose-600', bg: 'bg-rose-50' },
+    { label: 'الرفوعات', value: driveUploads.length, icon: CloudUpload, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { label: 'العينات', value: samples.length, icon: Music, color: 'text-amber-600', bg: 'bg-amber-50' },
+  ], [assets.length, productionFiles.length, driveUploads.length, samples.length]);
 
   function showNotice(msg: string) { setNotice(msg); setTimeout(() => setNotice(''), 5000); }
 
@@ -225,10 +252,6 @@ export default function StudioPortal() {
     }
   }
 
-  // Debug overlay — always visible during troubleshooting
-  const debugInfo = { slug, loading: String(loading), error: error ?? 'null', hasData: String(!!data), dataKeys: data ? Object.keys(data).join(',') : 'none' };
-  console.log('[StudioPortal] render debug:', debugInfo);
-
   // Loading state — show spinner, not login gate
   if (loading) {
     return (
@@ -236,7 +259,6 @@ export default function StudioPortal() {
         <div className="flex flex-col items-center gap-4">
           <Loader2 size={40} className="text-[#0b80ff] animate-spin" />
           <p className="text-slate-500 text-sm">جاري التحميل…</p>
-          <pre className="text-xs text-slate-400 mt-4 text-left" dir="ltr">{JSON.stringify(debugInfo, null, 2)}</pre>
         </div>
       </div>
     );
@@ -250,36 +272,11 @@ export default function StudioPortal() {
         <div className="bg-white rounded-2xl p-8 shadow-lg max-w-md w-full mx-4">
           <p className="text-red-500 font-semibold mb-2">خطأ في تحميل البيانات</p>
           <p className="text-slate-500 text-sm mb-4">{error || 'لم يتم استلام بيانات من الخادم'}</p>
-          <pre className="text-xs text-slate-400 text-left bg-slate-50 p-3 rounded-lg" dir="ltr">{JSON.stringify(debugInfo, null, 2)}</pre>
           <button onClick={() => location.reload()} className="mt-4 w-full py-2 bg-[#0b80ff] text-white rounded-xl text-sm font-semibold">إعادة المحاولة</button>
         </div>
       </div>
     );
   }
-
-  const { studio, assets, productionFiles, samples, driveUploads } = data;
-
-  const filteredAssets = useMemo(() => {
-    if (!searchQuery) return assets;
-    return assets.filter(a => a.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [assets, searchQuery]);
-
-  const filteredProduction = useMemo(() => {
-    if (!searchQuery) return productionFiles;
-    return productionFiles.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
-  }, [productionFiles, searchQuery]);
-
-  const filteredSamples = useMemo(() => {
-    if (!sampleSearch) return samples;
-    return samples.filter(s => s.name.toLowerCase().includes(sampleSearch.toLowerCase()));
-  }, [samples, sampleSearch]);
-
-  const stats = [
-    { label: 'الملفات المرجعية', value: assets.length, icon: Package, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'ملفات الإنتاج', value: productionFiles.length, icon: FileText, color: 'text-rose-600', bg: 'bg-rose-50' },
-    { label: 'الرفوعات', value: driveUploads.length, icon: CloudUpload, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-    { label: 'العينات', value: samples.length, icon: Music, color: 'text-amber-600', bg: 'bg-amber-50' },
-  ];
 
   return (
     <div className="min-h-screen bg-[#f5f7fa]" dir="rtl">
