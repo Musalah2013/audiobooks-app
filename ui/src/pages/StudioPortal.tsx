@@ -296,10 +296,10 @@ export default function StudioPortal() {
       {/* Header */}
       <header className="bg-white border-b border-slate-100 sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center gap-4">
-          {studio.logoObjectKey ? (
+          {studio?.logoObjectKey ? (
             <img
-              src={`${API_BASE_URL}/api/files/${studio.logoObjectKey}?preview=1`}
-              alt={studio.name}
+              src={`${API_BASE_URL}/api/files/${studio?.logoObjectKey}?preview=1`}
+              alt={studio?.name ?? ''}
               className="h-10 w-10 object-cover rounded-xl border border-slate-100"
             />
           ) : (
@@ -308,7 +308,7 @@ export default function StudioPortal() {
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <h1 className="text-base font-bold text-slate-900 truncate">{studio.name}</h1>
+            <h1 className="text-base font-bold text-slate-900 truncate">{studio?.name ?? '—'}</h1>
             <p className="text-xs text-slate-400">بوابة سماوي للاستوديوهات</p>
           </div>
           <button
