@@ -616,7 +616,22 @@ export default function StudioPortal() {
                         </div>
                       )}
 
-                      {/* No audio player — samples cannot be played */}
+                      {/* Play button — dimmed unless approved */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <button
+                          disabled={s.status !== 'approved'}
+                          onClick={() => window.open(`${API_BASE_URL}/api/files/${s.objectKey}?preview=1`, '_blank')}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                            s.status === 'approved'
+                              ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                              : 'bg-slate-50 text-slate-400 cursor-not-allowed'
+                          }`}
+                          title={s.status === 'approved' ? 'تشغيل العينة' : 'العينة قيد المراجعة'}
+                        >
+                          <Music size={14} />
+                          {s.status === 'approved' ? 'تشغيل العينة' : 'قيد المراجعة'}
+                        </button>
+                      </div>
 
                       {s.reviewNote && (
                         <div className="mt-3 p-3 bg-amber-50 rounded-xl border border-amber-100">
