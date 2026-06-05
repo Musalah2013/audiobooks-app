@@ -53,8 +53,11 @@ const App: FC = () => {
   const location = useLocation();
 
   useEffect(() => {
-    // Skip auth check for public portal routes
-    if (location.pathname.startsWith('/studio/') || location.pathname === '/acquisition' || location.pathname === '/login') {
+    // Skip auth check for public portal routes and studio auth endpoints
+    if (location.pathname.startsWith('/studio/') ||
+        location.pathname.startsWith('/api/studio-auth/') ||
+        location.pathname === '/acquisition' ||
+        location.pathname === '/login') {
       setUser(null);
       return;
     }
@@ -71,6 +74,12 @@ const App: FC = () => {
     await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
     setUser(null);
     navigate('/login', { replace: true });
+  }
+
+  // Magic link verify — force full page load so Worker handles it
+  if (location.pathname === '/api/studio-auth/verify') {
+    window.location.href = location.pathname + location.search;
+    return <div className="min-h-screen flex items-center justify-center text-sm text-slate-500">جاري التحقق…</div>;
   }
 
   // Public portal routes — no admin auth needed
