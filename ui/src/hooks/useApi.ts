@@ -7,10 +7,14 @@ export function apiFileUrl(objectKey: string): string {
 }
 
 export async function downloadFile(objectKey: string, fallbackName?: string) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
   const response = await fetch(apiFileUrl(objectKey), {
     method: 'GET',
     cache: 'no-store',
+    signal: controller.signal,
   });
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     let message = `HTTP ${response.status}`;
@@ -54,6 +58,7 @@ export function useApi<T>(endpoint: string, options?: FetchOptions) {
   const refetch = useCallback(() => setRefreshKey(k => k + 1), []);
 
   useEffect(() => {
+    const controller = new AbortController();
     const fetchData = async () => {
       try {
         if (!hasLoaded.current) setLoading(true);
@@ -67,6 +72,7 @@ export function useApi<T>(endpoint: string, options?: FetchOptions) {
             'Pragma': 'no-cache',
           },
           body: options?.body ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal,
         });
 
         if (!response.ok) {
@@ -97,12 +103,15 @@ export function useApi<T>(endpoint: string, options?: FetchOptions) {
     };
 
     fetchData();
+    return () => controller.abort();
   }, [endpoint, refreshKey]);
 
   return { data, loading, error, refetch };
 }
 
 export async function apiRequest<T>(endpoint: string, options?: FetchOptions): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: options?.method || 'GET',
     cache: 'no-store',
@@ -113,7 +122,9 @@ export async function apiRequest<T>(endpoint: string, options?: FetchOptions): P
       'Pragma': 'no-cache',
     },
     body: options?.body ? JSON.stringify(options.body) : undefined,
+    signal: controller.signal,
   });
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     let message = `HTTP ${response.status}`;

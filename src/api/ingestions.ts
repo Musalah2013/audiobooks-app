@@ -464,7 +464,9 @@ ingestions.get('/:id/stream', async (c) => {
 
       try {
         write("ready", { batchId });
-        while (!closed) {
+        const streamStart = Date.now();
+        const MAX_STREAM_DURATION = 30 * 60 * 1000; // 30 minutes
+        while (!closed && (Date.now() - streamStart < MAX_STREAM_DURATION)) {
           const [batch, candidates, events] = await Promise.all([
             repo.getBatch(batchId),
             repo.listCandidates(batchId),
@@ -484,6 +486,7 @@ ingestions.get('/:id/stream', async (c) => {
             await sleep(350);
           }
         }
+        if (!closed) close();
       } catch (error) {
         write("error", {
           error: error instanceof Error ? error.message : String(error),

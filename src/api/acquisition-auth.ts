@@ -7,6 +7,25 @@ import { hmacSign } from '../password';
 const ACQUISITION_SESSION_COOKIE = '_acqsession';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+// Simple in-memory rate limiter
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 5; // 5 magic-link requests per minute
+
+function checkRateLimit(ip: string): { allowed: boolean; retryAfter: number } {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return { allowed: true, retryAfter: 0 };
+  }
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return { allowed: false, retryAfter: Math.ceil((entry.resetAt - now) / 1000) };
+  }
+  entry.count += 1;
+  return { allowed: true, retryAfter: 0 };
+}
+
 export async function createAcquisitionSessionCookie(acquisitionUserId: string, secret: string): Promise<string> {
   const payload = btoa(JSON.stringify({ acquisitionUserId, exp: Date.now() + SESSION_TTL_MS }));
   const sig = await hmacSign(secret, payload);
@@ -40,6 +59,12 @@ export function clearAcquisitionSessionCookie(): string {
 const acquisitionAuth = new Hono<{ Bindings: Env }>();
 
 acquisitionAuth.post('/request', async (c) => {
+  const ip = c.req.header('CF-Connecting-IP') ?? 'unknown';
+  const { allowed, retryAfter } = checkRateLimit(ip);
+  if (!allowed) {
+    c.header('Retry-After', String(retryAfter));
+    return c.json({ error: 'Too many requests. Please try again later.' }, 429);
+  }
   const { email } = await c.req.json() as { email?: string };
   if (!email) return c.json({ error: 'email required' }, 400);
   const repo = new Repository(c.env.DB);

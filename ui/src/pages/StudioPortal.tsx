@@ -196,7 +196,20 @@ export default function StudioPortal() {
     { label: 'العينات', value: samples.length, icon: Music, color: 'text-amber-600', bg: 'bg-amber-50' },
   ], [assets.length, productionFiles.length, driveUploads.length, samples.length]);
 
-  function showNotice(msg: string) { setNotice(msg); setTimeout(() => setNotice(''), 5000); }
+  const [notice, setNotice] = useState('');
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showNotice(msg: string) {
+    setNotice(msg);
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setNotice(''), 5000);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    };
+  }, []);
 
   async function getDownloadUrl(objectKey: string): Promise<string> {
     const { url } = await apiRequest<{ url: string }>(`/api/studio-portal/${slug}/asset-download-url`, { method: 'POST', body: { objectKey } });
@@ -484,7 +497,10 @@ export default function StudioPortal() {
                 {uploading && (
                   <div className="flex-1 max-w-xs">
                     <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-[#0b80ff] rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
+                      <div
+                        className="h-full bg-[#0b80ff] rounded-full transition-transform origin-left"
+                        style={{ transform: `scaleX(${uploadProgress / 100})` }}
+                      />
                     </div>
                     <p className="text-xs text-slate-400 mt-1">{uploadProgress}%</p>
                   </div>

@@ -292,8 +292,8 @@ export class Repository {
     return row ? mapBatch(row) : null;
   }
 
-  async listBatches() {
-    const result = await this.db.prepare(`SELECT * FROM ingestion_batch ORDER BY created_at DESC`).all<Row>();
+  async listBatches(limit = 50, offset = 0) {
+    const result = await this.db.prepare(`SELECT * FROM ingestion_batch ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(limit, offset).all<Row>();
     return result.results.map(mapBatch);
   }
 
@@ -468,8 +468,8 @@ export class Repository {
     return this.getAudiobook(record.id);
   }
 
-  async listAudiobooks() {
-    const result = await this.db.prepare(`SELECT * FROM audiobook_record ORDER BY created_at DESC`).all<Row>();
+  async listAudiobooks(limit = 100, offset = 0) {
+    const result = await this.db.prepare(`SELECT * FROM audiobook_record ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(limit, offset).all<Row>();
     return result.results.map(mapAudiobook);
   }
 
@@ -862,8 +862,8 @@ export class Repository {
       .run();
   }
 
-  async listOperatorUsers() {
-    const result = await this.db.prepare(`SELECT * FROM operator_user ORDER BY created_at DESC`).all<Row>();
+  async listOperatorUsers(limit = 100, offset = 0) {
+    const result = await this.db.prepare(`SELECT * FROM operator_user ORDER BY created_at DESC LIMIT ? OFFSET ?`).bind(limit, offset).all<Row>();
     return result.results.map((row) => {
       let permissions: import("./types").UserPermission[] = [];
       try { permissions = JSON.parse(String(row.permissions_json || '[]')); } catch { /* ignore */ }
@@ -968,8 +968,8 @@ export class Repository {
     return this.db.prepare(`SELECT * FROM studio WHERE slug = ?`).bind(slug).first<StudioRow>();
   }
 
-  async listStudios() {
-    const { results } = await this.db.prepare(`SELECT * FROM studio ORDER BY name`).all<StudioRow>();
+  async listStudios(limit = 100, offset = 0) {
+    const { results } = await this.db.prepare(`SELECT * FROM studio ORDER BY name LIMIT ? OFFSET ?`).bind(limit, offset).all<StudioRow>();
     return results;
   }
 

@@ -273,48 +273,6 @@ export async function listDriveFiles(
   return results;
 }
 
-export async function fetchDriveFileResponse(env: Env, driveFileId: string, token: string): Promise<Response> {
-  const resp = await fetchDriveApiWithRetry(
-    `${env.GOOGLE_DRIVE_API_BASE_URL}/files/${driveFileId}?alt=media&supportsAllDrives=true`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-
-  if (!resp.ok) {
-    throw new Error(`Failed to download Drive file ${driveFileId}: ${resp.status}`);
-  }
-
-  return resp;
-}
-
-export function parseMetadataWorkbook(buffer: ArrayBuffer): MetadataRow[] {
-  const workbook = XLSX.read(buffer, { type: "array" });
-  const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: "" });
-  return rows.map((row, index) => ({
-    rowIndex: index + 1,
-    title: String(row.title || row.Title || row["Audiobook Title"] || ""),
-    publisher: String(row.publisher || row.Publisher || ""),
-    subtitle: row.subtitle ? String(row.subtitle) : row.Subtitle ? String(row.Subtitle) : undefined,
-    genre: row.genre ? String(row.genre) : row.Genre ? String(row.Genre) : undefined,
-    blurb: row.blurb ? String(row.blurb) : row.Blurb ? String(row.Blurb) : undefined,
-    author: row.author ? String(row.author) : row.Author ? String(row.Author) : undefined,
-    isbn: row.isbn ? String(row.isbn) : row.ISBN ? String(row.ISBN) : undefined,
-    pubYear: row.pub_year ? String(row.pub_year) : row["Publishing Year"] ? String(row["Publishing Year"]) : undefined,
-    narrator: row.narrator ? String(row.narrator) : row["Narrator Name"] ? String(row["Narrator Name"]) : undefined,
-    trackCount: toNumber(row.track_count ?? row["Tracks Count"], 0) || undefined,
-    sellingType:
-      row.selling_type === "subscription" || row["Selling Type"] === "subscription"
-        ? "subscription"
-        : row.selling_type === "a_la_carte" || row["Selling Type"] === "a la carte"
-          ? "a_la_carte"
-          : undefined,
-    price: toNumber(row.price ?? row["Selling Price"], NaN),
-    totalOriginalBookSizeBytes: toNumber(row.total_original_book_size_bytes, NaN),
-    totalLengthSeconds: toNumber(row.total_length_seconds, NaN),
-    importancePoints: toNumber(row.importance_points ?? row["Book Importance Points"], NaN),
-  }));
-}
-
 export async function searchSamawySellers(env: Env, query: string): Promise<SamawySeller[]> {
   if (!env.SAMAWY_DB_PROXY_BASE_URL) {
     return [

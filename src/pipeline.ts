@@ -650,6 +650,7 @@ function groupScore(metadata: MetadataRow, group: NormalizedGroup): number {
 }
 
 function assignGroupsToMetadataRows(metadataRows: MetadataRow[], groups: NormalizedGroup[]) {
+  const groupByKey = new Map(groups.map((g) => [g.groupKey, g]));
   const candidates = metadataRows.flatMap((metadata) =>
     groups.map((group) => ({
       rowIndex: metadata.rowIndex,
@@ -664,7 +665,7 @@ function assignGroupsToMetadataRows(metadataRows: MetadataRow[], groups: Normali
   for (const candidate of candidates) {
     if (candidate.score < 0.18) continue;
     if (assignedRows.has(candidate.rowIndex) || assignedGroups.has(candidate.groupKey)) continue;
-    const group = groups.find((entry) => entry.groupKey === candidate.groupKey);
+    const group = groupByKey.get(candidate.groupKey);
     if (!group) continue;
     assignments.set(candidate.rowIndex, group);
     assignedRows.add(candidate.rowIndex);
@@ -1402,8 +1403,10 @@ export async function materializeApprovedBooks(repo: Repository, batchId: string
     (candidate) => candidate.classificationDecision === "approved_existing" || candidate.classificationDecision === "approved_new",
   );
 
+  const allBooks = await repo.listAudiobooks();
+  const booksByCandidateId = new Map(allBooks.map((b) => [b.candidateId, b]));
   for (const candidate of approved) {
-    const existing = (await repo.listAudiobooks()).find((book) => book.candidateId === candidate.id);
+    const existing = booksByCandidateId.get(candidate.id);
     if (existing) continue;
     const metadataRow = candidate.metadataRowIndex == null ? undefined : metadataRows.find((row) => row.rowIndex === candidate.metadataRowIndex);
     const ov = candidate.metadataOverride ?? {};
@@ -1580,9 +1583,11 @@ export async function writeIntakeReport(env: Env, repo: Repository, batchId: str
 export async function generateAudiobookWorkbookBuffer(repo: Repository, audiobookId: string, result?: ProcessingJobResult): Promise<{ buffer: Uint8Array; filename: string }> {
   const audiobook = await repo.getAudiobook(audiobookId);
   if (!audiobook) throw new Error("Audiobook not found.");
-  const tracks = await repo.listTracks(audiobookId);
-  const candidate = await repo.getCandidate(audiobook.candidateId);
-  const processingRuns = await repo.listProcessingRuns(audiobook.id);
+  const [tracks, candidate, processingRuns] = await Promise.all([
+    repo.listTracks(audiobookId),
+    repo.getCandidate(audiobook.candidateId),
+    repo.listProcessingRuns(audiobook.id),
+  ]);
   const latestProcessingRun = processingRuns[0] ?? null;
   const sampleDurationSeconds =
     audiobook.sampleStartSeconds != null && audiobook.sampleEndSeconds != null
@@ -1665,9 +1670,11 @@ export async function generateAudiobookWorkbookBuffer(repo: Repository, audioboo
 export async function buildDossier(env: Env, repo: Repository, audiobookId: string, result: ProcessingJobResult) {
   const audiobook = await repo.getAudiobook(audiobookId);
   if (!audiobook) throw new Error("Audiobook not found.");
-  const tracks = await repo.listTracks(audiobookId);
-  const candidate = await repo.getCandidate(audiobook.candidateId);
-  const processingRuns = await repo.listProcessingRuns(audiobook.id);
+  const [tracks, candidate, processingRuns] = await Promise.all([
+    repo.listTracks(audiobookId),
+    repo.getCandidate(audiobook.candidateId),
+    repo.listProcessingRuns(audiobook.id),
+  ]);
   const latestProcessingRun = processingRuns[0] ?? null;
   const workbook = XLSX.utils.book_new();
   const sampleDurationSeconds =
@@ -2059,19 +2066,20 @@ export async function finalizeAudiobookDossier(env: Env, repo: Repository, audio
   // Build signed URLs for all files — zip packaging runs in the container to avoid Worker memory limits
   await log("dossier.signing_urls", { message: `Generating signed download URLs for ${trackCount + 1} files…` });
   const expiresAt = Date.now() + 2 * 60 * 60 * 1000;
-  const zipFiles: Array<{ folder: string; name: string; downloadUrl: string }> = [];
-  for (const track of result.tracks.filter((t) => t.finalFilename && t.finalObjectKey)) {
-    zipFiles.push({
-      folder: "upload",
-      name: track.finalFilename!,
-      downloadUrl: await signInternalArtifactUrl({ baseUrl: apiBaseUrl, path: "/api/internal/artifacts", key: track.finalObjectKey!, method: "GET", secret: env.INTERNAL_API_SECRET, expiresAt }),
-    });
-  }
-  zipFiles.push({
-    folder: "sample",
-    name: "sample.mp3",
-    downloadUrl: await signInternalArtifactUrl({ baseUrl: apiBaseUrl, path: "/api/internal/artifacts", key: audiobook.sampleObjectKey, method: "GET", secret: env.INTERNAL_API_SECRET, expiresAt }),
-  });
+  const trackUrls = await Promise.all(
+    result.tracks
+      .filter((t) => t.finalFilename && t.finalObjectKey)
+      .map(async (track) => ({
+        folder: "upload" as const,
+        name: track.finalFilename!,
+        downloadUrl: await signInternalArtifactUrl({ baseUrl: apiBaseUrl, path: "/api/internal/artifacts", key: track.finalObjectKey!, method: "GET", secret: env.INTERNAL_API_SECRET, expiresAt }),
+      })),
+  );
+  const sampleUrl = await signInternalArtifactUrl({ baseUrl: apiBaseUrl, path: "/api/internal/artifacts", key: audiobook.sampleObjectKey, method: "GET", secret: env.INTERNAL_API_SECRET, expiresAt });
+  const zipFiles = [
+    ...trackUrls,
+    { folder: "sample" as const, name: "sample.mp3", downloadUrl: sampleUrl },
+  ];
   const zipKey = keySegments(audiobook.storageBasePath, "dossier", "final_audio.zip");
   const multipartStartUrl = await signMultipartUrl({ baseUrl: apiBaseUrl, path: "/api/internal/multipart-start", key: zipKey, method: "POST", secret: env.INTERNAL_API_SECRET, expiresAt });
 
@@ -2202,16 +2210,16 @@ export async function revertBatch(env: Env, repo: Repository, batchId: string): 
   // records_created → reconciliation_approved: delete all audiobooks + tracks + their R2 artifacts
   if (status === "records_created") {
     const books = await repo.listAudiobooksByBatch(batchId);
-    for (const book of books) {
-      await maybeDeleteObject(env.ASSET_BUCKET, book.coverObjectKey);
-      await maybeDeleteObject(env.ASSET_BUCKET, book.dossierWorkbookKey);
-      await maybeDeleteObject(env.ASSET_BUCKET, book.dossierAudioZipKey);
-      await maybeDeleteObject(env.ASSET_BUCKET, book.sampleObjectKey);
-      if (book.storageBasePath) {
-        await deleteR2Prefix(env.ASSET_BUCKET, keySegments(book.storageBasePath, "artifacts"));
-      }
+    await Promise.all(books.map(async (book) => {
+      await Promise.all([
+        maybeDeleteObject(env.ASSET_BUCKET, book.coverObjectKey),
+        maybeDeleteObject(env.ASSET_BUCKET, book.dossierWorkbookKey),
+        maybeDeleteObject(env.ASSET_BUCKET, book.dossierAudioZipKey),
+        maybeDeleteObject(env.ASSET_BUCKET, book.sampleObjectKey),
+        book.storageBasePath ? deleteR2Prefix(env.ASSET_BUCKET, keySegments(book.storageBasePath, "artifacts")) : Promise.resolve(),
+      ]);
       await repo.deleteAudiobookAndTracks(book.id);
-    }
+    }));
     await repo.updateBatch(batchId, { status: "reconciliation_approved" });
     await repo.audit("ingestion_batch", batchId, "batch.reverted", "operator", { from: status, to: "reconciliation_approved", deletedBooks: books.length });
     return { revertedFrom: status, revertedTo: "reconciliation_approved" };

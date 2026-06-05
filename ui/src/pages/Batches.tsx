@@ -617,7 +617,7 @@ export default function Batches() {
                     <span>{driveUploadPercent}%</span>
                   </div>
                   <div className="h-2 rounded-full bg-blue-100 overflow-hidden">
-                    <div className="h-full bg-blue-600 transition-all duration-150" style={{ width: `${driveUploadPercent}%` }} />
+                    <div className="h-full bg-blue-600 transition-transform duration-150 origin-left" style={{ transform: `scaleX(${driveUploadPercent / 100})` }} />
                   </div>
                 </div>
               )}
@@ -701,7 +701,7 @@ export default function Batches() {
                     <span>{directUploadPercent}%</span>
                   </div>
                   <div className="h-2 rounded-full bg-purple-100 overflow-hidden">
-                    <div className="h-full bg-purple-600 transition-all duration-150" style={{ width: `${directUploadPercent}%` }} />
+                    <div className="h-full bg-purple-600 transition-transform duration-150 origin-left" style={{ transform: `scaleX(${directUploadPercent / 100})` }} />
                   </div>
                 </div>
               )}

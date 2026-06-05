@@ -1022,7 +1022,7 @@ export default function BatchDetail() {
                                 <span>{formatMegabytes(totalCopiedBytesLive)} / {formatMegabytes(intakeProgress.totalSourceBytes)}</span>
                               </div>
                               <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                                <div className="h-full bg-sky-500 transition-all duration-300" style={{ width: `${totalByteProgress}%` }} />
+                                <div className="h-full bg-sky-500 transition-transform duration-300 origin-left" style={{ transform: `scaleX(${totalByteProgress / 100})` }} />
                               </div>
                             </div>
                             {/* Per-file active transfers */}
@@ -1046,7 +1046,7 @@ export default function BatchDetail() {
                                       </div>
                                     </div>
                                     <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
-                                      <div className="h-full bg-emerald-500 transition-all duration-150" style={{ width: `${transfer.progressPercent}%` }} />
+                                      <div className="h-full bg-emerald-500 transition-transform duration-150 origin-left" style={{ transform: `scaleX(${transfer.progressPercent / 100})` }} />
                                     </div>
                                   </div>
                                 ))}
@@ -1086,7 +1086,7 @@ export default function BatchDetail() {
                               {entries > 0 && <span>{entries} {isArabic ? 'ملف مستخرج' : 'entries extracted'}</span>}
                             </div>
                             <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                              <div className="h-full bg-cyan-500 transition-all duration-300" style={{ width: `${archiveProgress}%` }} />
+                              <div className="h-full bg-cyan-500 transition-transform duration-300 origin-left" style={{ transform: `scaleX(${archiveProgress / 100})` }} />
                             </div>
                             {intakeProgress.currentItem && (
                               <p className="text-xs text-sky-500 truncate">{isArabic ? `جاري: ${intakeProgress.currentItem}` : `Current: ${intakeProgress.currentItem}`}</p>

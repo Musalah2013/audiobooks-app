@@ -51,6 +51,7 @@ export async function hmacSign(secret: string, message: string): Promise<string>
 }
 
 export const SESSION_COOKIE = '_opsession';
+const SESSION_COOKIE_RE = new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`);
 
 export async function createSessionCookie(email: string, secret: string): Promise<string> {
   const payload = btoa(JSON.stringify({ email, exp: Date.now() + SESSION_TTL_MS }));
@@ -61,7 +62,7 @@ export async function createSessionCookie(email: string, secret: string): Promis
 
 export async function verifySessionCookie(cookieHeader: string | null, secret: string): Promise<string | null> {
   if (!cookieHeader) return null;
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
+  const match = cookieHeader.match(SESSION_COOKIE_RE);
   if (!match) return null;
   const [payload, sig] = match[1].split('.');
   if (!payload || !sig) return null;

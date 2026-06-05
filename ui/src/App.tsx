@@ -1,48 +1,52 @@
-import { type FC, useEffect, useState } from 'react';
+import { type FC, useEffect, useState, lazy, Suspense } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import Layout from './components/Layout';
-import Dashboard from './pages/Dashboard';
-import Batches from './pages/Batches';
-import BatchDetail from './pages/BatchDetail';
-import Books from './pages/Books';
-import BookDetail from './pages/BookDetail';
-import Processing from './pages/Processing';
-import ProcessingLogs from './pages/ProcessingLogs';
-import Artifacts from './pages/Artifacts';
-import Analytics from './pages/Analytics';
-import Settings from './pages/Settings';
-import UsersPage from './pages/Users';
-import Studios from './pages/Studios';
-import StudioManage from './pages/StudioManage';
-import StudioPortal from './pages/StudioPortal';
-import AcquisitionPortal from './pages/AcquisitionPortal';
-import Login from './pages/Login';
 import { API_BASE } from './hooks/useApi';
+
+// Lazy-loaded route pages
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Batches = lazy(() => import('./pages/Batches'));
+const BatchDetail = lazy(() => import('./pages/BatchDetail'));
+const Books = lazy(() => import('./pages/Books'));
+const BookDetail = lazy(() => import('./pages/BookDetail'));
+const Processing = lazy(() => import('./pages/Processing'));
+const ProcessingLogs = lazy(() => import('./pages/ProcessingLogs'));
+const Artifacts = lazy(() => import('./pages/Artifacts'));
+const Analytics = lazy(() => import('./pages/Analytics'));
+const Settings = lazy(() => import('./pages/Settings'));
+const UsersPage = lazy(() => import('./pages/Users'));
+const Studios = lazy(() => import('./pages/Studios'));
+const StudioManage = lazy(() => import('./pages/StudioManage'));
+const StudioPortal = lazy(() => import('./pages/StudioPortal'));
+const AcquisitionPortal = lazy(() => import('./pages/AcquisitionPortal'));
+const Login = lazy(() => import('./pages/Login'));
 
 interface AuthUser { email: string; name?: string | null; permissions: string[] }
 
 function ProtectedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   return (
     <Layout user={user} onLogout={onLogout}>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/batches" element={<Batches />} />
-        <Route path="/new-batch" element={<Batches />} />
-        <Route path="/intake" element={<Batches />} />
-        <Route path="/metadata" element={<Batches />} />
-        <Route path="/matching" element={<Batches />} />
-        <Route path="/batches/:id" element={<BatchDetail />} />
-        <Route path="/books" element={<Books />} />
-        <Route path="/books/:id" element={<BookDetail />} />
-        <Route path="/processing" element={<Processing />} />
-        <Route path="/processing/logs" element={<ProcessingLogs />} />
-        <Route path="/artifacts" element={<Artifacts />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/users" element={<UsersPage />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/studios" element={<Studios />} />
-        <Route path="/studios/:id" element={<StudioManage />} />
-      </Routes>
+      <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-600"></div></div>}>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/batches" element={<Batches />} />
+          <Route path="/new-batch" element={<Batches />} />
+          <Route path="/intake" element={<Batches />} />
+          <Route path="/metadata" element={<Batches />} />
+          <Route path="/matching" element={<Batches />} />
+          <Route path="/batches/:id" element={<BatchDetail />} />
+          <Route path="/books" element={<Books />} />
+          <Route path="/books/:id" element={<BookDetail />} />
+          <Route path="/processing" element={<Processing />} />
+          <Route path="/processing/logs" element={<ProcessingLogs />} />
+          <Route path="/artifacts" element={<Artifacts />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/users" element={<UsersPage />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/studios" element={<Studios />} />
+          <Route path="/studios/:id" element={<StudioManage />} />
+        </Routes>
+      </Suspense>
     </Layout>
   );
 }

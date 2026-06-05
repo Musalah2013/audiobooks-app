@@ -7,6 +7,38 @@ import { verifyInternalArtifactRequest, verifyMultipartRequest } from '../utils'
 import { createSessionCookie, verifySessionCookie, clearSessionCookie, hashPassword, verifyPassword, SESSION_COOKIE } from '../password';
 import { verifyStudioSessionCookie } from './studio-auth';
 
+// Simple in-memory rate limiter: Map<ip+route, { count, resetAt }>
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX = 10; // 10 requests per window
+
+function checkRateLimit(ip: string, route: string): { allowed: boolean; retryAfter: number } {
+  const key = `${ip}:${route}`;
+  const now = Date.now();
+  const entry = rateLimitMap.get(key);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return { allowed: true, retryAfter: 0 };
+  }
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return { allowed: false, retryAfter: Math.ceil((entry.resetAt - now) / 1000) };
+  }
+  entry.count += 1;
+  return { allowed: true, retryAfter: 0 };
+}
+
+function rateLimitMiddleware(route: string) {
+  return async (c: Context, next: Next) => {
+    const ip = c.req.header('CF-Connecting-IP') ?? 'unknown';
+    const { allowed, retryAfter } = checkRateLimit(ip, route);
+    if (!allowed) {
+      c.header('Retry-After', String(retryAfter));
+      return c.json({ error: 'Too many requests. Please try again later.' }, 429);
+    }
+    await next();
+  };
+}
+
 const auth = new Hono<{ Bindings: Env; Variables: { user: OperatorUser | null } }>();
 
 export function hasPermission(user: OperatorUser | null, permission: UserPermission): boolean {
@@ -74,7 +106,6 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
   // Studio session cookie auth (for studio portal routes)
   const studioSession = await verifyStudioSessionCookie(cookieHeader, c.env.INTERNAL_API_SECRET);
   if (studioSession) {
-    console.log(`[auth] studio session ok: slug=${studioSession.slug}`);
     return next();
   }
 
@@ -92,8 +123,6 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
   // CF Access JWT auth
   const jwt = c.req.header('CF-Access-Jwt-Assertion');
   const email = actorEmail(c.req.raw);
-
-  console.log(`[auth] 401: path=${path} cookie=${cookieHeader ? 'present' : 'missing'} jwt=${jwt ? 'present' : 'missing'} email=${email}`);
 
   if (!jwt || email === "operator@local") {
     return c.json({ error: 'Authentication required' }, 401);
@@ -133,7 +162,7 @@ auth.get('/me', async (c) => {
   return c.json({ user });
 });
 
-auth.post('/login', async (c) => {
+auth.post('/login', rateLimitMiddleware('login'), async (c) => {
   const body = await c.req.json();
   const { email, password } = z.object({
     email: z.string().email(),
@@ -160,7 +189,7 @@ auth.post('/logout', async (c) => {
   return c.json({ ok: true });
 });
 
-auth.post('/set-password', async (c) => {
+auth.post('/set-password', rateLimitMiddleware('set-password'), async (c) => {
   const caller = await resolveUser(c);
   if (!caller) return c.json({ error: 'Authentication required' }, 401);
 

@@ -8,6 +8,25 @@ import { signInternalArtifactUrl, nowIso } from '../utils';
 const STUDIO_SESSION_COOKIE = '_studiosession';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+// Simple in-memory rate limiter
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 5; // 5 magic-link requests per minute
+
+function checkRateLimit(ip: string): { allowed: boolean; retryAfter: number } {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return { allowed: true, retryAfter: 0 };
+  }
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return { allowed: false, retryAfter: Math.ceil((entry.resetAt - now) / 1000) };
+  }
+  entry.count += 1;
+  return { allowed: true, retryAfter: 0 };
+}
+
 export async function createStudioSessionCookie(studioId: string, slug: string, secret: string): Promise<string> {
   const payload = btoa(JSON.stringify({ studioId, slug, exp: Date.now() + SESSION_TTL_MS }));
   const sig = await hmacSign(secret, payload);
@@ -41,6 +60,12 @@ export function clearStudioSessionCookie(): string {
 const studioAuth = new Hono<{ Bindings: Env }>();
 
 studioAuth.post('/request', async (c) => {
+  const ip = c.req.header('CF-Connecting-IP') ?? 'unknown';
+  const { allowed, retryAfter } = checkRateLimit(ip);
+  if (!allowed) {
+    c.header('Retry-After', String(retryAfter));
+    return c.json({ error: 'Too many requests. Please try again later.' }, 429);
+  }
   const { slug, email } = await c.req.json() as { slug?: string; email?: string };
   if (!slug || !email) return c.json({ error: 'slug and email required' }, 400);
   const repo = new Repository(c.env.DB);
@@ -83,23 +108,19 @@ studioAuth.post('/request', async (c) => {
 studioAuth.get('/verify', async (c) => {
   const token = c.req.query('token');
   const host = new URL(c.req.url).host;
-  console.log(`[studio-auth/verify] token=${token ? 'present' : 'missing'} host=${host}`);
   if (!token) {
     return c.html(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>خطأ</title></head><body style="font-family:system-ui;text-align:center;padding:40px"><p>رابط غير صالح. <a href="/">العودة للرئيسية</a></p></body></html>`, 400);
   }
   const repo = new Repository(c.env.DB);
   const result = await repo.verifyAndConsumeStudioMagicLink(token);
   if (!result) {
-    console.log('[studio-auth/verify] invalid or expired token');
     return c.html(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>خطأ</title></head><body style="font-family:system-ui;text-align:center;padding:40px"><p>رابط غير صالح أو منتهي الصلاحية. <a href="/">العودة للرئيسية</a></p></body></html>`, 400);
   }
   const studio = await repo.getStudio(result.studioId);
   if (!studio) {
-    console.log('[studio-auth/verify] studio not found');
     return c.html(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>خطأ</title></head><body style="font-family:system-ui;text-align:center;padding:40px"><p>الاستوديو غير موجود.</p></body></html>`, 404);
   }
   const cookie = await createStudioSessionCookie(studio.id, studio.slug, c.env.INTERNAL_API_SECRET);
-  console.log(`[studio-auth/verify] setting cookie for studio=${studio.slug}`);
   c.header('Set-Cookie', cookie);
   const redirectUrl = `/studio/${studio.slug}`;
   // Return HTML page with meta refresh + JS redirect + manual link fallback

@@ -132,8 +132,7 @@ export function similarity(a: string, b: string): number {
 }
 
 function toBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const binary = String.fromCharCode.apply(null, bytes as unknown as number[]);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 

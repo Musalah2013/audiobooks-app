@@ -208,14 +208,43 @@ async function transcodeTrack(inputPath, outputPath, bitrateKbps) {
   ]);
 }
 
-// Cache parsed ZIP objects by path — each job uses a unique tmpdir so paths never collide across jobs.
-// All concurrent callers for the same path share the same Promise, so the ZIP is read and parsed exactly once.
-const _zipCache = new Map();
-function loadZip(archivePath) {
-  if (!_zipCache.has(archivePath)) {
-    _zipCache.set(archivePath, readFile(archivePath).then((data) => JSZip.loadAsync(data)));
+// Simple LRU cache with TTL for parsed ZIP objects
+class LRUCache {
+  constructor({ max, ttl }) {
+    this.max = max;
+    this.ttl = ttl;
+    this.cache = new Map();
   }
-  return _zipCache.get(archivePath);
+  get(key) {
+    const entry = this.cache.get(key);
+    if (!entry) return undefined;
+    if (Date.now() - entry.ts > this.ttl) {
+      this.cache.delete(key);
+      return undefined;
+    }
+    // Move to end (most recently used)
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+    return entry.value;
+  }
+  set(key, value) {
+    if (this.cache.has(key)) this.cache.delete(key);
+    else if (this.cache.size >= this.max) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
+    this.cache.set(key, { value, ts: Date.now() });
+  }
+  delete(key) { this.cache.delete(key); }
+}
+
+const _zipCache = new LRUCache({ max: 20, ttl: 10 * 60 * 1000 }); // 20 entries, 10 min TTL
+function loadZip(archivePath) {
+  const cached = _zipCache.get(archivePath);
+  if (cached) return cached;
+  const promise = readFile(archivePath).then((data) => JSZip.loadAsync(data));
+  _zipCache.set(archivePath, promise);
+  return promise;
 }
 function evictZip(archivePath) {
   _zipCache.delete(archivePath);
