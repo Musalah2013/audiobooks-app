@@ -6,38 +6,7 @@ import { ALL_PERMISSIONS } from '../types';
 import { verifyInternalArtifactRequest, verifyMultipartRequest } from '../utils';
 import { createSessionCookie, verifySessionCookie, clearSessionCookie, hashPassword, verifyPassword, SESSION_COOKIE } from '../password';
 import { verifyStudioSessionCookie } from './studio-auth';
-
-// Simple in-memory rate limiter: Map<ip+route, { count, resetAt }>
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX = 10; // 10 requests per window
-
-function checkRateLimit(ip: string, route: string): { allowed: boolean; retryAfter: number } {
-  const key = `${ip}:${route}`;
-  const now = Date.now();
-  const entry = rateLimitMap.get(key);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return { allowed: true, retryAfter: 0 };
-  }
-  if (entry.count >= RATE_LIMIT_MAX) {
-    return { allowed: false, retryAfter: Math.ceil((entry.resetAt - now) / 1000) };
-  }
-  entry.count += 1;
-  return { allowed: true, retryAfter: 0 };
-}
-
-function rateLimitMiddleware(route: string) {
-  return async (c: Context, next: Next) => {
-    const ip = c.req.header('CF-Connecting-IP') ?? 'unknown';
-    const { allowed, retryAfter } = checkRateLimit(ip, route);
-    if (!allowed) {
-      c.header('Retry-After', String(retryAfter));
-      return c.json({ error: 'Too many requests. Please try again later.' }, 429);
-    }
-    await next();
-  };
-}
+import { RateLimiter, loginRateLimiter, bootstrapRateLimiter } from '../rate-limit';
 
 const auth = new Hono<{ Bindings: Env; Variables: { user: OperatorUser | null } }>();
 
@@ -74,8 +43,9 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
   const path = c.req.path;
   const cookieHeader = c.req.header('Cookie') ?? null;
 
-  // Public studio-auth endpoints (magic link request + verify)
-  if (path === '/api/studio-auth/request' || path === '/api/studio-auth/verify') {
+  // Public auth endpoints (mounted before middleware, but defense-in-depth)
+  if (path === '/api/studio-auth/request' || path === '/api/studio-auth/verify' ||
+      path === '/api/acquisition-auth/request' || path === '/api/acquisition-auth/verify') {
     return next();
   }
 
@@ -103,10 +73,12 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
     return next();
   }
 
-  // Studio session cookie auth (for studio portal routes)
+  // Studio session cookie auth — ONLY for studio portal routes belonging to the session
   const studioSession = await verifyStudioSessionCookie(cookieHeader, c.env.INTERNAL_API_SECRET);
   if (studioSession) {
-    return next();
+    const isOwnPortal = path.startsWith(`/api/studio-portal/${studioSession.slug}`);
+    if (isOwnPortal) return next();
+    // Otherwise fall through to operator auth checks
   }
 
   // Session cookie auth (password-based login)
@@ -162,7 +134,13 @@ auth.get('/me', async (c) => {
   return c.json({ user });
 });
 
-auth.post('/login', rateLimitMiddleware('login'), async (c) => {
+auth.post('/login', async (c) => {
+  const ip = RateLimiter.getClientIP(c);
+  const { allowed, retryAfter } = loginRateLimiter.check(ip);
+  if (!allowed) {
+    c.header('Retry-After', String(retryAfter));
+    return c.json({ error: 'Too many requests. Please try again later.' }, 429);
+  }
   const body = await c.req.json();
   const { email, password } = z.object({
     email: z.string().email(),
@@ -189,7 +167,13 @@ auth.post('/logout', async (c) => {
   return c.json({ ok: true });
 });
 
-auth.post('/set-password', rateLimitMiddleware('set-password'), async (c) => {
+auth.post('/set-password', async (c) => {
+  const ip = RateLimiter.getClientIP(c);
+  const { allowed, retryAfter } = loginRateLimiter.check(ip);
+  if (!allowed) {
+    c.header('Retry-After', String(retryAfter));
+    return c.json({ error: 'Too many requests. Please try again later.' }, 429);
+  }
   const caller = await resolveUser(c);
   if (!caller) return c.json({ error: 'Authentication required' }, 401);
 
@@ -214,6 +198,12 @@ auth.post('/set-password', rateLimitMiddleware('set-password'), async (c) => {
 });
 
 auth.post('/bootstrap', async (c) => {
+  const ip = RateLimiter.getClientIP(c);
+  const { allowed, retryAfter } = bootstrapRateLimiter.check(ip);
+  if (!allowed) {
+    c.header('Retry-After', String(retryAfter));
+    return c.json({ error: 'Too many requests. Please try again later.' }, 429);
+  }
   const email = actorEmail(c.req.raw);
   if (email === 'operator@local') {
     return c.json({ error: 'Cannot bootstrap without a real authenticated identity' }, 400);

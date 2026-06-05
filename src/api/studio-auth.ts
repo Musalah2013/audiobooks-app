@@ -4,28 +4,11 @@ import { Repository } from '../db';
 import { sendEmail, magicLinkEmail } from '../email';
 import { hmacSign } from '../password';
 import { signInternalArtifactUrl, nowIso } from '../utils';
+import { RateLimiter, magicLinkRateLimiter } from '../rate-limit';
 
 const STUDIO_SESSION_COOKIE = '_studiosession';
+const STUDIO_SESSION_COOKIE_RE = new RegExp(`(?:^|;\\s*)${STUDIO_SESSION_COOKIE}=([^;]+)`);
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-// Simple in-memory rate limiter
-const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 5; // 5 magic-link requests per minute
-
-function checkRateLimit(ip: string): { allowed: boolean; retryAfter: number } {
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return { allowed: true, retryAfter: 0 };
-  }
-  if (entry.count >= RATE_LIMIT_MAX) {
-    return { allowed: false, retryAfter: Math.ceil((entry.resetAt - now) / 1000) };
-  }
-  entry.count += 1;
-  return { allowed: true, retryAfter: 0 };
-}
 
 export async function createStudioSessionCookie(studioId: string, slug: string, secret: string): Promise<string> {
   const payload = btoa(JSON.stringify({ studioId, slug, exp: Date.now() + SESSION_TTL_MS }));
@@ -36,7 +19,7 @@ export async function createStudioSessionCookie(studioId: string, slug: string, 
 
 export async function verifyStudioSessionCookie(cookieHeader: string | null, secret: string): Promise<{ studioId: string; slug: string } | null> {
   if (!cookieHeader) return null;
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${STUDIO_SESSION_COOKIE}=([^;]+)`));
+  const match = cookieHeader.match(STUDIO_SESSION_COOKIE_RE);
   if (!match) return null;
   const parts = match[1].split('.');
   if (parts.length < 2) return null;
@@ -60,8 +43,8 @@ export function clearStudioSessionCookie(): string {
 const studioAuth = new Hono<{ Bindings: Env }>();
 
 studioAuth.post('/request', async (c) => {
-  const ip = c.req.header('CF-Connecting-IP') ?? 'unknown';
-  const { allowed, retryAfter } = checkRateLimit(ip);
+  const ip = RateLimiter.getClientIP(c);
+  const { allowed, retryAfter } = magicLinkRateLimiter.check(ip);
   if (!allowed) {
     c.header('Retry-After', String(retryAfter));
     return c.json({ error: 'Too many requests. Please try again later.' }, 429);

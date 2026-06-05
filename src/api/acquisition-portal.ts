@@ -37,13 +37,15 @@ acquisitionPortal.get('/', async (c) => {
 acquisitionPortal.post('/studios/:studioId/production-file-upload-url', async (c) => {
   const session = await requireAcquisitionSession(c);
   if (!session) return c.json({ error: 'Unauthorized' }, 401);
+  const repo = new Repository(c.env.DB);
+  const acqUser = await repo.getAcquisitionUser(session.acquisitionUserId);
+  if (!acqUser || !acqUser.is_active) return c.json({ error: 'Account inactive' }, 403);
   const { fileName, contentType, sizeBytes } = z.object({ fileName: z.string(), contentType: z.string().default('application/pdf'), sizeBytes: z.number().optional() }).parse(await c.req.json());
   const studioId = c.req.param('studioId');
-  const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(studioId);
   if (!studio || !studio.is_active) return c.json({ error: 'Studio not found' }, 404);
-  const acqUser = await repo.getAcquisitionUser(session.acquisitionUserId);
-  const uploaderName = acqUser?.name ?? 'acquisition';
+  // TODO: Add acquisition_user_studio junction table for fine-grained authorization
+  const uploaderName = acqUser.name ?? 'acquisition';
   const key = keySegments('studios', studioId, 'production', `${Date.now()}-${fileName}`);
   const upload = await createUploadUrl(c.env, key, contentType);
   const fileId = await repo.createStudioProductionFile({ studioId, name: fileName, objectKey: key, contentType, sizeBytes: sizeBytes ?? 0, uploadedBy: uploaderName });
@@ -67,6 +69,8 @@ acquisitionPortal.delete('/studios/:studioId/production-files/:fileId', async (c
   const session = await requireAcquisitionSession(c);
   if (!session) return c.json({ error: 'Unauthorized' }, 401);
   const repo = new Repository(c.env.DB);
+  const acqUser = await repo.getAcquisitionUser(session.acquisitionUserId);
+  if (!acqUser || !acqUser.is_active) return c.json({ error: 'Account inactive' }, 403);
   const deleted = await repo.deleteStudioProductionFile(c.req.param('fileId'));
   if (deleted?.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key);
   return c.json({ ok: true });
