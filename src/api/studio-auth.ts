@@ -82,23 +82,54 @@ studioAuth.post('/request', async (c) => {
 
 studioAuth.get('/verify', async (c) => {
   const token = c.req.query('token');
-  console.log(`[studio-auth/verify] token=${token ? 'present' : 'missing'} host=${new URL(c.req.url).host}`);
-  if (!token) return c.redirect('/');
+  const host = new URL(c.req.url).host;
+  console.log(`[studio-auth/verify] token=${token ? 'present' : 'missing'} host=${host}`);
+  if (!token) {
+    return c.html(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>خطأ</title></head><body style="font-family:system-ui;text-align:center;padding:40px"><p>رابط غير صالح. <a href="/">العودة للرئيسية</a></p></body></html>`, 400);
+  }
   const repo = new Repository(c.env.DB);
   const result = await repo.verifyAndConsumeStudioMagicLink(token);
   if (!result) {
     console.log('[studio-auth/verify] invalid or expired token');
-    return c.html('<p>رابط غير صالح أو منتهي الصلاحية. <a href="/">العودة</a></p>', 400);
+    return c.html(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>خطأ</title></head><body style="font-family:system-ui;text-align:center;padding:40px"><p>رابط غير صالح أو منتهي الصلاحية. <a href="/">العودة للرئيسية</a></p></body></html>`, 400);
   }
   const studio = await repo.getStudio(result.studioId);
   if (!studio) {
     console.log('[studio-auth/verify] studio not found');
-    return c.html('<p>الاستوديو غير موجود.</p>', 404);
+    return c.html(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><title>خطأ</title></head><body style="font-family:system-ui;text-align:center;padding:40px"><p>الاستوديو غير موجود.</p></body></html>`, 404);
   }
   const cookie = await createStudioSessionCookie(studio.id, studio.slug, c.env.INTERNAL_API_SECRET);
   console.log(`[studio-auth/verify] setting cookie for studio=${studio.slug}`);
   c.header('Set-Cookie', cookie);
-  return c.redirect(`/studio/${studio.slug}`);
+  const redirectUrl = `/studio/${studio.slug}`;
+  // Return HTML page with meta refresh + JS redirect + manual link fallback
+  return c.html(`<!DOCTYPE html>
+<html dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="refresh" content="1;url=${redirectUrl}">
+  <title>جاري تسجيل الدخول…</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; text-align: center; padding: 60px 20px; background: #f5f7fa; }
+    .card { background: white; border-radius: 16px; padding: 40px; max-width: 400px; margin: 0 auto; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+    .spinner { width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top-color: #0b80ff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    h1 { font-size: 18px; color: #1e293b; margin-bottom: 8px; }
+    p { color: #64748b; font-size: 14px; margin-bottom: 24px; }
+    a { color: #0b80ff; text-decoration: none; font-size: 14px; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <h1>جاري تسجيل الدخول…</h1>
+    <p>سيتم تحويلك تلقائياً إلى بوابة الاستوديو.</p>
+    <a href="${redirectUrl}">اضغط هنا إذا لم يتم التحويل</a>
+  </div>
+  <script>setTimeout(() => { window.location.href = '${redirectUrl}'; }, 500);</script>
+</body>
+</html>`);
 });
 
 studioAuth.post('/logout', (c) => {
