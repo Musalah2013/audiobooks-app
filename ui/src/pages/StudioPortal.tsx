@@ -155,7 +155,9 @@ function LoginGate({ slug }: { slug: string }) {
 
 export default function StudioPortal() {
   const { slug } = useParams<{ slug: string }>();
+  console.log('[StudioPortal] mount slug=', slug);
   const { data, loading, error, refetch } = useApi<StudioPortalResponse>(`/api/studio-portal/${slug}`);
+  console.log('[StudioPortal] state loading=', loading, 'error=', error, 'data=', data ? 'present' : 'null');
   const [activeTab, setActiveTab] = useState<'overview' | 'assets' | 'production' | 'drive' | 'samples'>('overview');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -223,6 +225,10 @@ export default function StudioPortal() {
     }
   }
 
+  // Debug overlay — always visible during troubleshooting
+  const debugInfo = { slug, loading: String(loading), error: error ?? 'null', hasData: String(!!data), dataKeys: data ? Object.keys(data).join(',') : 'none' };
+  console.log('[StudioPortal] render debug:', debugInfo);
+
   // Loading state — show spinner, not login gate
   if (loading) {
     return (
@@ -230,6 +236,7 @@ export default function StudioPortal() {
         <div className="flex flex-col items-center gap-4">
           <Loader2 size={40} className="text-[#0b80ff] animate-spin" />
           <p className="text-slate-500 text-sm">جاري التحميل…</p>
+          <pre className="text-xs text-slate-400 mt-4 text-left" dir="ltr">{JSON.stringify(debugInfo, null, 2)}</pre>
         </div>
       </div>
     );
@@ -237,7 +244,18 @@ export default function StudioPortal() {
 
   // Unauthenticated
   if (error?.includes('401') || error?.includes('Unauthorized')) return <LoginGate slug={slug ?? ''} />;
-  if (!data) return <LoginGate slug={slug ?? ''} />;
+  if (!data) {
+    return (
+      <div className="min-h-screen bg-[#f5f7fa] flex items-center justify-center" dir="rtl">
+        <div className="bg-white rounded-2xl p-8 shadow-lg max-w-md w-full mx-4">
+          <p className="text-red-500 font-semibold mb-2">خطأ في تحميل البيانات</p>
+          <p className="text-slate-500 text-sm mb-4">{error || 'لم يتم استلام بيانات من الخادم'}</p>
+          <pre className="text-xs text-slate-400 text-left bg-slate-50 p-3 rounded-lg" dir="ltr">{JSON.stringify(debugInfo, null, 2)}</pre>
+          <button onClick={() => location.reload()} className="mt-4 w-full py-2 bg-[#0b80ff] text-white rounded-xl text-sm font-semibold">إعادة المحاولة</button>
+        </div>
+      </div>
+    );
+  }
 
   const { studio, assets, productionFiles, samples, driveUploads } = data;
 
