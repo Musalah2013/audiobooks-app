@@ -1,4 +1,4 @@
-import { useRef, useState, useMemo } from 'react';
+import { useRef, useState, useMemo, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Download, Upload, CheckCircle2, FileText, Music, CloudUpload, Send, Loader2,
@@ -196,7 +196,6 @@ export default function StudioPortal() {
     { label: 'العينات', value: samples.length, icon: Music, color: 'text-amber-600', bg: 'bg-amber-50' },
   ], [assets.length, productionFiles.length, driveUploads.length, samples.length]);
 
-  const [notice, setNotice] = useState('');
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showNotice(msg: string) {
