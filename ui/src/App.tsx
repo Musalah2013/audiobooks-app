@@ -77,8 +77,13 @@ const App: FC = () => {
   }
 
   // Magic link verify — force full page load so Worker handles it
-  if (location.pathname === '/api/studio-auth/verify') {
-    window.location.href = location.pathname + location.search;
+  // Browsers ignore location.href = same-url, so we add a cache-busting param
+  if (location.pathname.startsWith('/api/studio-auth/verify')) {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('_r')) {
+      url.searchParams.set('_r', Date.now().toString());
+      window.location.replace(url.toString());
+    }
     return <div className="min-h-screen flex items-center justify-center text-sm text-slate-500">جاري التحقق…</div>;
   }
 
