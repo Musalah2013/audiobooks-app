@@ -52,7 +52,12 @@ acquisitionPortal.post('/studios/:studioId/production-file-upload-url', async (c
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
     subject: 'ملف إنتاج جديد متاح في بوابتك',
-    html: notifyOperatorsEmail('ملف إنتاج جديد', `تم رفع ملف جديد بعنوان "<strong>${fileName}</strong>" إلى بوابة ${studio.name}. يمكنك تنزيله من <a href="${baseUrl}/studio/${studio.slug}">البوابة</a>.`),
+    html: notifyOperatorsEmail(
+      'ملف إنتاج جديد',
+      `تم رفع ملف جديد بعنوان "<strong>${fileName}</strong>" إلى بوابة ${studio.name}.`,
+      `${baseUrl}/studio/${studio.slug}`,
+      'الدخول إلى البوابة'
+    ),
     emailBinding: c.env.EMAIL,
   });
   return c.json({ ...upload, objectKey: key, fileId });

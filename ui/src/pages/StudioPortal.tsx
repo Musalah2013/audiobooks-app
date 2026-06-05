@@ -162,7 +162,7 @@ export default function StudioPortal() {
   const [notice, setNotice] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [sampleSearch, setSampleSearch] = useState('');
-  const [, setPlayingSample] = useState<string | null>(null);
+  const [selectedBookId, setSelectedBookId] = useState<string>('');
 
   const driveInputRef = useRef<HTMLInputElement>(null);
   const sampleInputRef = useRef<HTMLInputElement>(null);
@@ -235,15 +235,20 @@ export default function StudioPortal() {
   }
 
   async function handleSampleUpload(file: File) {
+    if (!selectedBookId) {
+      showNotice('يرجى اختيار الكتاب أولاً');
+      return;
+    }
     setUploading(true);
     try {
       const { uploadUrl } = await apiRequest<{ uploadUrl: string }>(`/api/studio-portal/${slug}/sample-upload-url`, {
         method: 'POST',
-        body: { fileName: file.name, contentType: file.type, sizeBytes: file.size },
+        body: { fileName: file.name, contentType: file.type, sizeBytes: file.size, bookId: selectedBookId },
       });
       const res = await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
       if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
       showNotice('تم رفع العينة بنجاح وسيتم إشعار الفريق.');
+      setSelectedBookId('');
       refetch();
     } catch (err) {
       showNotice(err instanceof Error ? err.message : 'فشل رفع العينة');
@@ -529,32 +534,56 @@ export default function StudioPortal() {
         {/* ─── Samples Tab ─── */}
         {activeTab === 'samples' && (
           <div className="space-y-4">
+            {/* Upload Section */}
             <div className="bg-white rounded-2xl border border-slate-100 p-6">
               <h2 className="text-base font-bold text-slate-900 mb-1">العينات الصوتية</h2>
-              <p className="text-xs text-slate-400 mb-4">ارفع عينات صوتية لمراجعتها وإبداء الموافقة من فريق سماوي.</p>
+              <p className="text-xs text-slate-400 mb-4">اختر الكتاب أولاً، ثم ارفع العينة الصوتية المرتبطة به.</p>
+
+              {/* Book Selector */}
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">الكتاب المرتبط بالعينة</label>
+                <select
+                  value={selectedBookId}
+                  onChange={(e) => setSelectedBookId(e.target.value)}
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0b80ff]/20 focus:border-[#0b80ff] transition-all"
+                  dir="rtl"
+                >
+                  <option value="">اختر كتاباً من ملفات الإنتاج…</option>
+                  {productionFiles.map((f) => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                </select>
+              </div>
+
               <input type="file" ref={sampleInputRef} className="hidden" accept="audio/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleSampleUpload(f); }} />
               <button
-                disabled={uploading}
+                disabled={uploading || !selectedBookId}
                 onClick={() => sampleInputRef.current?.click()}
                 className="flex items-center gap-2 px-5 py-3 bg-[#0b80ff] text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:bg-blue-600 transition-all"
               >
                 <Upload size={18} />
                 {uploading ? 'جاري الرفع…' : 'رفع عينة صوتية'}
               </button>
+              {!selectedBookId && (
+                <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
+                  <AlertCircle size={12} /> يرجى اختيار الكتاب أولاً
+                </p>
+              )}
             </div>
 
+            {/* Samples List */}
             <div className="bg-white rounded-2xl border border-slate-100 p-6">
               <div className="flex items-center gap-3 mb-5">
                 <SearchBar value={sampleSearch} onChange={setSampleSearch} placeholder="البحث في العينات..." />
                 <span className="text-xs text-slate-400 whitespace-nowrap">{filteredSamples.length} عينة</span>
               </div>
               {filteredSamples.length === 0 ? (
-                <EmptyState icon={Music} title="لم تُرفع أي عينات" subtitle="العينات التي ترفعها ستظهر هنا مع حالة المراجعة." />
+                <EmptyState icon={Music} title="لم تُرفع أي عينات" subtitle="العينات التي ترفعها ستظهر هنا مع حالة المراجعة والكتاب المرتبط." />
               ) : (
                 <div className="grid gap-4">
                   {filteredSamples.map((s) => (
                     <div key={s.id} className="p-5 rounded-2xl border border-slate-100 hover:border-slate-200 transition-all bg-white">
-                      <div className="flex items-center gap-3 mb-4">
+                      <div className="flex items-center gap-3 mb-3">
                         <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
                           <FileAudio size={18} className="text-amber-500" />
                         </div>
@@ -572,15 +601,22 @@ export default function StudioPortal() {
                         <StatusBadge status={s.status} />
                       </div>
 
-                      <div className="bg-slate-50 rounded-xl p-3">
-                        <audio
-                          controls
-                          className="w-full h-10"
-                          src={`${API_BASE_URL}/api/files/${s.objectKey}?preview=1`}
-                          onPlay={() => setPlayingSample(s.id)}
-                          onPause={() => setPlayingSample(null)}
-                        />
-                      </div>
+                      {/* Linked Book */}
+                      {s.bookName && (
+                        <div className="mb-3 p-2.5 bg-blue-50 rounded-xl border border-blue-100 flex items-center gap-2">
+                          <BookOpen size={14} className="text-blue-500" />
+                          <span className="text-xs text-blue-700 font-medium">الكتاب المرتبط:</span>
+                          <span className="text-xs text-blue-600 truncate">{s.bookName}</span>
+                        </div>
+                      )}
+                      {!s.bookName && (
+                        <div className="mb-3 p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-2">
+                          <BookOpen size={14} className="text-slate-400" />
+                          <span className="text-xs text-slate-500">غير مرتبط بكتاب</span>
+                        </div>
+                      )}
+
+                      {/* No audio player — samples cannot be played */}
 
                       {s.reviewNote && (
                         <div className="mt-3 p-3 bg-amber-50 rounded-xl border border-amber-100">

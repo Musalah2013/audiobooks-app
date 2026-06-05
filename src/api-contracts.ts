@@ -384,6 +384,8 @@ export interface StudioProductionFile {
 export interface StudioSample {
   id: string;
   studioId: string;
+  bookId: string | null;
+  bookName: string | null;
   name: string;
   objectKey: string;
   contentType: string;

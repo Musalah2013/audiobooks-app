@@ -24,7 +24,7 @@ type Row = Record<string, unknown>;
 type StudioRow = { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string };
 type StudioAssetRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
 type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
-type StudioSampleRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string };
+type StudioSampleRow = { id: string; studio_id: string; book_id: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string };
 type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string };
 type AcquisitionUserRow = { id: string; email: string; name: string; is_active: number; created_at: string; created_by: string };
 
@@ -1040,11 +1040,11 @@ export class Repository {
     return this.db.prepare(`DELETE FROM studio_production_file WHERE id = ? RETURNING object_key`).bind(id).first<{ object_key: string }>();
   }
 
-  async createStudioSample(input: { studioId: string; name: string; objectKey: string; contentType: string; sizeBytes: number }) {
+  async createStudioSample(input: { studioId: string; bookId?: string | null; name: string; objectKey: string; contentType: string; sizeBytes: number }) {
     const id = crypto.randomUUID();
     await this.db.prepare(
-      `INSERT INTO studio_sample (id, studio_id, name, object_key, content_type, size_bytes) VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(id, input.studioId, input.name, input.objectKey, input.contentType, input.sizeBytes).run();
+      `INSERT INTO studio_sample (id, studio_id, book_id, name, object_key, content_type, size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, input.studioId, input.bookId ?? null, input.name, input.objectKey, input.contentType, input.sizeBytes).run();
     return id;
   }
 

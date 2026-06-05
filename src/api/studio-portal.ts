@@ -33,11 +33,16 @@ studioPortal.get('/:slug', async (c) => {
     repo.listStudioSamples(studio.id),
     repo.listDriveUploads(studio.id),
   ]);
+  // Build book name lookup from production files
+  const bookNameMap = new Map<string, string>();
+  for (const f of productionFiles) {
+    bookNameMap.set(f.id, f.name);
+  }
   return c.json({
     studio: { id: studio.id, name: studio.name, slug: studio.slug, contactEmail: studio.contact_email, driveFolderId: studio.drive_folder_id, logoObjectKey: studio.logo_object_key, isActive: !!studio.is_active, createdAt: studio.created_at, createdBy: studio.created_by },
     assets: assets.map((a) => ({ id: a.id, studioId: a.studio_id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at })),
     productionFiles: productionFiles.map((f) => ({ id: f.id, studioId: f.studio_id, name: f.name, objectKey: f.object_key, contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at })),
-    samples: samples.map((s) => ({ id: s.id, studioId: s.studio_id, name: s.name, objectKey: s.object_key, contentType: s.content_type, sizeBytes: s.size_bytes, status: s.status, reviewedBy: s.reviewed_by, reviewNote: s.review_note, reviewedAt: s.reviewed_at, createdAt: s.created_at })),
+    samples: samples.map((s) => ({ id: s.id, studioId: s.studio_id, bookId: s.book_id ?? null, bookName: s.book_id ? (bookNameMap.get(s.book_id) ?? null) : null, name: s.name, objectKey: s.object_key, contentType: s.content_type, sizeBytes: s.size_bytes, status: s.status, reviewedBy: s.reviewed_by, reviewNote: s.review_note, reviewedAt: s.reviewed_at, createdAt: s.created_at })),
     driveUploads: driveUploads.map(driveUploadToApi),
   });
 });
@@ -101,7 +106,12 @@ studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
       sendEmail({
         to: op.email,
         subject: `استوديو ${studio.name} رفع ملفاً جديداً`,
-        html: notifyOperatorsEmail(`ملف جديد من ${studio.name}`, `رفع الاستوديو ملف جديد بعنوان "<strong>${upload.name}</strong>". سيتم مزامنته مع Google Drive قريباً. <a href="${baseUrl}/studios/${studio.id}">إدارة الاستوديو</a>`),
+        html: notifyOperatorsEmail(
+          `ملف جديد من ${studio.name}`,
+          `رفع الاستوديو ملف جديد بعنوان "<strong>${upload.name}</strong>". سيتم مزامنته مع Google Drive قريباً.`,
+          `${baseUrl}/studios/${studio.id}`,
+          'إدارة الاستوديو'
+        ),
         emailBinding: c.env.EMAIL,
       })
     ));
@@ -113,13 +123,13 @@ studioPortal.post('/:slug/sample-upload-url', async (c) => {
   const slug = c.req.param('slug');
   const session = await requireStudioSession(c, slug);
   if (!session) return c.json({ error: 'Unauthorized' }, 401);
-  const { fileName, contentType, sizeBytes } = z.object({ fileName: z.string(), contentType: z.string(), sizeBytes: z.number().optional() }).parse(await c.req.json());
+  const { fileName, contentType, sizeBytes, bookId } = z.object({ fileName: z.string(), contentType: z.string(), sizeBytes: z.number().optional(), bookId: z.string().optional() }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudioBySlug(slug);
   if (!studio) return c.json({ error: 'Not found' }, 404);
   const key = keySegments('studios', studio.id, 'samples', `${Date.now()}-${fileName}`);
   const upload = await createUploadUrl(c.env, key, contentType);
-  const sampleId = await repo.createStudioSample({ studioId: studio.id, name: fileName, objectKey: key, contentType, sizeBytes: sizeBytes ?? 0 });
+  const sampleId = await repo.createStudioSample({ studioId: studio.id, bookId: bookId ?? null, name: fileName, objectKey: key, contentType, sizeBytes: sizeBytes ?? 0 });
   // Notify operators
   const operators = await repo.listOperatorUsers();
   const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
@@ -127,7 +137,12 @@ studioPortal.post('/:slug/sample-upload-url', async (c) => {
     sendEmail({
       to: op.email,
       subject: `عينة جديدة من ${studio.name}`,
-      html: notifyOperatorsEmail(`عينة جديدة: ${fileName}`, `رفع استوديو ${studio.name} عينة جديدة بعنوان "<strong>${fileName}</strong>" تنتظر مراجعتك. <a href="${baseUrl}/studios/${studio.id}">مراجعة العينات</a>`),
+      html: notifyOperatorsEmail(
+        `عينة جديدة: ${fileName}`,
+        `رفع استوديو ${studio.name} عينة جديدة بعنوان "<strong>${fileName}</strong>" تنتظر مراجعتك.`,
+        `${baseUrl}/studios/${studio.id}`,
+        'مراجعة العينات'
+      ),
       emailBinding: c.env.EMAIL,
     })
   ));

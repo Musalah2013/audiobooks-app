@@ -4,7 +4,7 @@ import type { Env } from '../types';
 import { Repository } from '../db';
 import { requirePermission, actorEmail } from './auth';
 import { createUploadUrl } from '../pipeline';
-import { sendEmail, magicLinkEmail, notifyOperatorsEmail } from '../email';
+import { sendEmail, magicLinkEmail, notifyOperatorsEmail, sampleReviewedEmail } from '../email';
 import { keySegments, nowIso, signInternalArtifactUrl } from '../utils';
 
 const studios = new Hono<{ Bindings: Env }>();
@@ -170,7 +170,12 @@ studios.post('/:id/production-file-upload-url', requirePermission('users'), asyn
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
     subject: 'ملف إنتاج جديد متاح في بوابتك',
-    html: notifyOperatorsEmail('ملف إنتاج جديد', `تم رفع ملف جديد بعنوان "<strong>${fileName}</strong>" إلى بوابة ${studio.name}. يمكنك تنزيله من <a href="${baseUrl}/studio/${studio.slug}">البوابة</a>.`),
+    html: notifyOperatorsEmail(
+      'ملف إنتاج جديد',
+      `تم رفع ملف جديد بعنوان "<strong>${fileName}</strong>" إلى بوابة ${studio.name}.`,
+      `${baseUrl}/studio/${studio.slug}`,
+      'الدخول إلى البوابة'
+    ),
     emailBinding: c.env.EMAIL,
   });
   return c.json({ ...upload, objectKey: key, fileId });
@@ -205,7 +210,7 @@ studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async 
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
     subject: `تحديث حالة العينة — ${statusAr}`,
-    html: notifyOperatorsEmail(`تحديث العينة: ${sample.name}`, `تم ${statusAr} العينة "<strong>${sample.name}</strong>"${note ? `<br>ملاحظة: ${note}` : ''}. <a href="${baseUrl}/studio/${studio.slug}">فتح البوابة</a>`),
+    html: sampleReviewedEmail(sample.name, status, note ?? null, studio.name),
     emailBinding: c.env.EMAIL,
   });
   return c.json({ ok: true });
