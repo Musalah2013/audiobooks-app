@@ -223,9 +223,20 @@ export default function StudioPortal() {
     }
   }
 
+  // Loading state — show spinner, not login gate
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#f5f7fa] flex items-center justify-center" dir="rtl">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 size={40} className="text-[#0b80ff] animate-spin" />
+          <p className="text-slate-500 text-sm">جاري التحميل…</p>
+        </div>
+      </div>
+    );
+  }
+
   // Unauthenticated
   if (error?.includes('401') || error?.includes('Unauthorized')) return <LoginGate slug={slug ?? ''} />;
-  if (loading) return <LoginGate slug={slug ?? ''} />;
   if (!data) return <LoginGate slug={slug ?? ''} />;
 
   const { studio, assets, productionFiles, samples, driveUploads } = data;
