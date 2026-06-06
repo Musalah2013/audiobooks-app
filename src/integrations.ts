@@ -479,6 +479,9 @@ export async function uploadFileToDrive(
   const token = await getServiceAccountToken(env);
   // Extract raw folder ID from full URL if needed
   const rawFolderId = folderId.includes('/') ? (folderId.match(/\/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? folderId) : folderId;
+  if (!rawFolderId || rawFolderId.includes('/')) {
+    throw new Error(`Invalid Drive folder ID: ${folderId}`);
+  }
   const metadata = JSON.stringify({ name: fileName, parents: [rawFolderId] });
   const boundary = "samawy_boundary_" + crypto.randomUUID().replace(/-/g, "");
   const encoder = new TextEncoder();
@@ -492,7 +495,8 @@ export async function uploadFileToDrive(
   combined.set(filePart, metaPart.byteLength);
   combined.set(new Uint8Array(fileData), metaPart.byteLength + filePart.byteLength);
   combined.set(closePart, metaPart.byteLength + filePart.byteLength + fileData.byteLength);
-  const response = await fetch(
+
+  const response = await fetchDriveApiWithRetry(
     "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
     {
       method: "POST",
@@ -505,6 +509,13 @@ export async function uploadFileToDrive(
   );
   if (!response.ok) {
     const err = await response.text().catch(() => "");
+    console.error(`[uploadFileToDrive] Failed: ${response.status} ${err}`);
+    if (response.status === 401) {
+      throw new Error(
+        `Drive upload failed (401): Service account cannot access the target folder. ` +
+        `Ensure the Drive folder is shared with ${env.GOOGLE_SERVICE_ACCOUNT_EMAIL} as an Editor.`,
+      );
+    }
     throw new Error(`Drive upload failed (${response.status}): ${err}`);
   }
   return response.json() as Promise<{ id: string; name: string; webViewLink: string }>;
