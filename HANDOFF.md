@@ -2,7 +2,7 @@
 
 ## Current state
 
-This handoff reflects the current implementation state on `2026-06-04`.
+This handoff reflects the current implementation state on `2026-06-06`.
 
 The codebase has been imported into a new standalone GitHub repository:
 - https://github.com/Musalah2013/audiobooks-app
@@ -36,7 +36,54 @@ Added `.github/workflows/deploy.yml` that triggers on every push to `main`:
 
 Requires `CLOUDFLARE_API_TOKEN` secret in GitHub repo settings.
 
-## Latest changes — download links + UI cleanup (2026-05-15)
+## Latest changes — comprehensive optimization audit + auth security fixes (2026-06-06)
+
+### Performance optimization audit (13-agent parallel review)
+
+**Database:**
+- Added indexes to studio tables and audit_event (`migrations/0011_indexes.sql`)
+- Added pagination to unbounded list queries (batches, audiobooks, operators, studios)
+
+**Algorithms:**
+- Fixed cubic nested scan in `assignGroupsToMetadataRows` using `Map` lookup
+- Hoisted `listAudiobooks()` out of candidate loop in `materializeApprovedBooks`
+- Parallelized sequential DB queries in `generateAudiobookWorkbookBuffer` and `buildDossier`
+
+**Concurrency:**
+- Parallelized R2 deletions in batch revert
+- Batched signed URL generation with `Promise.all`
+
+**Memory:**
+- Replaced unbounded ZIP cache with LRU + TTL in container
+- Fixed string concat O(n²) in `toBase64Url` using `String.fromCharCode.apply`
+
+**Bundle:**
+- Added route-level code splitting with `React.lazy()` + `Suspense`
+
+**UI:**
+- Converted AcquisitionPortal inline styles to Tailwind classes
+- Fixed progress bar width animations to use `transform: scaleX()` (GPU-composited)
+- Fixed timer leaks in Toast hook and portal pages
+- Added `AbortController` timeouts to frontend fetch calls
+
+### Auth security review fixes
+
+**Critical:**
+- `authMiddleware` now scopes studio sessions to their own portal routes (`/api/studio-portal/:slug` only)
+- Prevents cross-studio data access and studio users accessing operator APIs
+
+**High:**
+- Extracted shared `RateLimiter` class to `src/rate-limit.ts`
+- Replaced 3 duplicate rate limiter implementations with shared utility
+- Rate limiters now use `CF-Connecting-IP` with `X-Forwarded-For` fallback
+- Added bootstrap rate limiting (3 per minute)
+
+**Medium:**
+- Hoisted cookie regexes to module scope in `studio-auth.ts` and `acquisition-auth.ts`
+- Added acquisition user active-status check in portal endpoints
+- Added `acquisition-auth` endpoints to `authMiddleware` bypass list for consistency
+
+## Previous wave — download links + UI cleanup (2026-05-15)
 
 Now live (Worker version `c63359cd`):
 

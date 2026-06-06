@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { Repository } from '../db';
@@ -10,7 +10,7 @@ import { keySegments, nowIso } from '../utils';
 
 const studioPortal = new Hono<{ Bindings: Env }>();
 
-async function requireStudioSession(c: Parameters<Parameters<typeof studioPortal.use>[1]>[0], slug: string) {
+async function requireStudioSession(c: Context<{ Bindings: Env }>, slug: string) {
   const session = await verifyStudioSessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);
   if (!session || session.slug !== slug) return null;
   return session;

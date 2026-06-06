@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { Repository } from '../db';
@@ -9,7 +9,7 @@ import { keySegments } from '../utils';
 
 const acquisitionPortal = new Hono<{ Bindings: Env }>();
 
-async function requireAcquisitionSession(c: Parameters<Parameters<typeof acquisitionPortal.use>[1]>[0]) {
+async function requireAcquisitionSession(c: Context<{ Bindings: Env }>) {
   return verifyAcquisitionSessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);
 }
 

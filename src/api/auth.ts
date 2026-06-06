@@ -22,19 +22,19 @@ export function actorEmail(request: Request): string {
 export async function resolveUser(c: Context<any>): Promise<OperatorUser | null> {
   const email = actorEmail(c.req.raw);
   if (email === "operator@local" && c.env.APP_ENV === "development") {
-    return { email: "admin@samawy.com", permissions: ALL_PERMISSIONS, name: "Dev Admin" };
+    return { email: "admin@samawy.com", permissions: ALL_PERMISSIONS, name: "Dev Admin", isActive: true, createdAt: new Date().toISOString() };
   }
   const repo = new Repository(c.env.DB);
   // Session cookie takes precedence (password-based login)
   const cookieEmail = await verifySessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);
   if (cookieEmail) {
     const user = await repo.getOperatorUser(cookieEmail);
-    if (user?.isActive) return { email: user.email, permissions: user.permissions, name: user.name ?? undefined };
+    if (user?.isActive) return { email: user.email, permissions: user.permissions, name: user.name ?? null, isActive: user.isActive, createdAt: user.createdAt };
   }
   // CF Access identity
   if (email !== "operator@local") {
     const user = await repo.getOperatorUser(email);
-    if (user?.isActive) return { email: user.email, permissions: user.permissions, name: user.name ?? undefined };
+    if (user?.isActive) return { email: user.email, permissions: user.permissions, name: user.name ?? null, isActive: user.isActive, createdAt: user.createdAt };
   }
   return null;
 }
@@ -87,7 +87,7 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
     const repo = new Repository(c.env.DB);
     const user = await repo.getOperatorUser(cookieEmail);
     if (user?.isActive) {
-      c.set("user", { email: user.email, permissions: user.permissions, name: user.name ?? undefined });
+      c.set("user", { email: user.email, permissions: user.permissions, name: user.name ?? null, isActive: user.isActive, createdAt: user.createdAt });
       return next();
     }
   }

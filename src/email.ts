@@ -1,3 +1,5 @@
+import type { SendEmail } from "@cloudflare/workers-types";
+
 export async function sendEmail(options: {
   to: string;
   toName?: string;
@@ -12,9 +14,11 @@ export async function sendEmail(options: {
     throw new Error("EMAIL binding is not configured. Add [[send_email]] to wrangler.toml.");
   }
   try {
+    const toAddr = options.toName ? `"${options.toName}" <${options.to}>` : options.to;
+    const fromAddr = options.fromName ? `"${options.fromName}" <${options.from ?? "noreply@audiobooks.samawy-ops.com"}>` : (options.from ?? "noreply@audiobooks.samawy-ops.com");
     await binding.send({
-      to: { email: options.to, name: options.toName ?? options.to },
-      from: { email: options.from ?? "noreply@audiobooks.samawy-ops.com", name: options.fromName ?? "Samawy Audiobooks Ops" },
+      to: toAddr,
+      from: fromAddr,
       subject: options.subject,
       html: options.html,
     });
@@ -41,12 +45,6 @@ function emailWrapper(content: string, footerExtra?: string): string {
     <tr><td align="center" style="padding:40px 16px;">
       <table width="480" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:480px;background-color:#ffffff;border-radius:16px;border:1px solid #e2e8f0;">
         <tr><td style="padding:40px 32px 32px;">
-          <!-- Logo -->
-          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
-            <tr><td align="center">
-              <img src="${SAMAWY_LOGO_URL}" alt="سماوي" width="120" style="display:block;">
-            </td></tr>
-          </table>
           ${content}
         </td></tr>
       </table>
@@ -105,6 +103,12 @@ export function magicLinkEmail(link: string, recipientName?: string, studioLogoU
 
 export function notifyOperatorsEmail(title: string, bodyHtml: string, actionLink?: string, actionLabel?: string): string {
   return emailWrapper(`
+    <!-- Logo -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+      <tr><td align="center">
+        <img src="${SAMAWY_LOGO_URL}" alt="سماوي" width="120" style="display:block;">
+      </td></tr>
+    </table>
     <p style="margin:0 0 16px;font-size:17px;font-weight:700;color:#1a202c;">${title}</p>
     <p style="margin:0 0 20px;font-size:14px;color:#4a5568;line-height:22px;">${bodyHtml}</p>
     ${actionLink && actionLabel ? buttonRow(actionLink, actionLabel) : ''}
@@ -118,6 +122,12 @@ export function sampleReviewedEmail(sampleName: string, status: 'approved' | 're
   const statusIcon = isApproved ? '✅' : '❌';
 
   return emailWrapper(`
+    <!-- Logo -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+      <tr><td align="center">
+        <img src="${SAMAWY_LOGO_URL}" alt="سماوي" width="120" style="display:block;">
+      </td></tr>
+    </table>
     <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#1a202c;">تحديث حالة العينة ${statusIcon}</p>
     <p style="margin:0 0 12px;font-size:14px;color:#4a5568;line-height:22px;">
       تم مراجعة عينة <strong>"${sampleName}"</strong> من استوديو <strong>${studioName}</strong>.
@@ -134,6 +144,12 @@ export function sampleReviewedEmail(sampleName: string, status: 'approved' | 're
 export function driveUploadCompleteEmail(fileName: string, studioName: string, driveFileId: string | null): string {
   const driveLink = driveFileId ? `https://drive.google.com/file/d/${driveFileId}` : null;
   return emailWrapper(`
+    <!-- Logo -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+      <tr><td align="center">
+        <img src="${SAMAWY_LOGO_URL}" alt="سماوي" width="120" style="display:block;">
+      </td></tr>
+    </table>
     <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#1a202c;">✅ اكتملت المزامنة مع Google Drive</p>
     <p style="margin:0 0 12px;font-size:14px;color:#4a5568;line-height:22px;">
       تم رفع ملف <strong>"${fileName}"</strong> من استوديو <strong>${studioName}</strong> بنجاح إلى Google Drive.

@@ -549,8 +549,10 @@ ingestions.post('/bulk-delete', async (c) => {
 
 ingestions.post('/:id/revert', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
+  const id = c.req.param("id");
+  if (!id) return c.json({ error: "Missing batch ID" }, 400);
   try {
-    const result = await revertBatch(c.env, repo, c.req.param("id"));
+    const result = await revertBatch(c.env, repo, id);
     return c.json({ ok: true, ...result });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);

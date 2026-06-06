@@ -264,7 +264,9 @@ books.post('/:id/finalize-dossier', async (c) => {
 
 books.post('/:id/reset-dossier', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const book = await repo.getAudiobook(c.req.param("id"));
+  const id = c.req.param("id");
+  if (!id) return c.json({ error: "Missing book ID" }, 400);
+  const book = await repo.getAudiobook(id);
   if (!book) return c.json({ error: "Book not found" }, 404);
   if (book.dossierStatus !== 'generating') {
     return c.json({ error: "Only a stuck 'generating' dossier can be reset." }, 400);
@@ -366,7 +368,9 @@ async function deleteBookWithR2(env: Env, repo: InstanceType<typeof Repository>,
 
 books.delete('/:id', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const found = await deleteBookWithR2(c.env, repo, c.req.param("id"));
+  const id = c.req.param("id");
+  if (!id) return c.json({ error: "Missing book ID" }, 400);
+  const found = await deleteBookWithR2(c.env, repo, id);
   if (!found) return c.json({ error: "Book not found" }, 404);
   return c.json({ ok: true });
 });
@@ -380,8 +384,10 @@ books.post('/bulk-delete', requirePermission('users'), async (c) => {
 
 books.post('/:id/revert', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
+  const id = c.req.param("id");
+  if (!id) return c.json({ error: "Missing book ID" }, 400);
   try {
-    const result = await revertBook(c.env, repo, c.req.param("id"));
+    const result = await revertBook(c.env, repo, id);
     return c.json({ ok: true, ...result });
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);

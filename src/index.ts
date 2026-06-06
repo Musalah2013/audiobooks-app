@@ -99,7 +99,7 @@ const queueHandler = async (batch: MessageBatch<unknown>, env: Env) => {
         const upload = await repo.getDriveUpload(driveUploadId);
         if (!upload) { message.ack(); continue; }
         const studio = await repo.getStudio(upload.studio_id);
-        if (!studio?.drive_folder_id) {
+        if (!studio?.drive_folder_id?.trim()) {
           await repo.updateDriveUpload(driveUploadId, { status: "failed", error: "Studio has no Drive folder configured." });
           message.ack(); continue;
         }
@@ -111,11 +111,15 @@ const queueHandler = async (batch: MessageBatch<unknown>, env: Env) => {
         }
         const fileData = await r2Object.arrayBuffer();
         const mimeType = r2Object.httpMetadata?.contentType ?? "application/octet-stream";
-        const driveFile = await uploadFileToDrive(env, extractDriveFolderId(studio.drive_folder_id) ?? studio.drive_folder_id, upload.name, fileData, mimeType);
+        const folderId = extractDriveFolderId(studio.drive_folder_id) ?? studio.drive_folder_id;
+        console.log(`[drive-sync] Uploading ${upload.name} to Drive folder ${folderId} for studio ${studio.name}`);
+        const driveFile = await uploadFileToDrive(env, folderId, upload.name, fileData, mimeType);
+        console.log(`[drive-sync] Upload succeeded: ${driveFile.id}`);
         await repo.updateDriveUpload(driveUploadId, { status: "completed", driveFileId: driveFile.id });
         message.ack();
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
+        console.error(`[drive-sync] Upload failed for ${driveUploadId}:`, msg);
         await repo.updateDriveUpload(driveUploadId, { status: "failed", error: msg }).catch(() => {});
         message.ack();
       }

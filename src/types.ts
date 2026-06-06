@@ -1,14 +1,23 @@
+import type {
+  SourceType,
+  UserPermission,
+  OperatorUser,
+  SourceManifestItem,
+  NormalizedGroup,
+  ClickUpConfig,
+  ClickUpFieldMappings,
+  ClickUpDescriptionTemplate,
+} from "./api-contracts";
 export type {
   SourceType,
   UserPermission,
   OperatorUser,
   SourceManifestItem,
   NormalizedGroup,
-  MetadataRow,
   ClickUpConfig,
   ClickUpFieldMappings,
   ClickUpDescriptionTemplate,
-} from "./api-contracts";
+};
 export { ALL_PERMISSIONS } from "./api-contracts";
 export type IntakeMode =
   | "single_book_zip"

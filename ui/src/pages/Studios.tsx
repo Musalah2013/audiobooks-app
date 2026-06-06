@@ -164,56 +164,58 @@ export default function Studios() {
             {isArabic ? 'لا توجد استوديوهات بعد.' : 'No studios yet.'}
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100">
-                <th className="text-start py-3 px-4 font-medium text-[color:var(--fg-2)]">{isArabic ? 'الاستوديو' : 'Studio'}</th>
-                <th className="text-start py-3 px-4 font-medium text-[color:var(--fg-2)]">{isArabic ? 'الرابط' : 'Slug'}</th>
-                <th className="text-start py-3 px-4 font-medium text-[color:var(--fg-2)]">{isArabic ? 'البريد' : 'Email'}</th>
-                <th className="text-start py-3 px-4 font-medium text-[color:var(--fg-2)]">{isArabic ? 'الحالة' : 'Status'}</th>
-                <th className="text-end py-3 px-4 font-medium text-[color:var(--fg-2)]">{isArabic ? 'إجراءات' : 'Actions'}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {studios.map((s) => (
-                <tr key={s.id} className="border-b border-slate-50 hover:bg-slate-50/60">
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-3">
-                      {s.logoObjectKey ? (
-                        <img src={`${API_BASE}/api/files/${s.logoObjectKey}?preview=1`} alt="" className="h-8 w-8 rounded-lg object-cover border border-slate-200" />
-                      ) : (
-                        <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400"><Building2 className="h-4 w-4" /></div>
-                      )}
-                      <span className="font-semibold text-[color:var(--samawy-ink)]">{s.name}</span>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4 font-mono text-xs text-[color:var(--fg-2)]">{s.slug}</td>
-                  <td className="py-3 px-4 text-[color:var(--fg-2)]">{s.contactEmail}</td>
-                  <td className="py-3 px-4">
-                    <span className={`badge-${s.isActive ? 'green' : 'gray'}`}>{s.isActive ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'معطّل' : 'Inactive')}</span>
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <button type="button" className="btn-secondary text-xs py-1 px-2.5" disabled={sendingLink === s.id} onClick={() => sendLink(s.id)} title={isArabic ? 'إرسال رابط الدخول' : 'Send magic link'}>
-                        <Send className="h-3 w-3" />
-                      </button>
-                      <Link to={`/studios/${s.id}`} className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1" title={isArabic ? 'إدارة' : 'Manage'}>
-                        <Settings2 className="h-3 w-3" />
-                      </Link>
-                      {confirmDelete === s.id ? (
-                        <div className="flex items-center gap-1">
-                          <button type="button" className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white" disabled={deleting} onClick={() => deleteStudio(s.id)}>{isArabic ? 'تأكيد' : 'Confirm'}</button>
-                          <button type="button" className="text-[10px] text-slate-500" onClick={() => setConfirmDelete(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
-                        </div>
-                      ) : (
-                        <button type="button" className="text-red-400 hover:text-red-600 p-1 rounded" onClick={() => setConfirmDelete(s.id)}><Trash2 className="h-3.5 w-3.5" /></button>
-                      )}
-                    </div>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[640px]">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="text-start py-3 px-4 font-medium text-[color:var(--fg-2)]">{isArabic ? 'الاستوديو' : 'Studio'}</th>
+                  <th className="text-start py-3 px-4 font-medium text-[color:var(--fg-2)]">{isArabic ? 'الرابط' : 'Slug'}</th>
+                  <th className="text-start py-3 px-4 font-medium text-[color:var(--fg-2)]">{isArabic ? 'البريد' : 'Email'}</th>
+                  <th className="text-start py-3 px-4 font-medium text-[color:var(--fg-2)]">{isArabic ? 'الحالة' : 'Status'}</th>
+                  <th className="text-end py-3 px-4 font-medium text-[color:var(--fg-2)]">{isArabic ? 'إجراءات' : 'Actions'}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {studios.map((s) => (
+                  <tr key={s.id} className="border-b border-slate-50 hover:bg-slate-50/60">
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-3">
+                        {s.logoObjectKey ? (
+                          <img src={`${API_BASE}/api/files/${s.logoObjectKey}?preview=1`} alt="" className="h-8 w-8 rounded-lg object-cover border border-slate-200" />
+                        ) : (
+                          <div className="h-8 w-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400"><Building2 className="h-4 w-4" /></div>
+                        )}
+                        <span className="font-semibold text-[color:var(--samawy-ink)]">{s.name}</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-xs text-[color:var(--fg-2)]">{s.slug}</td>
+                    <td className="py-3 px-4 text-[color:var(--fg-2)]">{s.contactEmail}</td>
+                    <td className="py-3 px-4">
+                      <span className={`badge-${s.isActive ? 'green' : 'gray'}`}>{s.isActive ? (isArabic ? 'نشط' : 'Active') : (isArabic ? 'معطّل' : 'Inactive')}</span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button type="button" className="btn-secondary text-xs py-1 px-2.5" disabled={sendingLink === s.id} onClick={() => sendLink(s.id)} title={isArabic ? 'إرسال رابط الدخول' : 'Send magic link'}>
+                          <Send className="h-3 w-3" />
+                        </button>
+                        <Link to={`/studios/${s.id}`} className="btn-secondary text-xs py-1 px-2.5 flex items-center gap-1" title={isArabic ? 'إدارة' : 'Manage'}>
+                          <Settings2 className="h-3 w-3" />
+                        </Link>
+                        {confirmDelete === s.id ? (
+                          <div className="flex items-center gap-1">
+                            <button type="button" className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white" disabled={deleting} onClick={() => deleteStudio(s.id)}>{isArabic ? 'تأكيد' : 'Confirm'}</button>
+                            <button type="button" className="text-[10px] text-slate-500" onClick={() => setConfirmDelete(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
+                          </div>
+                        ) : (
+                          <button type="button" className="text-red-400 hover:text-red-600 p-1 rounded" onClick={() => setConfirmDelete(s.id)}><Trash2 className="h-3.5 w-3.5" /></button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 

@@ -31,7 +31,7 @@ studios.get('/', requirePermission('users'), async (c) => {
 
 studios.get('/:id', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const studio = await repo.getStudio(c.req.param('id'));
+  const studio = await repo.getStudio(c.req.param('id')!);
   if (!studio) return c.json({ error: 'Not found' }, 404);
   const [assets, productionFiles, samples] = await Promise.all([
     repo.listStudioAssets(studio.id),
@@ -54,7 +54,7 @@ studios.post('/', requirePermission('users'), async (c) => {
     driveFolderId: z.string().optional(),
   }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
-  const studio = await repo.createStudio({ id: crypto.randomUUID(), name: body.name, slug: body.slug, contactEmail: body.contactEmail, driveFolderId: extractDriveFolderId(body.driveFolderId), createdBy: actorEmail(c.req.raw) });
+  const studio = await repo.createStudio({ id: crypto.randomUUID(), name: body.name, slug: body.slug, contactEmail: body.contactEmail, driveFolderId: extractDriveFolderId(body.driveFolderId) ?? undefined, createdBy: actorEmail(c.req.raw) });
   return c.json({ ok: true, studio: studio ? studioToApi(studio) : null }, 201);
 });
 
@@ -67,20 +67,20 @@ studios.patch('/:id', requirePermission('users'), async (c) => {
     isActive: z.boolean().optional(),
   }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
-  await repo.updateStudio(c.req.param('id'), {
+  await repo.updateStudio(c.req.param('id')!, {
     name: body.name,
     slug: body.slug,
     contactEmail: body.contactEmail,
-    driveFolderId: extractDriveFolderId(body.driveFolderId),
+    driveFolderId: extractDriveFolderId(body.driveFolderId) ?? undefined,
     isActive: body.isActive !== undefined ? (body.isActive ? 1 : 0) : undefined,
   });
-  const studio = await repo.getStudio(c.req.param('id'));
+  const studio = await repo.getStudio(c.req.param('id')!);
   return c.json({ ok: true, studio: studio ? studioToApi(studio) : null });
 });
 
 studios.delete('/:id', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  await repo.deleteStudio(c.req.param('id'));
+  await repo.deleteStudio(c.req.param('id')!);
   return c.json({ ok: true });
 });
 
@@ -88,7 +88,7 @@ studios.delete('/:id', requirePermission('users'), async (c) => {
 
 studios.post('/:id/magic-link', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const studio = await repo.getStudio(c.req.param('id'));
+  const studio = await repo.getStudio(c.req.param('id')!);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
   const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -119,7 +119,7 @@ studios.post('/:id/magic-link', requirePermission('users'), async (c) => {
 
 studios.post('/:id/logo-upload-url', requirePermission('users'), async (c) => {
   const { contentType } = z.object({ contentType: z.string() }).parse(await c.req.json());
-  const id = c.req.param('id');
+  const id = c.req.param('id')!;
   const key = keySegments('studios', id, 'logo');
   const upload = await createUploadUrl(c.env, key, contentType);
   const repo = new Repository(c.env.DB);
@@ -131,7 +131,7 @@ studios.post('/:id/logo-upload-url', requirePermission('users'), async (c) => {
 
 studios.post('/:id/asset-upload-url', requirePermission('users'), async (c) => {
   const { fileName, contentType, sizeBytes } = z.object({ fileName: z.string(), contentType: z.string(), sizeBytes: z.number().optional() }).parse(await c.req.json());
-  const studioId = c.req.param('id');
+  const studioId = c.req.param('id')!;
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(studioId);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
@@ -143,13 +143,13 @@ studios.post('/:id/asset-upload-url', requirePermission('users'), async (c) => {
 
 studios.get('/:id/assets', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const assets = await repo.listStudioAssets(c.req.param('id'));
+  const assets = await repo.listStudioAssets(c.req.param('id')!);
   return c.json({ assets: assets.map(assetToApi) });
 });
 
 studios.delete('/:id/assets/:assetId', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const deleted = await repo.deleteStudioAsset(c.req.param('assetId'));
+  const deleted = await repo.deleteStudioAsset(c.req.param('assetId')!);
   if (deleted?.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key);
   return c.json({ ok: true });
 });
@@ -158,7 +158,7 @@ studios.delete('/:id/assets/:assetId', requirePermission('users'), async (c) => 
 
 studios.post('/:id/production-file-upload-url', requirePermission('users'), async (c) => {
   const { fileName, contentType, sizeBytes } = z.object({ fileName: z.string(), contentType: z.string().default('application/pdf'), sizeBytes: z.number().optional() }).parse(await c.req.json());
-  const studioId = c.req.param('id');
+  const studioId = c.req.param('id')!;
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(studioId);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
@@ -183,7 +183,7 @@ studios.post('/:id/production-file-upload-url', requirePermission('users'), asyn
 
 studios.delete('/:id/production-files/:fileId', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const deleted = await repo.deleteStudioProductionFile(c.req.param('fileId'));
+  const deleted = await repo.deleteStudioProductionFile(c.req.param('fileId')!);
   if (deleted?.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key);
   return c.json({ ok: true });
 });
@@ -192,14 +192,14 @@ studios.delete('/:id/production-files/:fileId', requirePermission('users'), asyn
 
 studios.get('/:id/samples', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const samples = await repo.listStudioSamples(c.req.param('id'));
+  const samples = await repo.listStudioSamples(c.req.param('id')!);
   return c.json({ samples: samples.map(sampleToApi) });
 });
 
 studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async (c) => {
   const { status, note } = z.object({ status: z.enum(['approved', 'refused']), note: z.string().nullable().optional() }).parse(await c.req.json());
-  const studioId = c.req.param('id');
-  const sampleId = c.req.param('sampleId');
+  const studioId = c.req.param('id')!;
+  const sampleId = c.req.param('sampleId')!;
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(studioId);
   const sample = await repo.getStudioSample(sampleId);
@@ -234,13 +234,13 @@ studios.post('/acquisition-users', requirePermission('users'), async (c) => {
 studios.patch('/acquisition-users/:id', requirePermission('users'), async (c) => {
   const { name, isActive } = z.object({ name: z.string().min(1).optional(), isActive: z.boolean().optional() }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
-  await repo.updateAcquisitionUser(c.req.param('id'), { name, isActive: isActive !== undefined ? (isActive ? 1 : 0) : undefined });
+  await repo.updateAcquisitionUser(c.req.param('id')!, { name, isActive: isActive !== undefined ? (isActive ? 1 : 0) : undefined });
   return c.json({ ok: true });
 });
 
 studios.post('/acquisition-users/:id/magic-link', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const user = await repo.getAcquisitionUser(c.req.param('id'));
+  const user = await repo.getAcquisitionUser(c.req.param('id')!);
   if (!user) return c.json({ error: 'User not found' }, 404);
   const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
