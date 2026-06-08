@@ -637,9 +637,11 @@ async function executeProcessingJob(payload) {
       errors: [error instanceof Error ? error.message : String(error)],
     };
   } finally {
-    for (const key of _zipCache.keys()) {
-      if (key.startsWith(workDir)) evictZip(key);
-    }
+    try {
+      for (const key of _zipCache.keys()) {
+        if (key.startsWith(workDir)) evictZip(key);
+      }
+    } catch (_) {}
     await rm(workDir, { recursive: true, force: true });
   }
 }
