@@ -71,7 +71,15 @@ async function enqueueDriveIntake(env: Env, repo: Repository, batchId: string, a
   if (!batch.metadataSheetObjectKey) {
     throw new Error("Attach the metadata workbook before starting Drive import.");
   }
-  requireStatus(batch.status, ["ingested", "metadata_sheet_selected", "intake_failed"], "Start intake");
+  // "normalizing" and "intake_queued" are included so an operator can recover a
+  // batch that got stuck mid-intake (e.g. a single file looping on retries).
+  // Re-enqueuing is safe: intake is resumable and idempotent — already-copied
+  // files are skipped via R2 size-check, and pending skip requests are honored.
+  requireStatus(
+    batch.status,
+    ["ingested", "metadata_sheet_selected", "intake_failed", "intake_queued", "normalizing"],
+    "Start intake",
+  );
   await repo.updateBatch(batchId, {
     status: "intake_queued",
     normalization: {

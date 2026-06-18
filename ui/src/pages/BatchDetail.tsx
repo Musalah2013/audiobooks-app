@@ -911,7 +911,7 @@ export default function BatchDetail() {
           {/* Header */}
           <div className="flex items-center gap-3">
             <Loader2 className="w-5 h-5 text-sky-600 animate-spin shrink-0" />
-            <div>
+            <div className="flex-1">
               <p className="font-semibold text-[color:var(--samawy-ink)]">
                 {status === 'intake_queued'
                   ? (isArabic ? 'استيراد Drive في قائمة الانتظار…' : 'Drive intake queued…')
@@ -924,6 +924,17 @@ export default function BatchDetail() {
                   : <span className="ms-2 text-amber-500">● {isArabic ? 'إعادة اتصال' : 'reconnecting'}</span>}
               </p>
             </div>
+            {/* Recovery for a stuck intake: re-enqueues and resumes from where it left off. */}
+            <button
+              type="button"
+              className="btn-secondary text-xs shrink-0"
+              onClick={retryIntake}
+              disabled={actionLoading === 'retry-intake'}
+              title={isArabic ? 'إعادة تشغيل الاستيراد إذا توقف' : 'Restart intake if it appears stuck'}
+            >
+              {actionLoading === 'retry-intake' ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+              {isArabic ? 'إعادة تشغيل الاستيراد' : 'Restart intake'}
+            </button>
           </div>
 
           {/* Step timeline */}
