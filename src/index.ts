@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Env, QueueMessage } from "./types";
 import { Repository } from "./db";
-import { normalizeDriveIntake, normalizeUploadedBatch, parseBatchMetadata, writeIntakeReport } from "./pipeline";
+import { IntakeCheckpointError, normalizeDriveIntake, normalizeUploadedBatch, parseBatchMetadata, writeIntakeReport } from "./pipeline";
 import { DossierWorkflow, ProcessingWorkflow, runProcessingPipeline } from "./workflows";
 import { AudioProcessorContainer } from "./container";
 import { nowIso, extractDriveFolderId } from "./utils";
@@ -157,6 +157,21 @@ const queueHandler = async (batch: MessageBatch<unknown>, env: Env) => {
     } catch (error) {
       console.error(`Queue job failed for ${payload.type}:`, error);
       if (payload.type === "drive-intake" || payload.type === "upload-intake") {
+        // Intake is resumable: copied files are already persisted in R2 and the
+        // normalizer skips them on the next attempt. So instead of failing hard,
+        // redeliver the message until the work completes or we exhaust attempts.
+        // A time-budget checkpoint (IntakeCheckpointError) is an expected pause,
+        // not a real failure, so it never counts toward the failure ceiling.
+        const isCheckpoint = error instanceof IntakeCheckpointError;
+        const MAX_INTAKE_ATTEMPTS = 8;
+        if (isCheckpoint || message.attempts < MAX_INTAKE_ATTEMPTS) {
+          const delaySeconds = isCheckpoint ? 1 : Math.min(60, 2 ** message.attempts);
+          console.warn(
+            `Intake ${payload.type} for ${payload.batchId} will resume (attempt ${message.attempts}, checkpoint=${isCheckpoint}).`,
+          );
+          message.retry({ delaySeconds });
+          continue;
+        }
         const current = await repo.getBatch(payload.batchId);
         if (current) {
           await repo.updateBatch(payload.batchId, {
