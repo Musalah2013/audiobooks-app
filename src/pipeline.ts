@@ -837,9 +837,30 @@ function createProgressWriter(repo: Repository, batchId: string) {
 }
 
 async function getSkipRequests(repo: Repository, batchId: string): Promise<string[]> {
+  // Skip requests are read from the append-only audit log rather than from
+  // normalization.skipRequests. The intake progress writer rewrites the whole
+  // normalization_json every few hundred ms during a download, which races with
+  // and clobbers the skip request written by the /skip-file endpoint before the
+  // skip watcher can observe it. The audit log is never overwritten, so it is a
+  // reliable source of truth for "which files has an operator asked to skip".
+  const events = await repo.listAuditEvents("ingestion_batch", batchId, 500);
+  const keys = new Set<string>();
+  for (const event of events) {
+    if (event.action !== "file.skip_requested") continue;
+    try {
+      const objectKey = String((JSON.parse(event.detailJson ?? "{}") as { objectKey?: unknown }).objectKey ?? "");
+      if (objectKey) keys.add(objectKey);
+    } catch {
+      // ignore malformed audit detail
+    }
+  }
+  // Fall back to any legacy entries still living in normalization.skipRequests.
   const batch = await repo.getBatch(batchId);
-  const requests = batch?.normalization?.skipRequests;
-  return Array.isArray(requests) ? requests.map((value) => String(value)) : [];
+  const legacy = batch?.normalization?.skipRequests;
+  if (Array.isArray(legacy)) {
+    for (const value of legacy) keys.add(String(value));
+  }
+  return [...keys];
 }
 
 async function clearSkipRequest(repo: Repository, batchId: string, key: string) {
@@ -959,7 +980,7 @@ export async function normalizeDriveIntake(env: Env, repo: Repository, batchId: 
             skipRequested = true;
             return;
           }
-          await sleep(500);
+          await sleep(1000);
         }
       })();
 
