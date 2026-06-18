@@ -6,6 +6,7 @@ import { normalizeDriveIntake, normalizeUploadedBatch, parseBatchMetadata, write
 import { DossierWorkflow, ProcessingWorkflow, runProcessingPipeline } from "./workflows";
 import { AudioProcessorContainer } from "./container";
 import { nowIso, extractDriveFolderId } from "./utils";
+import { sendEmail, driveUploadCompleteEmail } from "./email";
 
 // API modules
 import dashboard from "./api/dashboard";
@@ -116,6 +117,15 @@ const queueHandler = async (batch: MessageBatch<unknown>, env: Env) => {
         const driveFile = await uploadFileToDrive(env, folderId, upload.name, fileData, mimeType);
         console.log(`[drive-sync] Upload succeeded: ${driveFile.id}`);
         await repo.updateDriveUpload(driveUploadId, { status: "completed", driveFileId: driveFile.id });
+        if (env.EMAIL && studio.contact_email) {
+          await sendEmail({
+            to: studio.contact_email,
+            toName: studio.name,
+            subject: `تم رفع الملف "${upload.name}" إلى Google Drive`,
+            html: driveUploadCompleteEmail(upload.name, studio.name, driveFile.id),
+            emailBinding: env.EMAIL,
+          }).catch(() => {});
+        }
         message.ack();
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
