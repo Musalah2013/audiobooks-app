@@ -94,6 +94,8 @@ export default function BookDetail() {
   const [revertBookConfirm, setRevertBookConfirm] = useState(false);
   const [clickupUrgent, setClickupUrgent] = useState(false);
   const [clickupStatusName, setClickupStatusName] = useState('');
+  const [reuploadPercent, setReuploadPercent] = useState<number | null>(null);
+  const reuploadInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const activeStatuses = new Set(['queued', 'running', 'generating', 'building_dossier']);
@@ -195,6 +197,37 @@ export default function BookDetail() {
       });
       addToast(isArabic ? 'تم حفظ البيانات الوصفية.' : 'Metadata saved.', 'success');
     });
+  }
+
+  async function handleReupload(file: File) {
+    if (!/\.zip$/i.test(file.name)) {
+      addToast(isArabic ? 'يُقبل فقط ملفات ZIP.' : 'Only ZIP files are accepted.', 'error');
+      return;
+    }
+    setReuploadPercent(0);
+    try {
+      const { uploadUrl, objectKey } = await apiRequest<{ uploadUrl: string; objectKey: string }>(
+        `/api/books/${id}/reupload-url`,
+        { method: 'POST', body: { fileName: file.name, contentType: 'application/zip' } },
+      );
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', 'application/zip');
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) setReuploadPercent(Math.round((e.loaded / e.total) * 100)); };
+        xhr.onload = () => xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`));
+        xhr.onerror = () => reject(new Error('Upload failed due to a network error'));
+        xhr.send(file);
+      });
+      await apiRequest(`/api/books/${id}/finalize-reupload`, { method: 'POST', body: { objectKey } });
+      addToast(isArabic ? 'تم رفع الملف البديل. أعد تجهيز التراكات.' : 'Replacement file uploaded. Re-prepare tracks.', 'success');
+      refetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الرفع' : 'Upload failed'), 'error');
+    } finally {
+      setReuploadPercent(null);
+      if (reuploadInputRef.current) reuploadInputRef.current.value = '';
+    }
   }
 
   async function handleCoverUpload(file: File) {
@@ -531,9 +564,34 @@ export default function BookDetail() {
               </div>
             )}
             {book?.processingStatus === 'failed' && (
-              <div className="flex items-center gap-2 text-sm text-red-600">
-                <AlertCircle className="h-4 w-4" />
-                {isArabic ? 'فشلت المعالجة — راجع تبويب السجل للتفاصيل.' : 'Processing failed — check the Log tab for details.'}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-red-600">
+                  <AlertCircle className="h-4 w-4" />
+                  {isArabic ? 'فشلت المعالجة — راجع تبويب السجل للتفاصيل.' : 'Processing failed — check the Log tab for details.'}
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs"
+                    disabled={reuploadPercent !== null}
+                    onClick={() => reuploadInputRef.current?.click()}
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    {reuploadPercent !== null
+                      ? (isArabic ? `جاري الرفع ${reuploadPercent}%…` : `Uploading ${reuploadPercent}%…`)
+                      : (isArabic ? 'رفع ملف ZIP بديل' : 'Upload replacement ZIP')}
+                  </button>
+                  <p className="text-xs text-[color:var(--fg-2)]">
+                    {isArabic ? 'سيحل الملف الجديد محل التراكات الحالية.' : 'The new file will replace the current tracks.'}
+                  </p>
+                </div>
+                <input
+                  ref={reuploadInputRef}
+                  type="file"
+                  accept=".zip"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleReupload(f); }}
+                />
               </div>
             )}
           </section>

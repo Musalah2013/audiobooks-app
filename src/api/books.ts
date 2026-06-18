@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { AudioProcessorContainer } from '../container';
 import { Repository } from '../db';
-import { buildTrackDrafts, generateAudiobookWorkbookBuffer, generateInteractiveSample, revertBook, syncAudiobookToClickUp } from '../pipeline';
+import { buildTrackDrafts, createUploadUrl, generateAudiobookWorkbookBuffer, generateInteractiveSample, revertBook, syncAudiobookToClickUp } from '../pipeline';
 import { buildProcessingPayload } from '../processing-contract';
 import type { Env, TrackDraft } from '../types';
 import { buildCatalogStorageBasePath, keySegments, signInternalArtifactUrl } from '../utils';
@@ -12,7 +12,7 @@ import { requirePermission } from './auth';
 const books = new Hono<{ Bindings: Env }>();
 
 function maybeAudioName(name: string) {
-  return /\.(mp3|m4a|wav)$/i.test(name);
+  return /\.(mp3|m4a|m4b|wav|flac|aac|ogg)$/i.test(name);
 }
 
 function maybeZipName(name: string) {
@@ -380,6 +380,57 @@ books.post('/bulk-delete', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
   await Promise.all(ids.map((id) => deleteBookWithR2(c.env, repo, id)));
   return c.json({ ok: true, deleted: ids.length });
+});
+
+books.post('/:id/reupload-url', async (c) => {
+  const repo = new Repository(c.env.DB);
+  const book = await repo.getAudiobook(c.req.param("id"));
+  if (!book) return c.json({ error: "Book not found" }, 404);
+  if (book.processingStatus !== "failed") {
+    return c.json({ error: "Reupload is only available for books with failed processing." }, 400);
+  }
+  const body = await c.req.json();
+  const { fileName, contentType } = z.object({ fileName: z.string(), contentType: z.string() }).parse(body);
+  if (!/\.zip$/i.test(fileName)) return c.json({ error: "Only ZIP files are accepted for reupload." }, 400);
+  const key = keySegments("ingestions", book.batchId, "replacement", book.id, fileName);
+  const upload = await createUploadUrl(c.env, key, contentType);
+  return c.json({ ...upload, objectKey: key });
+});
+
+books.post('/:id/finalize-reupload', async (c) => {
+  const repo = new Repository(c.env.DB);
+  const book = await repo.getAudiobook(c.req.param("id"));
+  if (!book) return c.json({ error: "Book not found" }, 404);
+  if (book.processingStatus !== "failed") {
+    return c.json({ error: "Reupload is only available for books with failed processing." }, 400);
+  }
+  const { objectKey } = z.object({ objectKey: z.string() }).parse(await c.req.json());
+  const object = await c.env.ASSET_BUCKET.head(objectKey);
+  if (!object) return c.json({ error: "Uploaded file not found in storage." }, 404);
+
+  const candidate = (await repo.listCandidates(book.batchId)).find((c) => c.id === book.candidateId);
+  if (!candidate) return c.json({ error: "Candidate not found." }, 404);
+
+  const fileName = objectKey.split("/").pop() ?? "book.zip";
+  const newSourceGroup = {
+    ...(candidate.sourceGroup ?? {}),
+    items: [{ key: objectKey, name: fileName, mimeType: "application/zip", sizeBytes: object.size, parentPath: "" }],
+    coverCandidates: candidate.sourceGroup?.coverCandidates ?? [],
+  };
+  await repo.updateCandidateSourceGroup(candidate.id, newSourceGroup.groupKey ?? null, newSourceGroup as Parameters<typeof repo.updateCandidateSourceGroup>[2]);
+  await repo.replaceTracks(book.id, []);
+  await repo.updateAudiobook(book.id, {
+    processingStatus: "pending",
+    dossierStatus: "pending",
+    dossierWorkbookKey: null,
+    dossierAudioZipKey: null,
+    sampleTrackId: null,
+    sampleStartSeconds: null,
+    sampleEndSeconds: null,
+    sampleObjectKey: null,
+    sampleGeneratedAt: null,
+  });
+  return c.json({ ok: true });
 });
 
 books.post('/:id/revert', requirePermission('users'), async (c) => {
