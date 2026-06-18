@@ -177,8 +177,16 @@ export async function listDriveFiles(
   const visitedFiles = new Set<string>();
   let traversedEntries = 0;
 
+  // Safety caps so a pathologically large or cyclic Drive structure can't make
+  // listing run unbounded (and exhaust the Worker before copying even starts).
+  const MAX_FILES = 25_000;
+  const MAX_FOLDERS = 8_000;
+
   async function listFolder(folderId: string, parentPath: string) {
     if (visitedFolders.has(folderId)) return;
+    if (visitedFolders.size >= MAX_FOLDERS) {
+      throw new Error(`Drive folder traversal exceeded ${MAX_FOLDERS} folders; refusing to continue. Split the source into smaller folders.`);
+    }
     visitedFolders.add(folderId);
     let pageToken: string | undefined;
     do {
@@ -213,6 +221,9 @@ export async function listDriveFiles(
 
       for (const file of payload.files) {
         traversedEntries += 1;
+        if (results.length >= MAX_FILES) {
+          throw new Error(`Drive folder contains more than ${MAX_FILES} downloadable files; refusing to continue. Split the source into smaller folders.`);
+        }
         if (isMacJunk(file.name)) continue;
         if (file.mimeType === "application/vnd.google-apps.folder") {
           if (recursive) {

@@ -1,0 +1,87 @@
+name: Auto Merge
+
+# Merges pull requests automatically once the Deploy workflow succeeds.
+# Gated by the `automerge` label so merges are always opt-in per PR.
+#
+# This is an Actions-based merge (via the API) rather than GitHub's native
+# auto-merge, because native auto-merge requires the repo-level "Allow
+# auto-merge" setting which is currently disabled for this repository.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
+  workflow_run:
+    workflows: ["Deploy to Cloudflare"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    # On a workflow_run trigger only proceed when the Deploy run succeeded.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Merge eligible PRs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+
+            // Collect candidate PRs depending on what triggered us.
+            let prNumbers = [];
+            if (context.eventName === 'pull_request') {
+              prNumbers = [context.payload.pull_request.number];
+            } else {
+              // workflow_run: find open PRs whose head SHA matches the run.
+              const headSha = context.payload.workflow_run.head_sha;
+              const { data: prs } = await github.rest.pulls.list({
+                owner, repo, state: 'open', per_page: 100,
+              });
+              prNumbers = prs.filter(p => p.head.sha === headSha).map(p => p.number);
+            }
+
+            for (const number of prNumbers) {
+              const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+
+              if (pr.state !== 'open') { core.info(`PR #${number}: not open, skipping.`); continue; }
+              if (pr.draft) { core.info(`PR #${number}: draft, skipping.`); continue; }
+
+              const hasLabel = pr.labels.some(l => l.name === 'automerge');
+              if (!hasLabel) { core.info(`PR #${number}: no 'automerge' label, skipping.`); continue; }
+
+              // Confirm the latest commit's checks are all green.
+              const { data: checks } = await github.rest.checks.listForRef({
+                owner, repo, ref: pr.head.sha, per_page: 100,
+              });
+              const runs = checks.check_runs.filter(r => r.name !== 'Merge eligible PRs');
+              const incomplete = runs.filter(r => r.status !== 'completed');
+              const failed = runs.filter(r =>
+                r.status === 'completed' &&
+                !['success', 'neutral', 'skipped'].includes(r.conclusion));
+              if (incomplete.length > 0) {
+                core.info(`PR #${number}: ${incomplete.length} checks still running, will retry on next event.`);
+                continue;
+              }
+              if (failed.length > 0) {
+                core.info(`PR #${number}: ${failed.length} checks failed, not merging.`);
+                continue;
+              }
+
+              if (pr.mergeable_state === 'dirty') {
+                core.info(`PR #${number}: merge conflicts, not merging.`);
+                continue;
+              }
+
+              try {
+                await github.rest.pulls.merge({
+                  owner, repo, pull_number: number, merge_method: 'squash',
+                });
+                core.info(`PR #${number}: merged.`);
+              } catch (err) {
+                core.warning(`PR #${number}: merge failed - ${err.message}`);
+              }
+            }

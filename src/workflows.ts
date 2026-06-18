@@ -127,7 +127,7 @@ export async function runProcessingPipeline(env: Env, payload: ProcessingJobPayl
 export class ProcessingWorkflow extends WorkflowEntrypoint<Env, { payload: ProcessingJobPayload }> {
   async run(event: WorkflowEvent<{ payload: ProcessingJobPayload }>, step: WorkflowStep) {
     const payload = event.payload.payload;
-    await step.do("run processing pipeline", async () => {
+    await step.do("run processing pipeline", { retries: { limit: 2, delay: "10 seconds" } }, async () => {
       await runProcessingPipeline(this.env, payload);
     });
   }

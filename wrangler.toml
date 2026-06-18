@@ -16,7 +16,7 @@ CLICKUP_API_BASE_URL = "https://api.clickup.com/api/v2"
 CLICKUP_AUDIOBOOKS_LIST_ID = "901211916918"
 SOURCE_BUCKET_NAME = "audiobooks-ops-prod-20260510"
 INTERNAL_API_SECRET = "dev-internal-api-secret"
-APP_BASE_URL = "https://samawy-ops.com"
+APP_BASE_URL = "https://audiobooks.samawy-ops.com"
 
 [[d1_databases]]
 binding = "DB"
@@ -36,6 +36,9 @@ queue = "audiobooks-ingest-prod-20260510"
 queue = "audiobooks-ingest-prod-20260510"
 max_batch_size = 10
 max_batch_timeout = 5
+# Intake is resumable and checkpoints itself on a time budget, so allow plenty of
+# redeliveries for large Drive folders to complete across multiple attempts.
+max_retries = 20
 
 [[queues.producers]]
 binding = "STUDIO_DRIVE_SYNC_QUEUE"

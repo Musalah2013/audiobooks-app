@@ -43,6 +43,18 @@ import {
   toNumber,
 } from "./utils";
 
+/**
+ * Thrown by intake normalization when a single queue attempt reaches its time
+ * budget. It signals the queue handler to redeliver the message (resuming from
+ * the R2 checkpoint) rather than marking the batch as permanently failed.
+ */
+export class IntakeCheckpointError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "IntakeCheckpointError";
+  }
+}
+
 function maybeCover(item: SourceManifestItem): boolean {
   // Any image file in a book source folder is treated as a cover candidate.
   // Arabic books commonly use names like "صورة.jpg", "الغلاف.jpg", or generic "1.jpg".
@@ -915,6 +927,14 @@ export async function normalizeDriveIntake(env: Env, repo: Repository, batchId: 
   let nextIndex = 0;
   const manifestBuckets: SourceManifestItem[][] = Array.from({ length: concurrency }, () => []);
 
+  // Time-budget checkpoint: a single queue attempt should not run indefinitely.
+  // When the budget is reached we stop picking up new files, persist progress,
+  // and throw so the queue redelivers the message — the resume-by-R2-size logic
+  // (shouldCheckExisting) then skips everything already copied and continues.
+  const startedAt = Date.now();
+  const MAX_RUN_MS = 10 * 60 * 1000;
+  let timedOut = false;
+
   async function copyOne(item: SourceManifestItem): Promise<SourceManifestItem | null> {
     const key = buildDriveSourceObjectKey(ingestionBatchId, item);
     if (shouldCheckExisting) {
@@ -1097,6 +1117,11 @@ export async function normalizeDriveIntake(env: Env, repo: Repository, batchId: 
   await Promise.all(
     manifestBuckets.map(async (bucket) => {
       while (true) {
+        if (timedOut) break;
+        if (Date.now() - startedAt > MAX_RUN_MS) {
+          timedOut = true;
+          break;
+        }
         const currentIndex = nextIndex++;
         if (currentIndex >= driveItems.length) break;
         const item = driveItems[currentIndex];
@@ -1151,6 +1176,27 @@ export async function normalizeDriveIntake(env: Env, repo: Repository, batchId: 
   );
 
   manifest.push(...manifestBuckets.flat().sort((a, b) => a.key.localeCompare(b.key)));
+
+  if (timedOut) {
+    await progress.update({
+      phase: "copying_source_files",
+      currentItem: null,
+      totalSourceFiles,
+      totalSourceBytes,
+      copiedSourceFiles,
+      copiedSourceBytes,
+      activeTransfers: [],
+      lastError: "Checkpoint: time budget reached for this attempt; resuming automatically.",
+    }, { force: true });
+    await progress.log(
+      `Checkpoint reached after copying ${copiedSourceFiles}/${totalSourceFiles} files. Will resume from where it left off on the next attempt.`,
+      { level: "warn", force: true },
+    );
+    await progress.flush();
+    // Thrown so the queue redelivers; resume picks up the remaining files.
+    throw new IntakeCheckpointError(`intake_checkpoint: copied ${copiedSourceFiles}/${totalSourceFiles}`);
+  }
+
   await progress.flush();
 
   if (manifest.length === 0 && driveItems.length > 0) {
