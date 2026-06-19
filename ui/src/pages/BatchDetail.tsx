@@ -1122,6 +1122,7 @@ export default function BatchDetail() {
         <CollapsibleCard
           title={isArabic ? 'سجلات الاستيراد' : 'Intake Logs'}
           extra={<span className="text-sm text-gray-500">{intakeLogs.length} {isArabic ? 'إدخالات' : 'entries'}</span>}
+          defaultOpen={false}
         >
           <div className="rounded-lg border border-gray-200 bg-gray-950 text-gray-100 max-h-96 overflow-auto">
             <div className="p-3 space-y-2 font-mono text-xs">

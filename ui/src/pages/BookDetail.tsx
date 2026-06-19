@@ -44,7 +44,7 @@ function computeDossierProgress(events: Array<{ action: string; detailJson: stri
   }
 }
 
-type TabKey = 'prep' | 'sample' | 'dossier' | 'metadata' | 'logs';
+type TabKey = 'prep' | 'sample' | 'dossier' | 'metadata';
 
 interface MetaForm {
   title: string;
@@ -94,8 +94,7 @@ export default function BookDetail() {
   const [revertBookConfirm, setRevertBookConfirm] = useState(false);
   const [clickupUrgent, setClickupUrgent] = useState(false);
   const [clickupStatusName, setClickupStatusName] = useState('');
-  const [reuploadPercent, setReuploadPercent] = useState<number | null>(null);
-  const reuploadInputRef = useRef<HTMLInputElement>(null);
+  const [showLog, setShowLog] = useState(false);
 
   useEffect(() => {
     const activeStatuses = new Set(['queued', 'running', 'generating', 'building_dossier']);
@@ -197,37 +196,6 @@ export default function BookDetail() {
       });
       addToast(isArabic ? 'تم حفظ البيانات الوصفية.' : 'Metadata saved.', 'success');
     });
-  }
-
-  async function handleReupload(file: File) {
-    if (!/\.zip$/i.test(file.name)) {
-      addToast(isArabic ? 'يُقبل فقط ملفات ZIP.' : 'Only ZIP files are accepted.', 'error');
-      return;
-    }
-    setReuploadPercent(0);
-    try {
-      const { uploadUrl, objectKey } = await apiRequest<{ uploadUrl: string; objectKey: string }>(
-        `/api/books/${id}/reupload-url`,
-        { method: 'POST', body: { fileName: file.name, contentType: 'application/zip' } },
-      );
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('PUT', uploadUrl);
-        xhr.setRequestHeader('Content-Type', 'application/zip');
-        xhr.upload.onprogress = (e) => { if (e.lengthComputable) setReuploadPercent(Math.round((e.loaded / e.total) * 100)); };
-        xhr.onload = () => xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`));
-        xhr.onerror = () => reject(new Error('Upload failed due to a network error'));
-        xhr.send(file);
-      });
-      await apiRequest(`/api/books/${id}/finalize-reupload`, { method: 'POST', body: { objectKey } });
-      addToast(isArabic ? 'تم رفع الملف البديل. أعد تجهيز التراكات.' : 'Replacement file uploaded. Re-prepare tracks.', 'success');
-      refetch();
-    } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الرفع' : 'Upload failed'), 'error');
-    } finally {
-      setReuploadPercent(null);
-      if (reuploadInputRef.current) reuploadInputRef.current.value = '';
-    }
   }
 
   async function handleCoverUpload(file: File) {
@@ -335,7 +303,6 @@ export default function BookDetail() {
     { key: 'sample', label: isArabic ? 'العينة' : 'Sample', icon: Scissors },
     { key: 'dossier', label: isArabic ? 'الدوسيه' : 'Dossier', icon: BookOpen },
     { key: 'metadata', label: isArabic ? 'البيانات' : 'Metadata', icon: Edit3 },
-    { key: 'logs', label: isArabic ? 'السجل' : 'Log', icon: FileCheck2 },
   ];
 
   const metaField = (key: keyof MetaForm, label: string, opts?: { multiline?: boolean; type?: string; placeholder?: string }) => (
@@ -480,120 +447,127 @@ export default function BookDetail() {
         <div className="space-y-4">
           <section className="card space-y-4">
             <h3 className="text-base font-bold text-[color:var(--samawy-ink)]">{isArabic ? 'خطوات التحضير' : 'Preparation steps'}</h3>
-            <div className="flex flex-wrap gap-3">
-              {tracks.length > 0 && !canPrepareTracks ? (
-                <span className="flex items-center gap-1.5 px-4 py-2 rounded-[14px] text-sm font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <CheckCircle2 className="h-4 w-4" />
-                  {isArabic ? 'تم تجهيز التراكات' : 'Tracks Prepared'}
-                </span>
-              ) : (
-                <div className="flex flex-col gap-1.5">
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    disabled={actionLoading === 'prepare' || !canPrepareTracks}
-                    title={isArabic ? 'اكتشف التراكات الصوتية من الملفات المصدر وأنشئ قائمة أولية' : 'Detect audio tracks from the source files and build the initial list'}
-                    onClick={() => runAction('prepare', async () => {
-                      await apiRequest(`/api/books/${id}/prepare-tracks`, { method: 'POST' });
-                      addToast(isArabic ? 'تم تجهيز التراكات.' : 'Tracks prepared.', 'success');
-                    })}
-                  >
-                    {actionLoading === 'prepare' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                    {actionLoading === 'prepare'
-                      ? (isArabic ? 'جاري الفحص…' : 'Inspecting…')
-                      : (isArabic ? 'تجهيز التراكات' : 'Prepare Tracks')}
-                  </button>
-                  {actionLoading === 'prepare' && (
-                    <p className="text-xs text-sky-600">{isArabic ? 'يتم فحص بنية الأرشيف، قد يستغرق بضع ثوانٍ…' : 'Inspecting archive structure, may take a few seconds…'}</p>
-                  )}
-                </div>
-              )}
-              {allTracksApproved ? (
-                <span className="flex items-center gap-1.5 px-4 py-2 rounded-[14px] text-sm font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <CheckCircle2 className="h-4 w-4" />
-                  {isArabic ? 'تم اعتماد التراكات' : 'Tracks Approved'}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  disabled={actionLoading === 'approve' || !canApproveTracks}
-                  title={isArabic ? 'احفظ عناوين التراكات وترتيبها النهائي لإتاحة بدء المعالجة' : 'Lock track titles and order to unlock audio processing'}
-                  onClick={() => runAction('approve', async () => {
-                    await apiRequest(`/api/books/${id}/approve-tracks`, {
-                      method: 'POST',
-                      body: { tracks: tracks.map((t, i) => ({ id: t.id, finalTitle: (editableTitles[t.id] || t.finalTitle || t.originalFilename).trim(), finalOrderIndex: i + 1 })) },
-                    });
-                    addToast(isArabic ? 'تم اعتماد التراكات.' : 'Tracks approved.', 'success');
-                  })}
-                >
-                  <CheckCircle2 className="h-4 w-4" />
-                  {isArabic ? 'اعتماد التراكات' : 'Approve Tracks'}
-                </button>
-              )}
-              {processingSucceeded ? (
-                <span className="flex items-center gap-1.5 px-4 py-2 rounded-[14px] text-sm font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <CheckCircle2 className="h-4 w-4" />
-                  {isArabic ? 'اكتملت المعالجة' : 'Processing Done'}
-                </span>
-              ) : isProcessing ? (
-                <button type="button" className="btn-secondary opacity-60 cursor-not-allowed" disabled title={isArabic ? 'المعالجة جارية الآن' : 'Processing is currently running'}>
-                  <Play className="h-4 w-4 animate-pulse" />
-                  {isArabic ? 'المعالجة جارية…' : 'Processing…'}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn-primary"
-                  disabled={actionLoading === 'process' || !canStartProcessing}
-                  title={isArabic ? 'ابدأ تحويل الملفات الصوتية وضغطها في الحاوية' : 'Start transcoding and normalizing all approved audio tracks in the container'}
-                  onClick={() => runAction('process', async () => {
-                    await apiRequest(`/api/books/${id}/start-processing`, { method: 'POST' });
-                    addToast(isArabic ? 'بدأت معالجة الصوت.' : 'Audio processing started.', 'success');
-                  })}
-                >
-                  <Play className="h-4 w-4" />
-                  {isArabic ? 'بدء المعالجة' : 'Start Processing'}
-                </button>
-              )}
-            </div>
-            {isProcessing && (
-              <div className="flex items-center gap-2 text-sm text-sky-700">
-                <div className="h-2 w-2 rounded-full bg-sky-500 animate-pulse" />
-                {isArabic ? 'معالجة الصوت جارية…' : 'Audio processing in progress…'}
-              </div>
-            )}
-            {book?.processingStatus === 'failed' && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm text-red-600">
-                  <AlertCircle className="h-4 w-4" />
-                  {isArabic ? 'فشلت المعالجة — راجع تبويب السجل للتفاصيل.' : 'Processing failed — check the Log tab for details.'}
-                </div>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <button
-                    type="button"
-                    className="btn-secondary text-xs"
-                    disabled={reuploadPercent !== null}
-                    onClick={() => reuploadInputRef.current?.click()}
-                  >
-                    <Upload className="h-3.5 w-3.5" />
-                    {reuploadPercent !== null
-                      ? (isArabic ? `جاري الرفع ${reuploadPercent}%…` : `Uploading ${reuploadPercent}%…`)
-                      : (isArabic ? 'رفع ملف ZIP بديل' : 'Upload replacement ZIP')}
-                  </button>
-                  <p className="text-xs text-[color:var(--fg-2)]">
-                    {isArabic ? 'سيحل الملف الجديد محل التراكات الحالية.' : 'The new file will replace the current tracks.'}
-                  </p>
-                </div>
-                <input
-                  ref={reuploadInputRef}
-                  type="file"
-                  accept=".zip"
-                  className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleReupload(f); }}
-                />
-              </div>
-            )}
+            <ol className="space-y-4">
+              {/* Step 1: Prepare Tracks */}
+              {(() => {
+                const done = tracks.length > 0 && !canPrepareTracks;
+                const active = canPrepareTracks;
+                return (
+                  <li className="flex items-start gap-4">
+                    <span className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold mt-0.5 ${done ? 'bg-emerald-500 text-white' : active ? 'bg-sky-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                      {done ? <CheckCircle2 className="h-4 w-4" /> : '1'}
+                    </span>
+                    <div className="flex-1 space-y-2">
+                      <p className={`text-sm font-semibold ${done ? 'text-emerald-700' : active ? 'text-sky-700' : 'text-[color:var(--fg-2)]'}`}>{isArabic ? 'تجهيز التراكات' : 'Prepare Tracks'}</p>
+                      {done ? (
+                        <span className="text-xs text-emerald-600">{isArabic ? 'تم تجهيز التراكات' : 'Tracks prepared'}</span>
+                      ) : (
+                        <div className="flex flex-col gap-1.5">
+                          <button
+                            type="button"
+                            className="btn-secondary self-start"
+                            disabled={actionLoading === 'prepare' || !canPrepareTracks}
+                            title={isArabic ? 'اكتشف التراكات الصوتية من الملفات المصدر وأنشئ قائمة أولية' : 'Detect audio tracks from the source files and build the initial list'}
+                            onClick={() => runAction('prepare', async () => {
+                              await apiRequest(`/api/books/${id}/prepare-tracks`, { method: 'POST' });
+                              addToast(isArabic ? 'تم تجهيز التراكات.' : 'Tracks prepared.', 'success');
+                            })}
+                          >
+                            {actionLoading === 'prepare' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                            {actionLoading === 'prepare'
+                              ? (isArabic ? 'جاري الفحص…' : 'Inspecting…')
+                              : (isArabic ? 'تجهيز التراكات' : 'Prepare Tracks')}
+                          </button>
+                          {actionLoading === 'prepare' && (
+                            <p className="text-xs text-sky-600">{isArabic ? 'يتم فحص بنية الأرشيف، قد يستغرق بضع ثوانٍ…' : 'Inspecting archive structure, may take a few seconds…'}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })()}
+              {/* Step 2: Approve Tracks */}
+              {(() => {
+                const done = allTracksApproved;
+                const active = tracks.length > 0 && !allTracksApproved && !canPrepareTracks;
+                return (
+                  <li className="flex items-start gap-4">
+                    <span className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold mt-0.5 ${done ? 'bg-emerald-500 text-white' : active ? 'bg-sky-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                      {done ? <CheckCircle2 className="h-4 w-4" /> : '2'}
+                    </span>
+                    <div className="flex-1 space-y-2">
+                      <p className={`text-sm font-semibold ${done ? 'text-emerald-700' : active ? 'text-sky-700' : 'text-[color:var(--fg-2)]'}`}>{isArabic ? 'اعتماد التراكات' : 'Approve Tracks'}</p>
+                      {done ? (
+                        <span className="text-xs text-emerald-600">{isArabic ? 'تم اعتماد التراكات' : 'Tracks approved'}</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={actionLoading === 'approve' || !canApproveTracks}
+                          title={isArabic ? 'احفظ عناوين التراكات وترتيبها النهائي لإتاحة بدء المعالجة' : 'Lock track titles and order to unlock audio processing'}
+                          onClick={() => runAction('approve', async () => {
+                            await apiRequest(`/api/books/${id}/approve-tracks`, {
+                              method: 'POST',
+                              body: { tracks: tracks.map((t, i) => ({ id: t.id, finalTitle: (editableTitles[t.id] || t.finalTitle || t.originalFilename).trim(), finalOrderIndex: i + 1 })) },
+                            });
+                            addToast(isArabic ? 'تم اعتماد التراكات.' : 'Tracks approved.', 'success');
+                          })}
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          {isArabic ? 'اعتماد التراكات' : 'Approve Tracks'}
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })()}
+              {/* Step 3: Start Processing */}
+              {(() => {
+                const done = processingSucceeded;
+                const active = allTracksApproved && !processingSucceeded;
+                return (
+                  <li className="flex items-start gap-4">
+                    <span className={`shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold mt-0.5 ${done ? 'bg-emerald-500 text-white' : active ? 'bg-sky-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                      {done ? <CheckCircle2 className="h-4 w-4" /> : '3'}
+                    </span>
+                    <div className="flex-1 space-y-2">
+                      <p className={`text-sm font-semibold ${done ? 'text-emerald-700' : active ? 'text-sky-700' : 'text-[color:var(--fg-2)]'}`}>{isArabic ? 'بدء المعالجة' : 'Start Processing'}</p>
+                      {done ? (
+                        <span className="text-xs text-emerald-600">{isArabic ? 'اكتملت المعالجة' : 'Processing completed'}</span>
+                      ) : isProcessing ? (
+                        <div className="flex items-center gap-2 text-sm text-sky-700">
+                          <Play className="h-4 w-4 animate-pulse" />
+                          {isArabic ? 'المعالجة جارية…' : 'Processing…'}
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            className="btn-primary"
+                            disabled={actionLoading === 'process' || !canStartProcessing}
+                            title={isArabic ? 'ابدأ تحويل الملفات الصوتية وضغطها في الحاوية' : 'Start transcoding and normalizing all approved audio tracks in the container'}
+                            onClick={() => runAction('process', async () => {
+                              await apiRequest(`/api/books/${id}/start-processing`, { method: 'POST' });
+                              addToast(isArabic ? 'بدأت معالجة الصوت.' : 'Audio processing started.', 'success');
+                            })}
+                          >
+                            <Play className="h-4 w-4" />
+                            {isArabic ? 'بدء المعالجة' : 'Start Processing'}
+                          </button>
+                          {book?.processingStatus === 'failed' && (
+                            <div className="flex items-center gap-2 text-sm text-red-600">
+                              <AlertCircle className="h-4 w-4" />
+                              {isArabic ? 'فشلت المعالجة — راجع السجل أدناه.' : 'Processing failed — check the log below.'}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })()}
+            </ol>
           </section>
 
           {/* Tracks table */}
@@ -718,6 +692,66 @@ export default function BookDetail() {
               </tbody>
             </table>
             </div>
+          </section>
+
+          {/* Inline log accordion */}
+          <section className="card p-0 overflow-hidden">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between gap-3 px-5 py-3 text-left hover:bg-slate-50 transition-colors"
+              onClick={() => setShowLog((v) => !v)}
+            >
+              <span className="text-sm font-semibold text-[color:var(--samawy-ink)]">{isArabic ? 'سجل المعالجة' : 'Processing log'}</span>
+              <span className="text-xs text-[color:var(--fg-2)]">{processingEvents.length} {isArabic ? 'حدث' : 'events'} {showLog ? '▲' : '▼'}</span>
+            </button>
+            {showLog && (
+              <>
+                {(() => {
+                  const run = data?.processingRun;
+                  if (!run || (run.status !== 'failed_retryable' && run.status !== 'failed_blocking' && run.status !== 'failed')) return null;
+                  const errors: string[] = (() => {
+                    try {
+                      const r = run.resultJson ? JSON.parse(run.resultJson) as { errors?: string[] } : null;
+                      if (r?.errors?.length) return r.errors;
+                    } catch { /* ignore */ }
+                    try {
+                      const e = run.errorJson ? JSON.parse(run.errorJson) as { message?: string } | string : null;
+                      if (typeof e === 'string' && e) return [e];
+                      if (e && typeof e === 'object' && e.message) return [e.message];
+                    } catch {
+                      if (run.errorJson) return [run.errorJson];
+                    }
+                    return [];
+                  })();
+                  if (!errors.length) return null;
+                  return (
+                    <div className="mx-4 mt-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 space-y-1">
+                      <p className="font-semibold">{isArabic ? 'أخطاء المعالجة:' : 'Processing errors:'}</p>
+                      {errors.map((e, i) => <p key={i} className="break-all">{e}</p>)}
+                    </div>
+                  );
+                })()}
+                <div className="log-panel max-h-[520px] overflow-auto p-4">
+                  {processingEvents.length === 0 && (
+                    <p className="text-center text-[color:var(--fg-2)] py-8">{isArabic ? 'لا توجد أحداث معالجة بعد.' : 'No processing events yet.'}</p>
+                  )}
+                  {processingEvents.map((event) => (
+                    <div key={event.id} className="flex gap-3 py-1">
+                      <span className="shrink-0 text-sky-300 tabular-nums">{new Date(event.createdAt).toLocaleTimeString()}</span>
+                      <span className="text-cyan-300 shrink-0">[{event.action}]</span>
+                      <span className="break-all">
+                        {event.detailJson ? (() => {
+                          try {
+                            const parsed = JSON.parse(event.detailJson) as { message?: string };
+                            return parsed.message ?? event.detailJson;
+                          } catch { return event.detailJson; }
+                        })() : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </section>
         </div>
       )}
@@ -1162,59 +1196,6 @@ export default function BookDetail() {
         </div>
       )}
 
-      {/* ── Log tab ── */}
-      {activeTab === 'logs' && (
-        <section className="card p-0 overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-            <h3 className="text-base font-bold text-[color:var(--samawy-ink)]">{isArabic ? 'سجل المعالجة' : 'Processing Log'}</h3>
-            <span className="text-xs text-[color:var(--fg-2)]">{processingEvents.length} {isArabic ? 'حدث' : 'events'}</span>
-          </div>
-          {(() => {
-            const run = data?.processingRun;
-            if (!run || (run.status !== 'failed_retryable' && run.status !== 'failed_blocking' && run.status !== 'failed')) return null;
-            const errors: string[] = (() => {
-              try {
-                const r = run.resultJson ? JSON.parse(run.resultJson) as { errors?: string[] } : null;
-                if (r?.errors?.length) return r.errors;
-              } catch { /* ignore */ }
-              try {
-                const e = run.errorJson ? JSON.parse(run.errorJson) as { message?: string } | string : null;
-                if (typeof e === 'string' && e) return [e];
-                if (e && typeof e === 'object' && e.message) return [e.message];
-              } catch {
-                if (run.errorJson) return [run.errorJson];
-              }
-              return [];
-            })();
-            if (!errors.length) return null;
-            return (
-              <div className="mx-4 mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 space-y-1">
-                <p className="font-semibold">{isArabic ? 'أخطاء المعالجة:' : 'Processing errors:'}</p>
-                {errors.map((e, i) => <p key={i} className="break-all">{e}</p>)}
-              </div>
-            );
-          })()}
-          <div className="log-panel max-h-[520px] overflow-auto p-4">
-            {processingEvents.length === 0 && (
-              <p className="text-center text-[color:var(--fg-2)] py-8">{isArabic ? 'لا توجد أحداث معالجة بعد.' : 'No processing events yet.'}</p>
-            )}
-            {processingEvents.map((event) => (
-              <div key={event.id} className="flex gap-3 py-1">
-                <span className="shrink-0 text-sky-300 tabular-nums">{new Date(event.createdAt).toLocaleTimeString()}</span>
-                <span className="text-cyan-300 shrink-0">[{event.action}]</span>
-                <span className="break-all">
-                  {event.detailJson ? (() => {
-                    try {
-                      const parsed = JSON.parse(event.detailJson) as { message?: string };
-                      return parsed.message ?? event.detailJson;
-                    } catch { return event.detailJson; }
-                  })() : ''}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
