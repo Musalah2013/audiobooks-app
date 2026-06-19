@@ -9,3 +9,4 @@ dist/
 env-vars.txt
 *.xlsx
 .playwright-mcp/
+.claude/
