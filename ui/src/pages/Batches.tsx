@@ -101,6 +101,27 @@ function uploadFileWithProgress(url: string, file: File, contentType: string, on
   });
 }
 
+function batchStatusLabel(status: string, isArabic: boolean): string {
+  const map: Record<string, [string, string]> = {
+    metadata_sheet_pending:    ['Needs workbook',       'يحتاج ملف بيانات'],
+    normalizing:               ['Importing…',           'جاري الاستيراد…'],
+    intake_queued:             ['Queued for import',    'في انتظار الاستيراد'],
+    records_created:           ['Books created',        'تم إنشاء الكتب'],
+    reconciliation_in_review:  ['Awaiting matching',    'في انتظار المطابقة'],
+    reconciliation_approved:   ['Matching approved',    'تمت الموافقة'],
+    ingested:                  ['Ingested',             'تم الاستقبال'],
+    normalized:                ['Normalized',           'تم التطبيع'],
+    metadata_sheet_selected:   ['Workbook selected',    'تم اختيار الملف'],
+    parsing_metadata:          ['Parsing metadata…',   'جاري التحليل…'],
+    metadata_parsed:           ['Metadata parsed',      'تم التحليل'],
+    seller_locked:             ['Seller locked',        'تم تأكيد البائع'],
+    intake_failed:             ['Intake failed',        'فشل الاستيراد'],
+  };
+  const entry = map[status];
+  if (!entry) return status;
+  return isArabic ? entry[1] : entry[0];
+}
+
 export default function Batches() {
   const { data, loading, error, refetch } = useApi<{ batches: BatchListItem[] }>('/api/dashboard');
   const { addToast } = useToast();
@@ -110,6 +131,7 @@ export default function Batches() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [driveGroupsExpanded, setDriveGroupsExpanded] = useState(false);
 
   const [driveLink, setDriveLink] = useState('');
   const [driveWorkbook, setDriveWorkbook] = useState<File | null>(null);
@@ -569,26 +591,39 @@ export default function Batches() {
                         </div>
                       </div>
                       <div className="space-y-2">
-                        <p className="text-sm font-medium text-gray-900">{isArabic ? 'المجموعات المكتشفة' : 'Detected groups'}</p>
-                        <div className="space-y-2 max-h-72 overflow-auto">
-                          {(drivePreview.groups ?? []).map((group) => (
-                            <div key={group.groupKey} className="rounded-lg border border-blue-100 bg-white p-3">
-                              <div className="flex items-center justify-between gap-3">
-                                <div>
-                                  <p className="font-medium text-gray-900">{group.displayName}</p>
-                                  <p className="text-xs text-gray-500">{group.itemCount} {isArabic ? 'ملفات · العنوان المستنتج: ' : 'files · inferred title: '}{group.inferredTitle}</p>
-                                </div>
-                                <span className="text-xs text-blue-700">{Math.round(group.confidence * 100)}%</span>
-                              </div>
-                              <p className="mt-2 text-xs text-gray-500">{group.reasons.join(' · ')}</p>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                {group.fileNames.slice(0, 8).map((name) => (
-                                  <span key={name} className="rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-900">{name}</span>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-gray-900">{isArabic ? 'المجموعات المكتشفة' : 'Detected groups'}</p>
+                          <button
+                            type="button"
+                            className="text-xs text-blue-600 hover:text-blue-800 underline"
+                            onClick={() => setDriveGroupsExpanded((v) => !v)}
+                          >
+                            {driveGroupsExpanded
+                              ? (isArabic ? 'إخفاء المجموعات' : 'Hide groups')
+                              : (isArabic ? `عرض ${(drivePreview.groups ?? []).length} مجموعة` : `Show ${(drivePreview.groups ?? []).length} groups`)}
+                          </button>
                         </div>
+                        {driveGroupsExpanded && (
+                          <div className="space-y-2 max-h-72 overflow-auto">
+                            {(drivePreview.groups ?? []).map((group) => (
+                              <div key={group.groupKey} className="rounded-lg border border-blue-100 bg-white p-3">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div>
+                                    <p className="font-medium text-gray-900">{group.displayName}</p>
+                                    <p className="text-xs text-gray-500">{group.itemCount} {isArabic ? 'ملفات · العنوان المستنتج: ' : 'files · inferred title: '}{group.inferredTitle}</p>
+                                  </div>
+                                  <span className="text-xs text-blue-700">{Math.round(group.confidence * 100)}%</span>
+                                </div>
+                                <p className="mt-2 text-xs text-gray-500">{group.reasons.join(' · ')}</p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {group.fileNames.slice(0, 8).map((name) => (
+                                    <span key={name} className="rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-900">{name}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </>
                   ) : (
@@ -792,7 +827,7 @@ export default function Batches() {
                       batch.status === 'normalized' || batch.status === 'metadata_sheet_pending' || batch.status === 'metadata_sheet_selected' || batch.status === 'parsing_metadata' || batch.status === 'metadata_parsed' || batch.status === 'seller_locked' ? 'blue' :
                       batch.status === 'intake_queued' || batch.status === 'normalizing' ? 'purple' : 'gray'
                     }`}>
-                      {batch.status}
+                      {batchStatusLabel(batch.status, isArabic)}
                     </span>
                   </td>
                   <td className="py-3 px-4 text-gray-500">{batch.intakeMode ?? '—'}</td>

@@ -1,5 +1,5 @@
 import type { ProcessingJobPayload } from "./types";
-import { keySegments, signInternalArtifactUrl } from "./utils";
+import { keySegments, signInternalArtifactUrl, signMultipartUrl } from "./utils";
 
 export async function buildProcessingPayload(input: {
   audiobookId: string;
@@ -44,6 +44,14 @@ export async function buildProcessingPayload(input: {
             secret: input.internalSecret,
             expiresAt,
           }),
+          multipartStartUrl: await signMultipartUrl({
+            baseUrl: input.apiBaseUrl,
+            path: "/api/internal/multipart-start",
+            key: finalObjectKey,
+            method: "POST",
+            secret: input.internalSecret,
+            expiresAt,
+          }),
         },
       };
     }),
@@ -64,7 +72,7 @@ export async function buildProcessingPayload(input: {
     internalSecret: input.internalSecret,
     accessClientId: input.accessClientId,
     accessClientSecret: input.accessClientSecret,
-    maxBookBytes: 400 * 1024 * 1024,
-    maxTrackBytes: 100 * 1024 * 1024,
+    maxBookBytes: 1024 * 1024 * 1024,
+    maxTrackBytes: 200 * 1024 * 1024,
   } satisfies ProcessingJobPayload;
 }

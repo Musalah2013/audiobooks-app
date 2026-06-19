@@ -120,10 +120,14 @@ export default function Books() {
 
   const hasFilters = filterProcessing || filterDossier || filterClickup || filterPublisher || query;
 
-  // Three groups
-  const sentToClickUp   = filtered.filter((b) => b.dossierStatus === 'ready' && b.clickupSyncStatus === 'synced');
-  const readyNotSent    = filtered.filter((b) => b.dossierStatus === 'ready' && b.clickupSyncStatus !== 'synced');
-  const inProgress      = filtered.filter((b) => b.dossierStatus !== 'ready');
+  // Failed books shown in dedicated top section
+  const failedBooks = filtered.filter((b) => b.processingStatus === 'failed' || b.dossierStatus === 'failed');
+  const failedIds = new Set(failedBooks.map((b) => b.id));
+
+  // Three groups — failed books excluded
+  const sentToClickUp   = filtered.filter((b) => !failedIds.has(b.id) && b.dossierStatus === 'ready' && b.clickupSyncStatus === 'synced');
+  const readyNotSent    = filtered.filter((b) => !failedIds.has(b.id) && b.dossierStatus === 'ready' && b.clickupSyncStatus !== 'synced');
+  const inProgress      = filtered.filter((b) => !failedIds.has(b.id) && b.dossierStatus !== 'ready');
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ sent: true, ready: true, progress: true });
   function toggleGroup(key: string) { setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] })); }
@@ -222,6 +226,110 @@ export default function Books() {
         </div>
       )}
 
+      {/* Failed books — always expanded, red-bordered */}
+      {failedBooks.length > 0 && (
+        <section className="card p-0 overflow-hidden border-red-300">
+          <div className="w-full flex items-center gap-3 px-4 py-3 bg-red-50 border-b border-red-200">
+            <span className="h-2.5 w-2.5 rounded-full bg-red-500 shrink-0" />
+            <span className="text-sm font-semibold text-red-800 flex-1">{isArabic ? 'فشل' : 'Failed'}</span>
+            <span className="text-xs font-medium text-red-600 bg-red-100 rounded-full px-2 py-0.5">{failedBooks.length}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[860px]">
+              <thead className="bg-red-50/50 border-b border-red-100">
+                <tr>
+                  {isAdmin && (
+                    <th className="px-4 py-3 w-8">
+                      <input type="checkbox" className="h-4 w-4 rounded border-gray-300"
+                        checked={failedBooks.length > 0 && failedBooks.every((b) => selected.has(b.id))}
+                        onChange={(e) => setSelected((prev) => { const n = new Set(prev); failedBooks.forEach((b) => e.target.checked ? n.add(b.id) : n.delete(b.id)); return n; })} />
+                    </th>
+                  )}
+                  <th className="px-4 py-3 text-start"><SortHeader col="title" label={isArabic ? 'العنوان' : 'Title'} /></th>
+                  <th className="px-4 py-3 text-start"><SortHeader col="publisherName" label={isArabic ? 'الناشر' : 'Publisher'} /></th>
+                  <th className="px-4 py-3 text-start text-xs font-medium uppercase tracking-wide text-[color:var(--fg-2)] whitespace-nowrap">{isArabic ? 'المؤلف / الراوي' : 'Author / Narrator'}</th>
+                  <th className="px-4 py-3 text-start text-xs font-medium uppercase tracking-wide text-[color:var(--fg-2)]">ISBN</th>
+                  <th className="px-4 py-3 text-start"><SortHeader col="processingStatus" label={isArabic ? 'المعالجة' : 'Processing'} /></th>
+                  <th className="px-4 py-3 text-start"><SortHeader col="dossierStatus" label={isArabic ? 'الدوسيه' : 'Dossier'} /></th>
+                  <th className="px-4 py-3 text-start"><SortHeader col="clickupSyncStatus" label="ClickUp" /></th>
+                  <th className="px-4 py-3 text-start text-xs font-medium uppercase tracking-wide text-[color:var(--fg-2)] whitespace-nowrap">{isArabic ? 'حجم المجموعة' : 'Group size'}</th>
+                  <th className="px-4 py-3 text-start text-xs font-medium uppercase tracking-wide text-[color:var(--fg-2)] whitespace-nowrap">{isArabic ? 'مسار التخزين' : 'Storage path'}</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {failedBooks.map((book) => (
+                  <tr key={book.id} className={`border-b border-red-100 last:border-0 hover:bg-red-50/30 transition-colors ${selected.has(book.id) ? 'bg-red-50/40' : ''}`}>
+                    {isAdmin && (
+                      <td className="px-4 py-3 w-8">
+                        <input type="checkbox" className="h-4 w-4 rounded border-gray-300"
+                          checked={selected.has(book.id)}
+                          onChange={(e) => setSelected((prev) => { const n = new Set(prev); e.target.checked ? n.add(book.id) : n.delete(book.id); return n; })} />
+                      </td>
+                    )}
+                    <td className="px-4 py-3 max-w-[220px]">
+                      <span className="font-semibold text-[color:var(--samawy-ink)] line-clamp-2 leading-snug">{book.title}</span>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-[color:var(--fg-2)]">{book.publisherName}</td>
+                    <td className="px-4 py-3 max-w-[160px] text-xs text-[color:var(--fg-2)]">
+                      {book.author && <div className="truncate">{book.author}</div>}
+                      {book.narrator && <div className="truncate opacity-70">{book.narrator}</div>}
+                      {!book.author && !book.narrator && <span className="opacity-40">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-xs font-mono text-[color:var(--fg-2)] whitespace-nowrap">{book.isbn ?? <span className="opacity-40">—</span>}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <span className={badge(book.processingStatus)}>{book.processingStatus}</span>
+                        {book.processingStatus === 'failed' && <span className="badge-red text-[10px]">{isArabic ? 'فشل المعالجة' : 'Processing failed'}</span>}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <span className={badge(book.dossierStatus)}>{book.dossierStatus}</span>
+                        {book.dossierStatus === 'failed' && <span className="badge-red text-[10px]">{isArabic ? 'فشل الدوسيه' : 'Dossier failed'}</span>}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        {book.clickupSyncStatus === 'never_synced' ? <span className="opacity-40">—</span> : <span className={badge(book.clickupSyncStatus)}>{book.clickupSyncStatus}</span>}
+                        {book.clickupTaskUrl && (
+                          <a href={book.clickupTaskUrl} target="_blank" rel="noreferrer" className="text-sky-600 hover:text-sky-800" title="Open ClickUp task">
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs text-[color:var(--fg-2)]">
+                      {book.totalOriginalSizeBytes > 0 ? `${Math.round((book.totalOriginalSizeBytes / 1024 / 1024) * 10) / 10} MB` : <span className="opacity-40">—</span>}
+                    </td>
+                    <td className="px-4 py-3 max-w-[200px]">
+                      {book.storageBasePath ? <span className="font-mono text-xs text-[color:var(--fg-2)] truncate block" title={book.storageBasePath}>{book.storageBasePath}</span> : <span className="text-xs opacity-40">—</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <Link to={`/books/${book.id}`} className="btn-secondary text-xs py-1 px-3">{isArabic ? 'إدارة' : 'Manage'}</Link>
+                        {isAdmin && (
+                          confirmDelete === book.id ? (
+                            <div className="flex items-center gap-1">
+                              <button type="button" className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-red-700 disabled:opacity-50" disabled={deleting} onClick={() => deleteOne(book.id)}>{isArabic ? 'تأكيد' : 'Confirm'}</button>
+                              <button type="button" className="text-[10px] text-gray-500 hover:text-gray-700" onClick={() => setConfirmDelete(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
+                            </div>
+                          ) : (
+                            <button type="button" className="text-red-400 hover:text-red-600 p-1 rounded" title={isArabic ? 'حذف' : 'Delete'} onClick={() => setConfirmDelete(book.id)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {(
         [
           { key: 'sent',     books: sentToClickUp, label: isArabic ? 'مكتمل ومُرسل إلى ClickUp' : 'Done — sent to ClickUp',     dot: 'bg-emerald-500' },
@@ -290,7 +398,7 @@ export default function Books() {
                       <td className="px-4 py-3 whitespace-nowrap"><span className={badge(book.dossierStatus)}>{book.dossierStatus}</span></td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
-                          <span className={badge(book.clickupSyncStatus)}>{book.clickupSyncStatus}</span>
+                          {book.clickupSyncStatus === 'never_synced' ? <span className="opacity-40">—</span> : <span className={badge(book.clickupSyncStatus)}>{book.clickupSyncStatus}</span>}
                           {book.clickupTaskUrl && (
                             <a href={book.clickupTaskUrl} target="_blank" rel="noreferrer" className="text-sky-600 hover:text-sky-800" title="Open ClickUp task">
                               <ExternalLink className="h-3.5 w-3.5" />

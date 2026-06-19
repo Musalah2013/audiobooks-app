@@ -155,6 +155,48 @@ async function uploadFile(url, filePath, contentType, extraHeaders = {}) {
   }
 }
 
+async function multipartUploadFile(url, filePath, accessHeaders) {
+  const { open } = await import("fs/promises");
+  const { size: fileSize } = await stat(filePath);
+  const PART_SIZE = 25 * 1024 * 1024; // 25 MB parts — well under Worker 100 MB limit
+  const numParts = Math.ceil(fileSize / PART_SIZE);
+  const startResp = await fetch(`${url}&numParts=${numParts}`, { method: "POST", headers: accessHeaders });
+  if (!startResp.ok) throw new Error(`Multipart start failed: ${startResp.status} ${await startResp.text().catch(() => "")}`);
+  const { partUrls, completeUrl } = await startResp.json();
+  const fh = await open(filePath, "r");
+  const parts = [];
+  try {
+    for (let i = 0; i < numParts; i++) {
+      const offset = i * PART_SIZE;
+      const length = Math.min(PART_SIZE, fileSize - offset);
+      const chunk = Buffer.allocUnsafe(length);
+      await fh.read(chunk, 0, length, offset);
+      let partResp;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        partResp = await fetch(partUrls[i], {
+          method: "PUT",
+          body: chunk,
+          headers: { "Content-Length": String(length), ...accessHeaders },
+          duplex: "half",
+        });
+        if (partResp.ok) break;
+        if (attempt === 3) throw new Error(`Part ${i + 1} upload failed: ${partResp.status} ${await partResp.text().catch(() => "")}`);
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+      }
+      const { etag, partNumber } = await partResp.json();
+      parts.push({ partNumber, etag });
+    }
+  } finally {
+    await fh.close();
+  }
+  const completeResp = await fetch(completeUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...accessHeaders },
+    body: JSON.stringify({ parts }),
+  });
+  if (!completeResp.ok) throw new Error(`Multipart complete failed: ${completeResp.status} ${await completeResp.text().catch(() => "")}`);
+}
+
 async function postTrackProgress(payload, trackData) {
   if (!payload?.trackProgressCallbackUrl || !payload?.internalSecret) return;
   try {
@@ -554,7 +596,11 @@ async function executeProcessingJob(payload) {
       const finalTitle = item.track.proposedTitle;
       const finalFilename = `${String(item.track.originalOrderIndex).padStart(3, "0")}.mp3`;
       await postProgress(payload, "uploading_track", `Uploading processed track ${finalFilename}.`, "running");
-      await uploadFile(item.transport.upload.uploadUrl, finalPath, "audio/mpeg", accessHeaders(payload));
+      if (item.transport.upload.multipartStartUrl) {
+        await multipartUploadFile(item.transport.upload.multipartStartUrl, finalPath, accessHeaders(payload));
+      } else {
+        await uploadFile(item.transport.upload.uploadUrl, finalPath, "audio/mpeg", accessHeaders(payload));
+      }
 
       const notes = skipResize
         ? "Within size limits — no resize applied."
