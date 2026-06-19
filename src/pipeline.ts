@@ -1660,6 +1660,7 @@ export async function generateAudiobookWorkbookBuffer(repo: Repository, audioboo
     audiobook.sampleStartSeconds != null && audiobook.sampleEndSeconds != null
       ? Math.max(0, audiobook.sampleEndSeconds - audiobook.sampleStartSeconds)
       : 0;
+  const xlsTrunc = (v: string | null | undefined) => (v && v.length > 32767 ? v.slice(0, 32767) : v);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{
     title: audiobook.title,
@@ -1669,7 +1670,7 @@ export async function generateAudiobookWorkbookBuffer(repo: Repository, audioboo
     isbn: audiobook.isbn,
     pubYear: audiobook.pubYear,
     genre: audiobook.genre,
-    blurb: audiobook.blurb,
+    blurb: xlsTrunc(audiobook.blurb),
     publisher: audiobook.publisherName,
     classification: audiobook.classificationDecision,
     totalFinalSizeMb: Number((audiobook.totalFinalSizeBytes / (1024 ** 2)).toFixed(2)),
@@ -1679,8 +1680,12 @@ export async function generateAudiobookWorkbookBuffer(repo: Repository, audioboo
     sampleDurationSeconds,
     clickupSyncStatus: audiobook.clickupSyncStatus,
   }]), "Summary");
+  const snapshot = audiobook.metadataSnapshot as Record<string, unknown> | null;
+  const truncatedSnapshot = snapshot
+    ? Object.fromEntries(Object.entries(snapshot).map(([k, v]) => [k, typeof v === "string" ? xlsTrunc(v) : v]))
+    : {};
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{
-    ...audiobook.metadataSnapshot,
+    ...truncatedSnapshot,
     recordId: audiobook.id,
     storageBasePath: audiobook.storageBasePath,
     dossierWorkbookKey: audiobook.dossierWorkbookKey,
@@ -1716,8 +1721,8 @@ export async function generateAudiobookWorkbookBuffer(repo: Repository, audioboo
     reasons: candidate?.samawyCandidates.map((e) => `${e.title} (${e.confidence})`).join("; ") ?? "",
   }]), "Classification");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{
-    totalBookPass: audiobook.totalFinalSizeBytes <= 400 * 1024 * 1024,
-    perTrackPass: tracks.every((t) => (t.finalSizeBytes ?? 0) <= 100 * 1024 * 1024),
+    totalBookPass: audiobook.totalFinalSizeBytes <= 1024 * 1024 * 1024,
+    perTrackPass: tracks.every((t) => (t.finalSizeBytes ?? 0) <= 200 * 1024 * 1024),
     selectedSampleTrackId: audiobook.sampleTrackId,
     sampleStartSeconds: audiobook.sampleStartSeconds,
     sampleEndSeconds: audiobook.sampleEndSeconds,

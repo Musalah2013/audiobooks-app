@@ -158,6 +158,7 @@ export interface ProcessingJobPayload {
     upload: {
       objectKey: string;
       uploadUrl: string;
+      multipartStartUrl?: string;
     };
   }>;
   approvedTracks: TrackDraft[];
