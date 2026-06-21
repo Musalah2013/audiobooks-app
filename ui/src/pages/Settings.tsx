@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2, Cloud, Download, Eye, EyeOff, RefreshCw, Settings as SettingsIcon, Sliders, Trash2 } from 'lucide-react';
 import { apiRequest, useApi } from '../hooks/useApi';
+import { InlineError } from '../components/InlineError';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
 import type { ClickUpConfig, ClickUpFieldMappings, ClickUpSettingsResponse, AppSettings } from '@api';
@@ -32,7 +33,7 @@ const METADATA_FIELDS: Array<keyof ClickUpFieldMappings> = [
 const DESCRIPTION_FIELDS: Array<keyof ClickUpFieldMappings> = ['appLink', 'workbookUrl', 'audioZipUrl'];
 
 export default function Settings() {
-  const { data, loading, error } = useApi<AppSettings>('/api/settings');
+  const { data, loading, error, errorDetail } = useApi<AppSettings>('/api/settings');
   const { data: cuData, loading: cuLoading, refetch: cuRefetch } = useApi<ClickUpSettingsResponse>('/api/settings/clickup');
   const [cuSaving, setCuSaving] = useState(false);
   const [cuResetting, setCuResetting] = useState(false);
@@ -58,7 +59,7 @@ export default function Settings() {
       addToast(isArabic ? 'تم حفظ إعدادات ClickUp.' : 'ClickUp settings saved.', 'success');
       cuRefetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الحفظ' : 'Failed to save'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحفظ' : 'Failed to save'), 'error');
     } finally {
       setCuSaving(false);
     }
@@ -72,7 +73,7 @@ export default function Settings() {
       addToast(isArabic ? 'تمت إعادة تعيين إعدادات ClickUp للقيم الافتراضية.' : 'ClickUp settings reset to defaults.', 'success');
       cuRefetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل إعادة التعيين' : 'Failed to reset'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل إعادة التعيين' : 'Failed to reset'), 'error');
     } finally {
       setCuResetting(false);
     }
@@ -89,7 +90,7 @@ export default function Settings() {
       setCuFields(result.fields);
       addToast(isArabic ? `تم جلب ${result.fields.length} حقلاً من ClickUp.` : `Fetched ${result.fields.length} fields from ClickUp.`, 'success');
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل جلب الحقول' : 'Failed to fetch fields'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل جلب الحقول' : 'Failed to fetch fields'), 'error');
     } finally {
       setCuFieldsFetching(false);
     }
@@ -104,7 +105,7 @@ export default function Settings() {
       addToast(isArabic ? 'تم حفظ رمز API.' : 'API token saved.', 'success');
       cuRefetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الحفظ' : 'Failed to save token'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحفظ' : 'Failed to save token'), 'error');
     } finally {
       setTokenSaving(false);
     }
@@ -117,7 +118,7 @@ export default function Settings() {
       addToast(isArabic ? 'تم مسح رمز API من قاعدة البيانات.' : 'API token cleared from database.', 'success');
       cuRefetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل المسح' : 'Failed to clear token'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل المسح' : 'Failed to clear token'), 'error');
     } finally {
       setTokenClearing(false);
     }
@@ -132,11 +133,7 @@ export default function Settings() {
   }
 
   if (loading) return <div className="card text-center text-sm text-[color:var(--fg-2)]">{isArabic ? 'جاري تحميل الإعدادات…' : 'Loading settings…'}</div>;
-  if (error) return (
-    <div className="card border-red-200 bg-red-50 text-red-700">
-      <div className="flex items-center gap-2"><AlertCircle className="h-5 w-5" />{isArabic ? 'فشل تحميل الإعدادات' : 'Failed to load settings'}: {error}</div>
-    </div>
-  );
+  if (error) return <InlineError message={`${isArabic ? 'فشل تحميل الإعدادات' : 'Failed to load settings'}: ${error}`} detail={errorDetail ?? undefined} />;
 
   return (
     <div className="space-y-6">

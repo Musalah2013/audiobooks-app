@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, Plus, Trash2, Send, Settings2, Mail } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
+import { InlineError } from '../components/InlineError';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
 import type { Studio, AcquisitionUser } from '@api';
@@ -14,7 +15,7 @@ function slugify(name: string) {
 }
 
 export default function Studios() {
-  const { data, loading, error, refetch } = useApi<StudiosResponse>('/api/studios');
+  const { data, loading, error, errorDetail, refetch } = useApi<StudiosResponse>('/api/studios');
   const { data: acqData, refetch: refetchAcq } = useApi<AcquisitionUsersResponse>('/api/studios/acquisition-users');
   const { addToast } = useToast();
   const { isArabic } = useLocale();
@@ -44,7 +45,7 @@ export default function Studios() {
       setShowNewForm(false);
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الإنشاء' : 'Failed to create'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الإنشاء' : 'Failed to create'), 'error');
     } finally {
       setCreating(false);
     }
@@ -56,7 +57,7 @@ export default function Studios() {
       await apiRequest(`/api/studios/${studioId}/magic-link`, { method: 'POST' });
       addToast(isArabic ? 'تم إرسال رابط الدخول.' : 'Magic link sent.', 'success');
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الإرسال' : 'Failed to send'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الإرسال' : 'Failed to send'), 'error');
     } finally {
       setSendingLink(null);
     }
@@ -70,7 +71,7 @@ export default function Studios() {
       setConfirmDelete(null);
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الحذف' : 'Failed to delete'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Failed to delete'), 'error');
     } finally {
       setDeleting(false);
     }
@@ -86,7 +87,7 @@ export default function Studios() {
       setShowAcqForm(false);
       refetchAcq();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الإنشاء' : 'Failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الإنشاء' : 'Failed'), 'error');
     } finally {
       setCreatingAcq(false);
     }
@@ -98,14 +99,14 @@ export default function Studios() {
       await apiRequest(`/api/studios/acquisition-users/${id}/magic-link`, { method: 'POST' });
       addToast(isArabic ? 'تم إرسال رابط الدخول.' : 'Magic link sent.', 'success');
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الإرسال' : 'Failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الإرسال' : 'Failed'), 'error');
     } finally {
       setSendingAcqLink(null);
     }
   }
 
   if (loading) return <div className="card text-sm text-center text-[color:var(--fg-2)]">{isArabic ? 'جاري التحميل…' : 'Loading…'}</div>;
-  if (error) return <div className="card text-sm text-red-600">{error}</div>;
+  if (error) return <InlineError message={error} detail={errorDetail ?? undefined} />;
 
   const studios = data?.studios ?? [];
   const acqUsers = acqData?.users ?? [];

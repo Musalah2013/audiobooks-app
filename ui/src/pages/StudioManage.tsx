@@ -64,7 +64,7 @@ export default function StudioManage() {
       addToast(isArabic ? 'تم رفع الشعار.' : 'Logo uploaded.', 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الرفع' : 'Upload failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الرفع' : 'Upload failed'), 'error');
     } finally {
       setUploading(false); setUploadProgress(0);
     }
@@ -78,7 +78,7 @@ export default function StudioManage() {
       addToast(isArabic ? 'تم رفع الملف.' : 'Asset uploaded.', 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الرفع' : 'Upload failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الرفع' : 'Upload failed'), 'error');
     } finally {
       setUploading(false); setUploadProgress(0);
     }
@@ -92,7 +92,7 @@ export default function StudioManage() {
       addToast(isArabic ? 'تم رفع ملف الإنتاج وإشعار الاستوديو.' : 'Production file uploaded and studio notified.', 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الرفع' : 'Upload failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الرفع' : 'Upload failed'), 'error');
     } finally {
       setUploading(false); setUploadProgress(0);
     }
@@ -105,7 +105,7 @@ export default function StudioManage() {
       setConfirmDelete(null);
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
     }
   }
 
@@ -116,7 +116,7 @@ export default function StudioManage() {
       setConfirmDelete(null);
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
     }
   }
 
@@ -128,7 +128,7 @@ export default function StudioManage() {
       setReviewNote((p) => { const n = { ...p }; delete n[sampleId]; return n; });
       refetchSamples();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل التحديث' : 'Failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل التحديث' : 'Failed'), 'error');
     } finally {
       setReviewing(null);
     }

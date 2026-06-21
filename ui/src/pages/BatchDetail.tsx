@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { Search, CheckCircle, XCircle, AlertCircle, ArrowLeft, FileText, Loader2, ChevronDown } from 'lucide-react';
 import { useApi, apiRequest, API_BASE, downloadFile } from '../hooks/useApi';
 import { useToast } from '../hooks/useToast.tsx';
+import { InlineError } from '../components/InlineError';
 import { useLocale } from '../hooks/useLocale';
 import type { BatchDetailResponse, Candidate, Seller } from '@api';
 
@@ -49,7 +50,7 @@ function CollapsibleCard({
 
 export default function BatchDetail() {
   const { id } = useParams<{ id: string }>();
-  const { data, loading, error, refetch } = useApi<BatchDetailResponse>(`/api/ingestions/${id}`);
+  const { data, loading, error, errorDetail, refetch } = useApi<BatchDetailResponse>(`/api/ingestions/${id}`);
   const { data: meData } = useApi<{ user: { permissions: string[] } }>('/api/auth/me');
   const isAdmin = meData?.user.permissions.includes('users') ?? false;
   const [liveData, setLiveData] = useState<BatchDetailResponse | null>(null);
@@ -120,7 +121,7 @@ export default function BatchDetail() {
         addToast(isArabic ? 'لم يُعثر على بائعين' : 'No sellers found', 'error');
       }
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل البحث عن البائع' : 'Seller search failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل البحث عن البائع' : 'Seller search failed'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -137,7 +138,7 @@ export default function BatchDetail() {
       refetch();
       setSellers([]);
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل تأكيد البائع' : 'Failed to lock seller'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل تأكيد البائع' : 'Failed to lock seller'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -150,7 +151,7 @@ export default function BatchDetail() {
       addToast(isArabic ? 'تم تحليل البيانات الوصفية بنجاح' : 'Metadata parsed successfully', 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل تحليل البيانات الوصفية' : 'Failed to parse metadata'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل تحليل البيانات الوصفية' : 'Failed to parse metadata'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -166,7 +167,7 @@ export default function BatchDetail() {
       addToast((isArabic ? 'تم اختيار ملف البيانات: ' : 'Selected metadata sheet: ') + name, 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل اختيار ملف البيانات' : 'Failed to select metadata sheet'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل اختيار ملف البيانات' : 'Failed to select metadata sheet'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -207,7 +208,7 @@ export default function BatchDetail() {
       setMetadataUploadFile(null);
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل رفع ملف البيانات' : 'Failed to upload metadata sheet'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل رفع ملف البيانات' : 'Failed to upload metadata sheet'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -220,7 +221,7 @@ export default function BatchDetail() {
       addToast(isArabic ? 'تم إضافة استيراد Drive إلى قائمة الانتظار' : 'Drive intake queued', 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل بدء الاستيراد' : 'Failed to start intake'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل بدء الاستيراد' : 'Failed to start intake'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -237,7 +238,7 @@ export default function BatchDetail() {
       addToast((isArabic ? 'تم تأكيد البائع: ' : 'Seller confirmed: ') + batch.sellerName, 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل تأكيد البائع' : 'Failed to confirm seller'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل تأكيد البائع' : 'Failed to confirm seller'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -250,7 +251,7 @@ export default function BatchDetail() {
       addToast(isArabic ? 'اكتملت المطابقة' : 'Reconciliation completed', 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشلت المطابقة' : 'Failed to reconcile'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشلت المطابقة' : 'Failed to reconcile'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -263,7 +264,7 @@ export default function BatchDetail() {
       addToast(isArabic ? 'تمت الموافقة على الدفعة بنجاح' : 'Batch approved successfully', 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشلت الموافقة على الدفعة' : 'Failed to approve batch'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشلت الموافقة على الدفعة' : 'Failed to approve batch'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -276,7 +277,7 @@ export default function BatchDetail() {
       addToast(isArabic ? 'تمت الموافقة على المطابقة' : 'Reconciliation approved', 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل إنهاء المطابقة' : 'Failed to finalize reconciliation'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل إنهاء المطابقة' : 'Failed to finalize reconciliation'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -289,7 +290,7 @@ export default function BatchDetail() {
       addToast(isArabic ? 'جاري إعادة المحاولة…' : 'Retrying intake…', 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشلت إعادة المحاولة' : 'Failed to retry'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشلت إعادة المحاولة' : 'Failed to retry'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -304,7 +305,7 @@ export default function BatchDetail() {
       });
       addToast((isArabic ? 'طُلب تخطي ' : 'Skip requested for ') + name, 'success');
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل طلب التخطي' : 'Failed to request skip'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل طلب التخطي' : 'Failed to request skip'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -320,7 +321,7 @@ export default function BatchDetail() {
       addToast((isArabic ? 'تم تعيين القرار: ' : 'Decision set: ') + decision, 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل تعيين القرار' : 'Failed to set decision'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل تعيين القرار' : 'Failed to set decision'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -342,7 +343,7 @@ export default function BatchDetail() {
       setSelectedCandidates(new Set());
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل القرار الجماعي' : 'Bulk decision failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل القرار الجماعي' : 'Bulk decision failed'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -358,7 +359,7 @@ export default function BatchDetail() {
       addToast(isArabic ? 'تم ربط مجموعة المصدر بنجاح' : 'Source group linked successfully', 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل ربط مجموعة المصدر' : 'Failed to link source group'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل ربط مجموعة المصدر' : 'Failed to link source group'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -381,7 +382,7 @@ export default function BatchDetail() {
       setRevertConfirm(false);
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الرجوع' : 'Revert failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الرجوع' : 'Revert failed'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -424,7 +425,7 @@ export default function BatchDetail() {
       setEditingMetadata(null);
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل حفظ البيانات' : 'Failed to save metadata'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل حفظ البيانات' : 'Failed to save metadata'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -435,7 +436,7 @@ export default function BatchDetail() {
     try {
       await downloadFile(objectKey);
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل تنزيل الملف' : 'Failed to download file'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل تنزيل الملف' : 'Failed to download file'), 'error');
     } finally {
       setDownloadLoading(null);
     }
@@ -452,7 +453,7 @@ export default function BatchDetail() {
       setEditingMapping(false);
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل تحديث التعيين' : 'Failed to update mapping'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل تحديث التعيين' : 'Failed to update mapping'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -467,14 +468,7 @@ export default function BatchDetail() {
   }
 
   if (error) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <div className="flex items-center gap-2 text-red-700">
-          <AlertCircle className="w-5 h-5" />
-          <span>{isArabic ? `فشل تحميل الدفعة: ${error}` : `Failed to load batch: ${error}`}</span>
-        </div>
-      </div>
-    );
+    return <InlineError message={isArabic ? `فشل تحميل الدفعة: ${error}` : `Failed to load batch: ${error}`} detail={errorDetail ?? undefined} />;
   }
 
   const isReadyToStartIntake = batch?.sourceType === 'drive' && (status === 'ingested' || status === 'metadata_sheet_selected');

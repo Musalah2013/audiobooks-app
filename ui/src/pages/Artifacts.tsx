@@ -55,7 +55,7 @@ export default function Artifacts() {
     try {
       await downloadFile(objectKey);
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل تنزيل الملف' : 'Failed to download file'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل تنزيل الملف' : 'Failed to download file'), 'error');
     } finally {
       setDownloadingKey(null);
     }

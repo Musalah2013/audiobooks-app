@@ -8,6 +8,7 @@ import {
 import { API_BASE, apiRequest, downloadFile, useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
+import { InlineError } from '../components/InlineError';
 import type { BookDetailResponse, BookDetail } from '@api';
 
 function formatDuration(seconds: number | null | undefined) {
@@ -76,7 +77,7 @@ function bookToMetaForm(book: BookDetailResponse['book']): MetaForm {
 
 export default function BookDetail() {
   const { id } = useParams<{ id: string }>();
-  const { data, loading, error, refetch } = useApi<BookDetailResponse>(`/api/books/${id}`);
+  const { data, loading, error, errorDetail, refetch } = useApi<BookDetailResponse>(`/api/books/${id}`);
   const { data: meData } = useApi<{ user: { permissions: string[] } }>('/api/auth/me');
   const isAdmin = meData?.user.permissions.includes('users') ?? false;
   const { addToast } = useToast();
@@ -148,7 +149,7 @@ export default function BookDetail() {
   async function runAction(key: string, fn: () => Promise<void>) {
     setActionLoading(key);
     try { await fn(); refetch(); }
-    catch (err) { addToast(err instanceof Error ? err.message : (isArabic ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred'), 'error'); }
+    catch (err) { addToast(err instanceof Error ? err : (isArabic ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred'), 'error'); }
     finally { setActionLoading(null); }
   }
 
@@ -173,7 +174,7 @@ export default function BookDetail() {
         await downloadFile(objectKey);
       }
     }
-    catch (err) { addToast(err instanceof Error ? err.message : (isArabic ? 'فشل تنزيل الملف' : 'Failed to download file'), 'error'); }
+    catch (err) { addToast(err instanceof Error ? err : (isArabic ? 'فشل تنزيل الملف' : 'Failed to download file'), 'error'); }
     finally { setDownloadLoading(null); }
   }
 
@@ -217,7 +218,7 @@ export default function BookDetail() {
       addToast(isArabic ? 'تم رفع الغلاف.' : 'Cover uploaded.', 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل رفع الغلاف' : 'Failed to upload cover'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل رفع الغلاف' : 'Failed to upload cover'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -226,14 +227,7 @@ export default function BookDetail() {
   if (loading) return <div className="card text-center text-sm text-[color:var(--fg-2)]">{isArabic ? 'جاري تحميل العنوان…' : 'Loading book…'}</div>;
 
   if (error) {
-    return (
-      <div className="card border-red-200 bg-red-50 text-red-700">
-        <div className="flex items-center gap-2">
-          <AlertCircle className="h-5 w-5" />
-          {isArabic ? `فشل تحميل العنوان: ${error}` : `Failed to load book: ${error}`}
-        </div>
-      </div>
-    );
+    return <InlineError message={isArabic ? `فشل تحميل العنوان: ${error}` : `Failed to load book: ${error}`} detail={errorDetail ?? undefined} />;
   }
 
   const book = data?.book;

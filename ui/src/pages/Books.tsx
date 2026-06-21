@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, ExternalLink, Search, ArrowUpDown, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { ExternalLink, Search, ArrowUpDown, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { InlineError } from '../components/InlineError';
 import { useApi, apiRequest } from '../hooks/useApi';
 import { useLocale } from '../hooks/useLocale';
 import { useToast } from '../hooks/useToast.tsx';
@@ -26,7 +27,7 @@ function badge(status: string) {
 type SortKey = 'title' | 'publisherName' | 'processingStatus' | 'dossierStatus' | 'clickupSyncStatus';
 
 export default function Books() {
-  const { data, loading, error, refetch } = useApi<{ audiobooks: BookListItem[] }>('/api/dashboard');
+  const { data, loading, error, errorDetail, refetch } = useApi<{ audiobooks: BookListItem[] }>('/api/dashboard');
   const { data: meData } = useApi<{ user: { permissions: string[] } }>('/api/auth/me');
   const isAdmin = meData?.user.permissions.includes('users') ?? false;
   const { isArabic } = useLocale();
@@ -81,7 +82,7 @@ export default function Books() {
       setSelected((prev) => { const n = new Set(prev); n.delete(id); return n; });
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
     } finally {
       setDeleting(false);
       setConfirmDelete(null);
@@ -97,7 +98,7 @@ export default function Books() {
       setSelected(new Set());
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
     } finally {
       setDeleting(false);
       setConfirmDelete(null);
@@ -133,12 +134,7 @@ export default function Books() {
   function toggleGroup(key: string) { setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] })); }
 
   if (loading) return <div className="card text-center text-sm text-[color:var(--fg-2)]">{isArabic ? 'جاري التحميل…' : 'Loading…'}</div>;
-  if (error) return (
-    <div className="card border-red-200 bg-red-50 text-red-700 flex items-center gap-2">
-      <AlertCircle className="h-5 w-5 shrink-0" />
-      {isArabic ? 'فشل تحميل الكتب' : 'Failed to load books'}: {error}
-    </div>
-  );
+  if (error) return <InlineError message={`${isArabic ? 'فشل تحميل الكتب' : 'Failed to load books'}: ${error}`} detail={errorDetail ?? undefined} />;
 
   return (
     <div className="space-y-4">
