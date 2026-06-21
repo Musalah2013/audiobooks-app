@@ -9,6 +9,7 @@ import { API_BASE, apiRequest, downloadFile, useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
 import { InlineError } from '../components/InlineError';
+import { AudioPlayer } from '../components/AudioPlayer';
 import type { BookDetailResponse, BookDetail } from '@api';
 
 function formatDuration(seconds: number | null | undefined) {
@@ -810,7 +811,7 @@ export default function BookDetail() {
             {book?.sampleObjectKey && (
               <div className="space-y-3 rounded-[14px] bg-slate-950 p-4">
                 <p className="text-xs text-slate-400">{isArabic ? 'العينة الحالية' : 'Current sample'}</p>
-                <audio controls className="w-full" src={`${API_BASE}/api/files/${book.sampleObjectKey}?preview=1`} />
+                <AudioPlayer src={`${API_BASE}/api/files/${book.sampleObjectKey}?preview=1`} />
                 <button
                   type="button"
                   className="flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors"
@@ -831,7 +832,7 @@ export default function BookDetail() {
               <>
                 <div className="rounded-[14px] bg-slate-950 p-4">
                   <p className="text-xs text-slate-400 mb-3 truncate">{selectedTrack.finalTitle ?? selectedTrack.originalFilename}</p>
-                  <audio controls className="w-full" src={`${API_BASE}/api/files/${selectedTrack.finalObjectKey}?preview=1`} />
+                  <AudioPlayer src={`${API_BASE}/api/files/${selectedTrack.finalObjectKey}?preview=1`} />
                 </div>
                 <p className="text-xs text-[color:var(--fg-2)]">
                   {isArabic

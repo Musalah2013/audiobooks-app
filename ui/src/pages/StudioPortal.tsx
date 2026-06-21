@@ -6,6 +6,7 @@ import {
   FileAudio, Hash, Calendar, AlertCircle, Clock
 } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
+import { AudioPlayer } from '../components/AudioPlayer';
 import type { StudioPortalResponse } from '@api';
 
 const API_BASE_URL = typeof API_BASE === 'string' ? API_BASE : '';
@@ -160,6 +161,8 @@ export default function StudioPortal() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [notice, setNotice] = useState('');
+  const [playingSampleId, setPlayingSampleId] = useState<string | null>(null);
+  const [sampleUrls, setSampleUrls] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [sampleSearch, setSampleSearch] = useState('');
   const [selectedBookId, setSelectedBookId] = useState<string>('');
@@ -631,21 +634,32 @@ export default function StudioPortal() {
                         </div>
                       )}
 
-                      {/* Play button — dimmed unless approved */}
-                      <div className="flex items-center gap-2 mb-3">
-                        <button
-                          disabled={s.status !== 'approved'}
-                          onClick={() => window.open(`${API_BASE_URL}/api/files/${s.objectKey}?preview=1`, '_blank')}
-                          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                            s.status === 'approved'
-                              ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
-                              : 'bg-slate-50 text-slate-400 cursor-not-allowed'
-                          }`}
-                          title={s.status === 'approved' ? 'تشغيل العينة' : 'العينة قيد المراجعة'}
-                        >
-                          <Music size={14} />
-                          {s.status === 'approved' ? 'تشغيل العينة' : 'قيد المراجعة'}
-                        </button>
+                      {/* Play sample — inline player for approved samples */}
+                      <div className="mb-3">
+                        {s.status === 'approved' ? (
+                          playingSampleId === s.id && sampleUrls[s.id] ? (
+                            <AudioPlayer src={sampleUrls[s.id]} className="mb-1" />
+                          ) : (
+                            <button
+                              onClick={async () => {
+                                if (!sampleUrls[s.id]) {
+                                  const url = await getDownloadUrl(s.objectKey);
+                                  setSampleUrls((prev) => ({ ...prev, [s.id]: url }));
+                                }
+                                setPlayingSampleId(s.id);
+                              }}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 transition-all"
+                            >
+                              <Music size={14} />
+                              تشغيل العينة
+                            </button>
+                          )
+                        ) : (
+                          <span className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-slate-50 text-slate-400 cursor-not-allowed">
+                            <Music size={14} />
+                            قيد المراجعة
+                          </span>
+                        )}
                       </div>
 
                       {s.reviewNote && (
