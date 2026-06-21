@@ -130,7 +130,7 @@ export default function Books() {
   const readyNotSent    = filtered.filter((b) => !failedIds.has(b.id) && b.dossierStatus === 'ready' && b.clickupSyncStatus !== 'synced');
   const inProgress      = filtered.filter((b) => !failedIds.has(b.id) && b.dossierStatus !== 'ready');
 
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ sent: true, ready: true, progress: true });
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ sent: false, ready: true, progress: true });
   function toggleGroup(key: string) { setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] })); }
 
   if (loading) return <div className="card text-center text-sm text-[color:var(--fg-2)]">{isArabic ? 'جاري التحميل…' : 'Loading…'}</div>;
@@ -328,9 +328,9 @@ export default function Books() {
 
       {(
         [
-          { key: 'sent',     books: sentToClickUp, label: isArabic ? 'مكتمل ومُرسل إلى ClickUp' : 'Done — sent to ClickUp',     dot: 'bg-emerald-500' },
           { key: 'ready',    books: readyNotSent,  label: isArabic ? 'مكتمل — لم يُرسل بعد'      : 'Done — not sent yet',         dot: 'bg-amber-400'   },
           { key: 'progress', books: inProgress,    label: isArabic ? 'قيد التنفيذ'               : 'In progress',                 dot: 'bg-slate-300'   },
+          { key: 'sent',     books: sentToClickUp, label: isArabic ? 'مكتمل ومُرسل إلى ClickUp' : 'Done — sent to ClickUp',     dot: 'bg-emerald-500' },
         ] as const
       ).map(({ key, books: groupBooks, label, dot }) => groupBooks.length === 0 ? null : (
         <section key={key} className="card p-0 overflow-hidden">
