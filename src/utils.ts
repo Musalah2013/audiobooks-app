@@ -161,14 +161,16 @@ export async function signInternalArtifactUrl(input: {
   key: string;
   method: "GET" | "PUT";
   secret: string;
-  expiresAt: number;
+  expiresAt?: number; // omit for permanent links (e.g. ClickUp dossier URLs)
 }): Promise<string> {
   const url = new URL(input.path, input.baseUrl);
-  const query = {
-    expires: String(input.expiresAt),
+  const query: Record<string, string> = {
     key: input.key,
     method: input.method,
   };
+  if (input.expiresAt != null) {
+    query.expires = String(input.expiresAt);
+  }
   const signature = await hmac(input.secret, `${url.pathname}?${stableQuery(query)}`);
   for (const [key, value] of Object.entries(query)) {
     url.searchParams.set(key, value);
@@ -233,28 +235,26 @@ export async function verifyInternalArtifactRequest(input: {
   method: string;
 }): Promise<{ ok: boolean; key?: string; reason?: string }> {
   const key = input.url.searchParams.get("key");
-  const expires = input.url.searchParams.get("expires");
+  const expires = input.url.searchParams.get("expires"); // null = permanent link (no expiry)
   const method = input.url.searchParams.get("method");
   const signature = input.url.searchParams.get("sig");
 
-  if (!key || !expires || !method || !signature) {
+  if (!key || !method || !signature) {
     return { ok: false, reason: "missing_signature_params" };
   }
   if (input.method.toUpperCase() !== method.toUpperCase()) {
     return { ok: false, reason: "method_mismatch" };
   }
-  const expiresAt = Number(expires);
-  if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) {
-    return { ok: false, reason: "expired" };
+  // Only check expiry when the link was signed with one
+  if (expires !== null) {
+    const expiresAt = Number(expires);
+    if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) {
+      return { ok: false, reason: "expired" };
+    }
   }
-  const expected = await hmac(
-    input.secret,
-    `${input.url.pathname}?${stableQuery({
-      expires,
-      key,
-      method,
-    })}`,
-  );
+  const query: Record<string, string> = { key, method };
+  if (expires !== null) query.expires = expires;
+  const expected = await hmac(input.secret, `${input.url.pathname}?${stableQuery(query)}`);
   if (expected !== signature) {
     return { ok: false, reason: "bad_signature" };
   }

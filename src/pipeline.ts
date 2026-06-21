@@ -1892,7 +1892,7 @@ export async function syncAudiobookToClickUp(env: Env, repo: Repository, audiobo
 
   await repo.updateAudiobook(audiobook.id, { clickupSyncStatus: "syncing", clickupSyncError: null });
 
-  const linkExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
+  // No expiresAt — dossier files are retained permanently, links should never expire
   const [workbookUrl, audioZipUrl] = await Promise.all([
     signInternalArtifactUrl({
       baseUrl: appBaseUrl,
@@ -1900,7 +1900,6 @@ export async function syncAudiobookToClickUp(env: Env, repo: Repository, audiobo
       key: audiobook.dossierWorkbookKey,
       method: "GET",
       secret: env.INTERNAL_API_SECRET,
-      expiresAt: linkExpiry,
     }),
     signInternalArtifactUrl({
       baseUrl: appBaseUrl,
@@ -1908,7 +1907,6 @@ export async function syncAudiobookToClickUp(env: Env, repo: Repository, audiobo
       key: audiobook.dossierAudioZipKey,
       method: "GET",
       secret: env.INTERNAL_API_SECRET,
-      expiresAt: linkExpiry,
     }),
   ]);
   const extra = {
