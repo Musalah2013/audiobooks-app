@@ -24,8 +24,8 @@ async function summarizeRetainedStorage(bucket: R2Bucket) {
 dashboard.get('/', async (c) => {
   const repo = new Repository(c.env.DB);
   const [batches, audiobooks, retained] = await Promise.all([
-    repo.listBatches(),
-    repo.listAudiobooks(),
+    repo.listBatches(10_000),
+    repo.listAudiobooks(10_000),
     summarizeRetainedStorage(c.env.ASSET_BUCKET),
   ]);
 

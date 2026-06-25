@@ -107,7 +107,7 @@ books.post('/:id/prepare-tracks', async (c) => {
   if (!batch || batch.status !== "records_created") {
     return c.json({ error: "Tracks can only be prepared after the batch records are created." }, 400);
   }
-  const candidate = (await repo.listCandidates(book.batchId)).find((entry) => entry.id === book.candidateId);
+  const candidate = book.candidateId ? await repo.getCandidate(book.candidateId) : null;
   if (!batch || !candidate) return c.json({ error: "Missing batch/candidate context" }, 404);
   const requestUrl = new URL(c.req.url);
   const apiBaseUrl = c.env.APP_BASE_URL ?? `${requestUrl.protocol}//${requestUrl.host}`;
@@ -183,7 +183,7 @@ books.post('/:id/start-processing', async (c) => {
   const book = await repo.getAudiobook(c.req.param("id"));
   if (!book) return c.json({ error: "Book not found" }, 404);
   const batch = await repo.getBatch(book.batchId);
-  const candidate = (await repo.listCandidates(book.batchId)).find((entry) => entry.id === book.candidateId);
+  const candidate = book.candidateId ? await repo.getCandidate(book.candidateId) : null;
   const tracks = await repo.listTracks(book.id);
   if (!batch || !candidate) return c.json({ error: "Missing book context" }, 404);
   if (!tracks.every((track) => track.approvalStatus === "approved")) {
@@ -408,7 +408,7 @@ books.post('/:id/finalize-reupload', async (c) => {
   const object = await c.env.ASSET_BUCKET.head(objectKey);
   if (!object) return c.json({ error: "Uploaded file not found in storage." }, 404);
 
-  const candidate = (await repo.listCandidates(book.batchId)).find((c) => c.id === book.candidateId);
+  const candidate = book.candidateId ? await repo.getCandidate(book.candidateId) : null;
   if (!candidate) return c.json({ error: "Candidate not found." }, 404);
 
   const fileName = objectKey.split("/").pop() ?? "book.zip";
