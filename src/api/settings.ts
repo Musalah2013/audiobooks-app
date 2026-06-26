@@ -3,6 +3,14 @@ import { z } from 'zod';
 import { requirePermission } from './auth';
 import { Repository } from '../db';
 import { DEFAULT_CLICKUP_CONFIG, mergeClickUpConfig } from '../clickup-config';
+import {
+  AI_MODEL_CATALOG,
+  AI_PRICING_SOURCE_URL,
+  AI_PRICING_VERIFIED_AT,
+  DEFAULT_AI_CONFIG,
+  isKnownAiModel,
+  mergeAiConfig,
+} from '../ai-config';
 import type { Env } from '../types';
 
 const settings = new Hono<{ Bindings: Env; Variables: { user: { email: string; role: string } | null } }>();
@@ -160,6 +168,43 @@ settings.get('/clickup/fields', async (c) => {
   }
   const payload = await resp.json() as { fields: Array<{ id: string; name: string; type: string }> };
   return c.json({ fields: payload.fields ?? [] });
+});
+
+// ─── AI model configuration ─────────────────────────────────────────────────
+
+const aiConfigSchema = z.object({
+  workbookModelId: z.string().min(1),
+});
+
+settings.get('/ai', async (c) => {
+  const repo = new Repository(c.env.DB);
+  const stored = await repo.getSetting('ai_models');
+  const config = mergeAiConfig(stored ? JSON.parse(stored) : null);
+  return c.json({
+    config,
+    defaults: DEFAULT_AI_CONFIG,
+    catalog: AI_MODEL_CATALOG,
+    pricing: { verifiedAt: AI_PRICING_VERIFIED_AT, sourceUrl: AI_PRICING_SOURCE_URL },
+    aiBindingAvailable: !!c.env.AI,
+  });
+});
+
+settings.patch('/ai', requirePermission('users'), async (c) => {
+  const body = await c.req.json();
+  const parsed = aiConfigSchema.parse(body);
+  if (!isKnownAiModel(parsed.workbookModelId)) {
+    return c.json({ error: `Unknown model id: ${parsed.workbookModelId}` }, 400);
+  }
+  const repo = new Repository(c.env.DB);
+  const next = mergeAiConfig(parsed);
+  await repo.upsertSetting('ai_models', JSON.stringify(next));
+  return c.json({ ok: true, config: next });
+});
+
+settings.post('/ai/reset', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  await repo.upsertSetting('ai_models', JSON.stringify(DEFAULT_AI_CONFIG));
+  return c.json({ ok: true, config: DEFAULT_AI_CONFIG });
 });
 
 export default settings;

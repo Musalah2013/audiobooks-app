@@ -345,6 +345,38 @@ export interface ClickUpSettingsResponse {
   defaults: ClickUpConfig;
 }
 
+// ─── AI model configuration ─────────────────────────────────────────────────
+
+export type AiModelTier = "economy" | "balanced" | "premium";
+
+export interface AiModelOption {
+  id: string;
+  label: string;
+  description: string;
+  contextWindow: number;
+  inputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+  tier: AiModelTier;
+}
+
+export interface AiModelConfig {
+  /** Model used for workbook column detection (metadata parsing). */
+  workbookModelId: string;
+}
+
+export interface AiSettingsResponse {
+  config: AiModelConfig;
+  defaults: AiModelConfig;
+  /** Available Cloudflare Workers AI models with published pricing. */
+  catalog: AiModelOption[];
+  pricing: {
+    verifiedAt: string;
+    sourceUrl: string;
+  };
+  /** False when the AI binding is not available in this environment. */
+  aiBindingAvailable: boolean;
+}
+
 // ─── Studio portal ────────────────────────────────────────────────────────────
 
 export interface Studio {

@@ -14,6 +14,7 @@ import {
 } from "./integrations";
 import { buildClickUpCustomFields, buildClickUpDescription } from "./clickup-fields";
 import { mergeClickUpConfig } from "./clickup-config";
+import { mergeAiConfig } from "./ai-config";
 import type {
   ArtifactDescriptor,
   CandidateDecision,
@@ -435,7 +436,7 @@ function aiColumnMappingToInternal(
   return emptyColumns;
 }
 
-async function detectWorkbookStructureWithAi(env: Env, rawRows: RawWorkbookRow[]): Promise<HeaderDetectionResult> {
+async function detectWorkbookStructureWithAi(env: Env, rawRows: RawWorkbookRow[], modelId: string): Promise<HeaderDetectionResult> {
   if (!env.AI) {
     return fallbackHeaderDetection(rawRows);
   }
@@ -454,7 +455,7 @@ async function detectWorkbookStructureWithAi(env: Env, rawRows: RawWorkbookRow[]
   }));
 
   try {
-    const result = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fast", {
+    const result = await env.AI.run(modelId as Parameters<Ai["run"]>[0], {
       messages: [
         {
           role: "system",
@@ -1371,7 +1372,9 @@ export async function parseBatchMetadata(env: Env, repo: Repository, batchId: st
   }
   const payload = await response.json() as { rawRows?: RawWorkbookRow[] };
   const rawRows = Array.isArray(payload.rawRows) ? payload.rawRows : [];
-  const headerDetection = await detectWorkbookStructureWithAi(env, rawRows);
+  const aiSetting = await repo.getSetting("ai_models");
+  const aiModelId = mergeAiConfig(aiSetting ? JSON.parse(aiSetting) : null).workbookModelId;
+  const headerDetection = await detectWorkbookStructureWithAi(env, rawRows, aiModelId);
   const normalized = await normalizeWorkbookRowsWithAi(env, rawRows, headerDetection);
 
   await repo.updateBatch(batchId, {

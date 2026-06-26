@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle2, Cloud, Download, Eye, EyeOff, RefreshCw, Settings as SettingsIcon, Sliders, Trash2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Cloud, Cpu, Download, Eye, EyeOff, RefreshCw, Settings as SettingsIcon, Sliders, Trash2 } from 'lucide-react';
 import { apiRequest, useApi } from '../hooks/useApi';
 import { InlineError } from '../components/InlineError';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
-import type { ClickUpConfig, ClickUpFieldMappings, ClickUpSettingsResponse, AppSettings } from '@api';
+import type { ClickUpConfig, ClickUpFieldMappings, ClickUpSettingsResponse, AppSettings, AiSettingsResponse } from '@api';
 
 function formatStorageSize(bytes: number) {
   const gb = bytes / (1024 ** 3);
@@ -35,6 +35,9 @@ const DESCRIPTION_FIELDS: Array<keyof ClickUpFieldMappings> = ['appLink', 'workb
 export default function Settings() {
   const { data, loading, error, errorDetail } = useApi<AppSettings>('/api/settings');
   const { data: cuData, loading: cuLoading, refetch: cuRefetch } = useApi<ClickUpSettingsResponse>('/api/settings/clickup');
+  const { data: aiData, loading: aiLoading, refetch: aiRefetch } = useApi<AiSettingsResponse>('/api/settings/ai');
+  const [aiModelId, setAiModelId] = useState<string>('');
+  const [aiSaving, setAiSaving] = useState(false);
   const [cuSaving, setCuSaving] = useState(false);
   const [cuResetting, setCuResetting] = useState(false);
   const [cuForm, setCuForm] = useState<ClickUpConfig | null>(null);
@@ -50,6 +53,38 @@ export default function Settings() {
   useEffect(() => {
     if (cuData?.config && !cuForm) setCuForm(cuData.config);
   }, [cuData?.config]);
+
+  useEffect(() => {
+    if (aiData?.config && !aiModelId) setAiModelId(aiData.config.workbookModelId);
+  }, [aiData?.config]);
+
+  async function saveAiConfig() {
+    if (!aiModelId) return;
+    setAiSaving(true);
+    try {
+      await apiRequest('/api/settings/ai', { method: 'PATCH', body: { workbookModelId: aiModelId } });
+      addToast(isArabic ? 'تم حفظ نموذج الذكاء الاصطناعي.' : 'AI model saved.', 'success');
+      aiRefetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحفظ' : 'Failed to save'), 'error');
+    } finally {
+      setAiSaving(false);
+    }
+  }
+
+  async function resetAiConfig() {
+    setAiSaving(true);
+    try {
+      const result = await apiRequest<{ config: { workbookModelId: string } }>('/api/settings/ai/reset', { method: 'POST' });
+      setAiModelId(result.config.workbookModelId);
+      addToast(isArabic ? 'تمت إعادة التعيين للنموذج الافتراضي.' : 'Reset to default model.', 'success');
+      aiRefetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل إعادة التعيين' : 'Failed to reset'), 'error');
+    } finally {
+      setAiSaving(false);
+    }
+  }
 
   async function saveCuConfig() {
     if (!cuForm) return;
@@ -203,6 +238,127 @@ export default function Settings() {
             {isArabic ? 'فتح مرجع Cloudflare الرسمي' : 'Open official Cloudflare pricing reference'}
           </a>
         </div>
+      </section>
+
+      {/* AI model configuration */}
+      <section className="card space-y-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-[rgba(11,128,255,0.08)] p-3 text-[color:var(--samawy-blue)]">
+              <Cpu className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="section-title">{isArabic ? 'نموذج الذكاء الاصطناعي' : 'AI Model'}</h2>
+              <p className="section-subtitle">
+                {isArabic
+                  ? 'يُستخدم نموذج Cloudflare Workers AI لاكتشاف أعمدة جدول البيانات الوصفية. اختر النموذج وراجع التكلفة لكل مليون رمز.'
+                  : 'Cloudflare Workers AI model used to detect metadata spreadsheet columns. Pick a model and compare cost per million tokens.'}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={resetAiConfig}
+              disabled={aiSaving}
+              className="inline-flex items-center gap-2 rounded-xl border border-[color:var(--border)] px-4 py-2 text-sm font-semibold text-[color:var(--fg-2)] hover:bg-[color:var(--bg-2)] disabled:opacity-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              {isArabic ? 'الافتراضي' : 'Default'}
+            </button>
+            <button
+              type="button"
+              onClick={saveAiConfig}
+              disabled={aiSaving || !aiModelId || aiModelId === aiData?.config.workbookModelId}
+              className="inline-flex items-center gap-2 rounded-xl bg-[color:var(--samawy-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              {aiSaving ? (isArabic ? 'جاري الحفظ…' : 'Saving…') : (isArabic ? 'حفظ النموذج' : 'Save model')}
+            </button>
+          </div>
+        </div>
+
+        {aiLoading && <p className="text-sm text-[color:var(--fg-2)]">{isArabic ? 'جاري التحميل…' : 'Loading…'}</p>}
+
+        {aiData && !aiData.aiBindingAvailable && (
+          <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              {isArabic
+                ? 'ربط الذكاء الاصطناعي (AI) غير متوفر في هذه البيئة — سيتم استخدام الكشف الاستدلالي بدلاً من ذلك حتى يتم تكوينه.'
+                : 'The AI binding is not available in this environment — heuristic detection is used until it is configured.'}
+            </span>
+          </div>
+        )}
+
+        {aiData && (
+          <div className="table-shell overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-[color:var(--fg-2)]">
+                  <th className="px-3 py-2"></th>
+                  <th className="px-3 py-2">{isArabic ? 'النموذج' : 'Model'}</th>
+                  <th className="px-3 py-2">{isArabic ? 'الفئة' : 'Tier'}</th>
+                  <th className="px-3 py-2 text-right">{isArabic ? 'الإدخال / مليون' : 'Input / 1M'}</th>
+                  <th className="px-3 py-2 text-right">{isArabic ? 'الإخراج / مليون' : 'Output / 1M'}</th>
+                  <th className="px-3 py-2 text-right">{isArabic ? 'سياق' : 'Context'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aiData.catalog.map((model) => {
+                  const selected = aiModelId === model.id;
+                  const tierColor =
+                    model.tier === 'economy' ? 'bg-emerald-100 text-emerald-700'
+                    : model.tier === 'balanced' ? 'bg-sky-100 text-sky-700'
+                    : 'bg-violet-100 text-violet-700';
+                  return (
+                    <tr
+                      key={model.id}
+                      onClick={() => setAiModelId(model.id)}
+                      className={`cursor-pointer border-t border-[color:var(--border)] transition-colors ${selected ? 'bg-[rgba(11,128,255,0.06)]' : 'hover:bg-[color:var(--bg-2)]'}`}
+                    >
+                      <td className="px-3 py-3 align-top">
+                        <input
+                          type="radio"
+                          name="ai-model"
+                          checked={selected}
+                          onChange={() => setAiModelId(model.id)}
+                          className="accent-[color:var(--samawy-blue)]"
+                        />
+                      </td>
+                      <td className="px-3 py-3 align-top">
+                        <div className="font-semibold text-[color:var(--samawy-ink)]">{model.label}</div>
+                        <div className="text-xs text-[color:var(--fg-2)]">{model.description}</div>
+                        <div className="mt-1 font-mono text-[11px] text-[color:var(--fg-2)]">{model.id}</div>
+                      </td>
+                      <td className="px-3 py-3 align-top">
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${tierColor}`}>
+                          {model.tier}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 align-top text-right font-mono">${model.inputUsdPerMillion.toFixed(3)}</td>
+                      <td className="px-3 py-3 align-top text-right font-mono">${model.outputUsdPerMillion.toFixed(3)}</td>
+                      <td className="px-3 py-3 align-top text-right font-mono">{model.contextWindow.toLocaleString()}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {aiData && (
+          <p className="text-xs text-[color:var(--fg-2)]">
+            {isArabic ? 'أسعار Cloudflare بالدولار لكل مليون رمز، تم التحقق في ' : 'Cloudflare prices in USD per 1M tokens, verified '}
+            {aiData.pricing.verifiedAt}.{' '}
+            <a href={aiData.pricing.sourceUrl} target="_blank" rel="noreferrer" className="text-[color:var(--samawy-blue)] underline">
+              {isArabic ? 'المصدر' : 'Source'}
+            </a>
+            {isArabic
+              ? ' — مهمة اكتشاف الأعمدة قصيرة (بضع مئات من الرموز لكل دفعة)، لذا تظل التكلفة منخفضة جداً حتى مع النماذج الأكبر.'
+              : ' — column detection is a short task (a few hundred tokens per batch), so cost stays very low even on larger models.'}
+          </p>
+        )}
       </section>
 
       {/* ClickUp configuration */}
