@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Upload, Search, CheckCircle2, AlertCircle, FileSpreadsheet, X } from 'lucide-react';
+import { Upload, Search, CheckCircle2, AlertCircle, FileSpreadsheet, X, Download } from 'lucide-react';
 import { apiRequest } from '../hooks/useApi';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
@@ -83,6 +83,20 @@ function rowsToBooks(text: string): { books: LegacyRow[]; unmapped: string[] } {
   }
   return { books, unmapped };
 }
+
+function downloadCsv(filename: string, content: string) {
+  const blob = new Blob(['﻿' + content], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+const BOOKS_TEMPLATE = [
+  'title,subtitle,author,narrator,isbn,genre,blurb,pub_year,selling_type,price,track_count,total_hours',
+  'The Example Book,A Subtitle,Author Name,Narrator Name,9781234567890,Fiction,Short description,2021,subscription,0,12,6.5',
+].join('\n');
 
 export default function LegacyImport() {
   const { addToast } = useToast();
@@ -201,7 +215,10 @@ export default function LegacyImport() {
           {isArabic ? 'الصق صفوف CSV/TSV (سطر العناوين أولاً) أو ارفع ملفاً. الأعمدة المدعومة: ' : 'Paste CSV/TSV rows (header row first) or upload a file. Supported columns: '}
           <code className="font-mono text-[11px]">title, subtitle, author, narrator, isbn, genre, blurb, pub_year, selling_type, price, track_count, total_hours</code>
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button type="button" className="btn-secondary text-xs" onClick={() => downloadCsv('legacy-books-template.csv', BOOKS_TEMPLATE)}>
+            <Download className="h-3.5 w-3.5" />{isArabic ? 'تنزيل القالب' : 'Download template'}
+          </button>
           <label className="btn-secondary text-xs cursor-pointer">
             <FileSpreadsheet className="h-3.5 w-3.5" />{isArabic ? 'رفع CSV' : 'Upload CSV'}
             <input type="file" accept=".csv,.tsv,text/csv,text/plain" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />

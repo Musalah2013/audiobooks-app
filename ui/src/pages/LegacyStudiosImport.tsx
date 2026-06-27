@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Upload, CheckCircle2, AlertCircle, FileSpreadsheet, Building2, Users, Clock } from 'lucide-react';
+import { Upload, CheckCircle2, AlertCircle, FileSpreadsheet, Building2, Users, Clock, Download } from 'lucide-react';
 import { apiRequest, useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
@@ -111,6 +111,25 @@ function parseProductions(text: string): { productions: Production[]; unmapped: 
   return { productions, unmapped };
 }
 
+function downloadCsv(filename: string, content: string) {
+  const blob = new Blob(['﻿' + content], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+const STUDIOS_TEMPLATE = [
+  'studio,slug,contact_email,emails,hourly_rate,active,book_title,isbn,narrator,net_hours,notes',
+  'O2 Studio,o2-studio,studio@example.com,second@example.com;third@example.com,25,true,The Example Book,9781234567890,Narrator Name,6.5,Delivered 2023',
+].join('\n');
+
+const PRODUCTIONS_TEMPLATE = [
+  'book_title,isbn,narrator,net_hours,notes',
+  'The Example Book,9781234567890,Narrator Name,6.5,Delivered 2023',
+].join('\n');
+
 export default function LegacyStudiosImport() {
   const { addToast } = useToast();
   const { isArabic } = useLocale();
@@ -218,7 +237,12 @@ export default function LegacyStudiosImport() {
             : (isArabic ? 'صف لكل سطر. صفوف نفس الاستوديو تتجمّع. الأعمدة: ' : 'One row per line; rows for the same studio are grouped. Columns: ')}
           <code className="font-mono text-[11px]">{selectedStudioId ? 'book_title, isbn, narrator, net_hours, notes' : 'studio, slug, contact_email, emails (;-sep), hourly_rate, active, book_title, isbn, narrator, net_hours, notes'}</code>
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button type="button" className="btn-secondary text-xs" onClick={() => selectedStudioId
+            ? downloadCsv('legacy-productions-template.csv', PRODUCTIONS_TEMPLATE)
+            : downloadCsv('legacy-studios-template.csv', STUDIOS_TEMPLATE)}>
+            <Download className="h-3.5 w-3.5" />{isArabic ? 'تنزيل القالب' : 'Download template'}
+          </button>
           <label className="btn-secondary text-xs cursor-pointer">
             <FileSpreadsheet className="h-3.5 w-3.5" />{isArabic ? 'رفع CSV' : 'Upload CSV'}
             <input type="file" accept=".csv,.tsv,text/csv,text/plain" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
