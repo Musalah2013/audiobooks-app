@@ -1013,6 +1013,23 @@ export class Repository {
     return results;
   }
 
+  async updateLegacyProduction(studioId: string, id: string, patch: { bookTitle?: string; isbn?: string | null; narrator?: string | null; netHours?: number | null; notes?: string | null }) {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    if (patch.bookTitle !== undefined) { fields.push('book_title = ?'); values.push(patch.bookTitle); }
+    if ('isbn' in patch) { fields.push('isbn = ?'); values.push(patch.isbn ?? null); }
+    if ('narrator' in patch) { fields.push('narrator = ?'); values.push(patch.narrator ?? null); }
+    if ('netHours' in patch) { fields.push('net_hours = ?'); values.push(patch.netHours ?? null); }
+    if ('notes' in patch) { fields.push('notes = ?'); values.push(patch.notes ?? null); }
+    if (!fields.length) return;
+    values.push(id, studioId);
+    await this.db.prepare(`UPDATE studio_legacy_production SET ${fields.join(', ')} WHERE id = ? AND studio_id = ?`).bind(...values).run();
+  }
+
+  async deleteLegacyProduction(studioId: string, id: string) {
+    await this.db.prepare(`DELETE FROM studio_legacy_production WHERE id = ? AND studio_id = ?`).bind(id, studioId).run();
+  }
+
   /** True when the email may access the given studio's portal (any contact, or the legacy primary). */
   async isStudioContactEmail(studioId: string, email: string) {
     const norm = email.trim().toLowerCase();

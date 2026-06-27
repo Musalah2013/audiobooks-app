@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2, CloudUpload, Mail, DollarSign, Plus } from 'lucide-react';
+import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2, CloudUpload, Mail, DollarSign, Plus, Pencil } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
@@ -50,6 +50,9 @@ export default function StudioManage() {
   const [savingContact, setSavingContact] = useState(false);
   const [rateInput, setRateInput] = useState('');
   const [savingRate, setSavingRate] = useState(false);
+  const [editingProd, setEditingProd] = useState<string | null>(null);
+  const [prodDraft, setProdDraft] = useState<{ bookTitle: string; narrator: string; isbn: string; netHours: string; notes: string }>({ bookTitle: '', narrator: '', isbn: '', netHours: '', notes: '' });
+  const [confirmDeleteProd, setConfirmDeleteProd] = useState<string | null>(null);
 
   const studio = data?.studio;
   const contacts = data?.contacts ?? [];
@@ -84,6 +87,48 @@ export default function StudioManage() {
       refetch();
     } catch (err) {
       addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Failed to remove'), 'error');
+    }
+  }
+
+  function startEditProd(p: StudioLegacyProduction) {
+    setEditingProd(p.id);
+    setProdDraft({
+      bookTitle: p.bookTitle,
+      narrator: p.narrator ?? '',
+      isbn: p.isbn ?? '',
+      netHours: p.netHours != null ? String(p.netHours) : '',
+      notes: p.notes ?? '',
+    });
+  }
+
+  async function saveProd(prodId: string) {
+    try {
+      await apiRequest(`/api/studios/${id}/legacy-productions/${prodId}`, {
+        method: 'PATCH',
+        body: {
+          bookTitle: prodDraft.bookTitle.trim(),
+          narrator: prodDraft.narrator.trim() || null,
+          isbn: prodDraft.isbn.trim() || null,
+          netHours: prodDraft.netHours.trim() === '' ? null : Number(prodDraft.netHours),
+          notes: prodDraft.notes.trim() || null,
+        },
+      });
+      addToast(isArabic ? 'تم الحفظ.' : 'Saved.', 'success');
+      setEditingProd(null);
+      refetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحفظ' : 'Failed to save'), 'error');
+    }
+  }
+
+  async function deleteProd(prodId: string) {
+    try {
+      await apiRequest(`/api/studios/${id}/legacy-productions/${prodId}`, { method: 'DELETE' });
+      addToast(isArabic ? 'تم الحذف.' : 'Deleted.', 'success');
+      setConfirmDeleteProd(null);
+      refetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Failed to delete'), 'error');
     }
   }
 
@@ -545,16 +590,43 @@ export default function StudioManage() {
               <div className="divide-y divide-slate-100">
                 {legacyProductions.map((p) => {
                   const cost = studio?.hourlyRateUsd != null && p.netHours != null ? studio.hourlyRateUsd * p.netHours : null;
+                  if (editingProd === p.id) {
+                    return (
+                      <div key={p.id} className="py-3 space-y-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <input className="input text-sm" value={prodDraft.bookTitle} onChange={(e) => setProdDraft((d) => ({ ...d, bookTitle: e.target.value }))} placeholder={isArabic ? 'عنوان الكتاب' : 'Book title'} />
+                          <input className="input text-sm" value={prodDraft.narrator} onChange={(e) => setProdDraft((d) => ({ ...d, narrator: e.target.value }))} placeholder={isArabic ? 'الراوي' : 'Narrator'} />
+                          <input className="input text-sm font-mono" value={prodDraft.isbn} onChange={(e) => setProdDraft((d) => ({ ...d, isbn: e.target.value }))} placeholder="ISBN" />
+                          <input className="input text-sm" type="number" min="0" step="0.1" value={prodDraft.netHours} onChange={(e) => setProdDraft((d) => ({ ...d, netHours: e.target.value }))} placeholder={isArabic ? 'ساعات صافية' : 'Net hours'} />
+                          <input className="input text-sm sm:col-span-2" value={prodDraft.notes} onChange={(e) => setProdDraft((d) => ({ ...d, notes: e.target.value }))} placeholder={isArabic ? 'ملاحظات' : 'Notes'} />
+                        </div>
+                        <div className="flex items-center justify-end gap-2">
+                          <button type="button" className="btn-secondary text-xs py-1 px-2.5" onClick={() => setEditingProd(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
+                          <button type="button" className="btn-primary text-xs py-1 px-2.5" disabled={!prodDraft.bookTitle.trim()} onClick={() => saveProd(p.id)}>
+                            <CheckCircle2 className="h-3.5 w-3.5" />{isArabic ? 'حفظ' : 'Save'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <div key={p.id} className="flex items-center justify-between gap-3 py-2">
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{p.bookTitle}</p>
                         <p className="text-xs text-[color:var(--fg-2)]">{[p.narrator, p.isbn].filter(Boolean).join(' · ') || '—'}{p.notes ? ` · ${p.notes}` : ''}</p>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0 text-xs">
+                      <div className="flex items-center gap-2.5 shrink-0 text-xs">
                         {p.netHours != null && <span>{p.netHours} h</span>}
                         {cost != null && <span className="text-emerald-700 font-semibold">${cost.toFixed(2)}</span>}
-                        <span className="badge-gray !px-2 !py-0.5 !text-[10px]">{isArabic ? 'قديم' : 'Legacy'}</span>
+                        <button type="button" className="text-slate-400 hover:text-[color:var(--samawy-blue)]" onClick={() => startEditProd(p)} title={isArabic ? 'تعديل' : 'Edit'}><Pencil className="h-3.5 w-3.5" /></button>
+                        {confirmDeleteProd === p.id ? (
+                          <span className="flex items-center gap-1">
+                            <button type="button" className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white" onClick={() => deleteProd(p.id)}>{isArabic ? 'تأكيد' : 'Confirm'}</button>
+                            <button type="button" className="text-[10px] text-slate-500" onClick={() => setConfirmDeleteProd(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
+                          </span>
+                        ) : (
+                          <button type="button" className="text-red-400 hover:text-red-600" onClick={() => setConfirmDeleteProd(p.id)} title={isArabic ? 'حذف' : 'Delete'}><Trash2 className="h-3.5 w-3.5" /></button>
+                        )}
                       </div>
                     </div>
                   );

@@ -125,6 +125,26 @@ studios.post('/legacy-import', requirePermission('users'), async (c) => {
   return c.json({ ok: true, studiosCreated, studiosUpdated, productionsCreated });
 });
 
+// Edit / delete an imported legacy production
+studios.patch('/:id/legacy-productions/:prodId', requirePermission('users'), async (c) => {
+  const body = z.object({
+    bookTitle: z.string().min(1).optional(),
+    isbn: z.string().nullable().optional(),
+    narrator: z.string().nullable().optional(),
+    netHours: z.number().nonnegative().nullable().optional(),
+    notes: z.string().nullable().optional(),
+  }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  await repo.updateLegacyProduction(c.req.param('id')!, c.req.param('prodId')!, body);
+  return c.json({ ok: true });
+});
+
+studios.delete('/:id/legacy-productions/:prodId', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  await repo.deleteLegacyProduction(c.req.param('id')!, c.req.param('prodId')!);
+  return c.json({ ok: true });
+});
+
 studios.get('/:id', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(c.req.param('id')!);
