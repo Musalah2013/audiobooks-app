@@ -442,7 +442,13 @@ ingestions.get('/:id', async (c) => {
     repo.listCandidates(c.req.param("id")),
     repo.listAuditEvents("ingestion_batch", c.req.param("id")),
   ]);
-  return c.json({ batch, candidates, events });
+  // Attach originating studio name when this batch was bridged from a studio delivery.
+  let studioName: string | null = null;
+  if (batch?.studioId) {
+    const studio = await repo.getStudio(batch.studioId);
+    studioName = studio?.name ?? null;
+  }
+  return c.json({ batch: batch ? { ...batch, studioName } : null, candidates, events });
 });
 
 ingestions.get('/:id/stream', async (c) => {

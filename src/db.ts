@@ -25,7 +25,7 @@ type StudioRow = { id: string; name: string; slug: string; contact_email: string
 type StudioAssetRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
 type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null };
 type StudioSampleRow = { id: string; studio_id: string; book_id: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string };
-type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string };
+type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null };
 type AcquisitionUserRow = { id: string; email: string; name: string; is_active: number; created_at: string; created_by: string };
 
 function bindObject(stmt: D1PreparedStatement, values: unknown[]) {
@@ -45,6 +45,7 @@ export interface IngestionBatchRecord {
   sourceManifest: SourceManifestItem[];
   normalization: { groups?: NormalizedGroup[]; metadataRows?: MetadataRow[]; [key: string]: unknown };
   reportObjectKey: string | null;
+  studioId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -159,6 +160,7 @@ function mapBatch(row: Row): IngestionBatchRecord {
     sourceManifest: jsonParse(row.source_manifest_json as string, []),
     normalization: jsonParse(row.normalization_json as string, {}),
     reportObjectKey: row.report_object_key ? String(row.report_object_key) : null,
+    studioId: row.studio_id ? String(row.studio_id) : null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -274,15 +276,16 @@ export class Repository {
     sourceType: SourceType;
     driveLink?: string | null;
     uploadObjectKey?: string | null;
+    studioId?: string | null;
   }) {
     const now = nowIso();
     await bindObject(
       this.db.prepare(
         `INSERT INTO ingestion_batch
-        (id, source_type, drive_link, upload_object_key, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'ingested', ?, ?)`,
+        (id, source_type, drive_link, upload_object_key, studio_id, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'ingested', ?, ?)`,
       ),
-      [input.id, input.sourceType, input.driveLink ?? null, input.uploadObjectKey ?? null, now, now],
+      [input.id, input.sourceType, input.driveLink ?? null, input.uploadObjectKey ?? null, input.studioId ?? null, now, now],
     ).run();
     return this.getBatch(input.id);
   }
@@ -1102,6 +1105,16 @@ export class Repository {
   async listDriveUploads(studioId: string) {
     const { results } = await this.db.prepare(`SELECT * FROM studio_drive_upload WHERE studio_id = ? ORDER BY created_at DESC`).bind(studioId).all<StudioDriveUploadRow>();
     return results;
+  }
+
+  /** Link a set of a studio's drive uploads to the intake batch that will process them. */
+  async linkDriveUploadsToBatch(uploadIds: string[], batchId: string) {
+    if (uploadIds.length === 0) return;
+    const placeholders = uploadIds.map(() => "?").join(", ");
+    await this.db
+      .prepare(`UPDATE studio_drive_upload SET batch_id = ? WHERE id IN (${placeholders})`)
+      .bind(batchId, ...uploadIds)
+      .run();
   }
 
   // ─── Acquisition users ───────────────────────────────────────────────────────

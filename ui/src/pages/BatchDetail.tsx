@@ -615,6 +615,11 @@ export default function BatchDetail() {
               'bg-amber-100 text-amber-700'
             }`}>{status}</span>
             {batch?.intakeMode && <span className="text-xs text-gray-400">{batch.intakeMode}</span>}
+            {batch?.studioId && (
+              <Link to={`/studios/${batch.studioId}`} className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-violet-200 hover:bg-violet-100">
+                {isArabic ? 'من استوديو: ' : 'From studio: '}{batch.studioName ?? batch.studioId}
+              </Link>
+            )}
           </div>
         </div>
       </div>

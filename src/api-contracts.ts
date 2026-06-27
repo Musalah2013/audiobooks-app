@@ -303,6 +303,8 @@ export interface BatchDetailResponse {
     sellerId: number | null;
     reportObjectKey: string | null;
     metadataSheetObjectKey: string | null;
+    studioId?: string | null;
+    studioName?: string | null;
     sourceManifest: SourceManifestItem[];
     normalization: {
       intakeError?: string;
@@ -450,6 +452,8 @@ export interface StudioDriveUpload {
   driveFileId: string | null;
   error: string | null;
   createdAt: string;
+  /** Intake batch this delivery was bridged into (null = not yet sent to intake). */
+  batchId: string | null;
 }
 
 export interface StudioPortalResponse {

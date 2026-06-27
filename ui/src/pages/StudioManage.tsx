@@ -1,19 +1,20 @@
 import { useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2 } from 'lucide-react';
+import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2, CloudUpload } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
-import type { Studio, StudioAsset, StudioProductionFile, StudioSample, BooksResponse } from '@api';
+import type { Studio, StudioAsset, StudioProductionFile, StudioSample, StudioDriveUpload, BooksResponse } from '@api';
 
 interface ManageData {
   studio: Studio;
   assets: StudioAsset[];
   productionFiles: StudioProductionFile[];
   samples: StudioSample[];
+  driveUploads: StudioDriveUpload[];
 }
 
-type TabKey = 'info' | 'assets' | 'production' | 'samples';
+type TabKey = 'info' | 'assets' | 'production' | 'samples' | 'deliveries';
 
 function formatBytes(b: number) {
   if (b < 1024) return `${b} B`;
@@ -43,6 +44,8 @@ export default function StudioManage() {
   const assets = data?.assets ?? [];
   const productionFiles = data?.productionFiles ?? [];
   const samples = sampleData?.samples ?? data?.samples ?? [];
+  const driveUploads = data?.driveUploads ?? [];
+  const bridgeableCount = driveUploads.filter((u) => u.status === 'completed' && !u.batchId).length;
 
   function xhrPut(url: string, file: File): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -135,6 +138,20 @@ export default function StudioManage() {
     }
   }
 
+  const [bridging, setBridging] = useState(false);
+  async function bridgeDeliveries() {
+    setBridging(true);
+    try {
+      const res = await apiRequest<{ batchId: string; bridgedDeliveries: number }>(`/api/studios/${id}/deliveries/create-batch`, { method: 'POST' });
+      addToast(isArabic ? `تم إنشاء دفعة استيراد من ${res.bridgedDeliveries} تسليم.` : `Created an intake batch from ${res.bridgedDeliveries} deliver${res.bridgedDeliveries === 1 ? 'y' : 'ies'}.`, 'success');
+      refetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل إنشاء الدفعة' : 'Failed to create batch'), 'error');
+    } finally {
+      setBridging(false);
+    }
+  }
+
   async function reviewSample(sampleId: string, status: 'approved' | 'refused') {
     setReviewing(sampleId);
     try {
@@ -157,6 +174,7 @@ export default function StudioManage() {
     { key: 'assets', label: isArabic ? 'الملفات' : 'Assets', count: assets.length },
     { key: 'production', label: isArabic ? 'ملفات الإنتاج' : 'Production Files', count: productionFiles.length },
     { key: 'samples', label: isArabic ? 'العينات' : 'Samples', count: samples.length },
+    { key: 'deliveries', label: isArabic ? 'التسليمات' : 'Deliveries', count: driveUploads.length },
   ];
 
   return (
@@ -383,6 +401,62 @@ export default function StudioManage() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Deliveries tab */}
+      {activeTab === 'deliveries' && (
+        <div className="space-y-3">
+          <div className="card flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <p className="text-sm font-semibold">{isArabic ? 'تسليمات الصوت النهائي' : 'Finished audio deliveries'}</p>
+              <p className="text-xs text-[color:var(--fg-2)]">
+                {isArabic
+                  ? 'الملفات التي رفعها الاستوديو إلى Google Drive. أنشئ دفعة استيراد لمعالجتها في خط الإنتاج.'
+                  : 'Files the studio delivered to Google Drive. Create an intake batch to process them through the pipeline.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn-primary text-xs py-2 px-3 disabled:opacity-50"
+              disabled={bridging || bridgeableCount === 0}
+              onClick={bridgeDeliveries}
+              title={bridgeableCount === 0 ? (isArabic ? 'لا توجد تسليمات مكتملة غير مرتبطة' : 'No completed, unlinked deliveries') : undefined}
+            >
+              <Upload className="h-3.5 w-3.5" />
+              {bridging
+                ? (isArabic ? 'جاري الإنشاء…' : 'Creating…')
+                : (isArabic ? `إنشاء دفعة استيراد (${bridgeableCount})` : `Create intake batch (${bridgeableCount})`)}
+            </button>
+          </div>
+          {driveUploads.length === 0 ? (
+            <div className="card text-sm text-center text-[color:var(--fg-2)] py-6">{isArabic ? 'لا توجد تسليمات بعد.' : 'No deliveries yet.'}</div>
+          ) : (
+            <div className="card divide-y divide-slate-100">
+              {driveUploads.map((u) => (
+                <div key={u.id} className="flex items-center justify-between gap-3 py-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <CloudUpload className="h-4 w-4 text-emerald-500 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{u.name}</p>
+                      <p className="text-xs text-[color:var(--fg-2)]">{new Date(u.createdAt).toLocaleDateString()}{u.error ? ` · ${u.error}` : ''}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {u.batchId ? (
+                      <Link to={`/batches/${u.batchId}`} className="text-xs text-[color:var(--samawy-blue)] underline">
+                        {isArabic ? 'عرض الدفعة' : 'View batch'}
+                      </Link>
+                    ) : (
+                      <span className={`badge-${u.status === 'completed' ? 'green' : u.status === 'failed' ? 'red' : 'yellow'}`}>
+                        {u.status === 'completed' ? (isArabic ? 'مكتمل' : 'Completed') : u.status === 'failed' ? (isArabic ? 'فشل' : 'Failed') : (isArabic ? 'قيد الرفع' : 'Uploading')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
