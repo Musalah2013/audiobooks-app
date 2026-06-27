@@ -26,8 +26,16 @@ export function AudioPlayer({ src, className = '' }: Props) {
     fetch(src, { credentials: 'include', cache: 'no-store' })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const blob = await res.blob();
+        let blob = await res.blob();
         if (cancelled) return;
+        // If the stored Content-Type isn't audio (e.g. octet-stream), the <audio>
+        // element won't play it — re-wrap with a MIME inferred from the extension.
+        if (!blob.type.startsWith('audio')) {
+          const ext = (src.split('?')[0].match(/\.(mp3|m4a|m4b|wav|flac|aac|ogg)$/i)?.[1] ?? 'mp3').toLowerCase();
+          const mime: Record<string, string> = { mp3: 'audio/mpeg', m4a: 'audio/mp4', m4b: 'audio/mp4', wav: 'audio/wav', flac: 'audio/flac', aac: 'audio/aac', ogg: 'audio/ogg' };
+          blob = new Blob([await blob.arrayBuffer()], { type: mime[ext] ?? 'audio/mpeg' });
+          if (cancelled) return;
+        }
         const url = URL.createObjectURL(blob);
         prevUrl.current = url;
         setBlobUrl(url);

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2, CloudUpload, Mail, DollarSign, Plus, Pencil } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
+import { AudioPlayer } from '../components/AudioPlayer';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
 import type { Studio, StudioContact, StudioAsset, StudioProductionFile, StudioSample, StudioDriveUpload, StudioLegacyProduction, BooksResponse } from '@api';
@@ -513,7 +514,7 @@ export default function StudioManage() {
                   {s.status === 'approved' ? (isArabic ? 'موافقة' : 'Approved') : s.status === 'refused' ? (isArabic ? 'مرفوضة' : 'Refused') : (isArabic ? 'قيد المراجعة' : 'Pending')}
                 </span>
               </div>
-              <audio controls className="w-full" src={`${API_BASE}/api/files/${s.objectKey}?preview=1`} />
+              <AudioPlayer src={`${API_BASE}/api/files/${s.objectKey}?preview=1`} />
               {s.reviewNote && <p className="text-xs text-[color:var(--fg-2)] bg-slate-50 rounded-[10px] px-3 py-2">{s.reviewNote}</p>}
               {s.status === 'pending' && (
                 <div className="flex gap-2 items-center flex-wrap">
