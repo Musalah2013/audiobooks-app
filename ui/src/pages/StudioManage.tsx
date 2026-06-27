@@ -4,7 +4,7 @@ import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, 
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
-import type { Studio, StudioContact, StudioAsset, StudioProductionFile, StudioSample, StudioDriveUpload, BooksResponse } from '@api';
+import type { Studio, StudioContact, StudioAsset, StudioProductionFile, StudioSample, StudioDriveUpload, StudioLegacyProduction, BooksResponse } from '@api';
 
 interface ManageData {
   studio: Studio;
@@ -13,6 +13,7 @@ interface ManageData {
   productionFiles: StudioProductionFile[];
   samples: StudioSample[];
   driveUploads: StudioDriveUpload[];
+  legacyProductions: StudioLegacyProduction[];
 }
 
 function fmtHours(h: number | null | undefined) {
@@ -56,6 +57,7 @@ export default function StudioManage() {
   const productionFiles = data?.productionFiles ?? [];
   const samples = sampleData?.samples ?? data?.samples ?? [];
   const driveUploads = data?.driveUploads ?? [];
+  const legacyProductions = data?.legacyProductions ?? [];
 
   useEffect(() => {
     if (studio) setRateInput(studio.hourlyRateUsd != null ? String(studio.hourlyRateUsd) : '');
@@ -533,6 +535,31 @@ export default function StudioManage() {
                 </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Legacy productions (imported history) */}
+          {legacyProductions.length > 0 && (
+            <div className="card">
+              <p className="text-sm font-semibold mb-2">{isArabic ? 'إنتاج تاريخي مستورد' : 'Imported legacy productions'} <span className="text-xs font-normal text-[color:var(--fg-2)]">({legacyProductions.length})</span></p>
+              <div className="divide-y divide-slate-100">
+                {legacyProductions.map((p) => {
+                  const cost = studio?.hourlyRateUsd != null && p.netHours != null ? studio.hourlyRateUsd * p.netHours : null;
+                  return (
+                    <div key={p.id} className="flex items-center justify-between gap-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{p.bookTitle}</p>
+                        <p className="text-xs text-[color:var(--fg-2)]">{[p.narrator, p.isbn].filter(Boolean).join(' · ') || '—'}{p.notes ? ` · ${p.notes}` : ''}</p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0 text-xs">
+                        {p.netHours != null && <span>{p.netHours} h</span>}
+                        {cost != null && <span className="text-emerald-700 font-semibold">${cost.toFixed(2)}</span>}
+                        <span className="badge-gray !px-2 !py-0.5 !text-[10px]">{isArabic ? 'قديم' : 'Legacy'}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

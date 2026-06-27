@@ -48,7 +48,8 @@ export default function Layout({ children, user, onLogout }: LayoutProps) {
     { path: '/settings', label: isArabic ? 'الإعدادات' : 'Settings', icon: Settings },
     ...(isAdmin ? [
       { path: '/studios', label: isArabic ? 'الاستوديوهات' : 'Studios', icon: Building2 },
-      { path: '/legacy-import', label: isArabic ? 'استيراد قديم' : 'Legacy Import', icon: Upload },
+      { path: '/legacy-import', label: isArabic ? 'استيراد كتب قديمة' : 'Legacy Books', icon: Upload },
+      { path: '/legacy-studios-import', label: isArabic ? 'استيراد استوديوهات' : 'Legacy Studios', icon: Upload },
     ] : []),
   ];
 

@@ -23,10 +23,12 @@ type Row = Record<string, unknown>;
 // ─── Studio row types ────────────────────────────────────────────────────────
 type StudioRow = { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string; hourly_rate_usd: number | null };
 type StudioContactRow = { id: string; studio_id: string; email: string; name: string | null; created_at: string };
+type StudioLegacyProductionRow = { id: string; studio_id: string; book_title: string; isbn: string | null; narrator: string | null; net_hours: number | null; notes: string | null; created_at: string };
 type StudioAggregate = {
   contacts: number; productionFiles: number; assignedFiles: number;
   samplesTotal: number; samplesPending: number; samplesApproved: number; samplesRefused: number;
   deliveries: number; deliveriesCompleted: number; netFinalHours: number;
+  legacyProductions: number; legacyNetHours: number;
 };
 type StudioAssetRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
 type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null };
@@ -995,6 +997,22 @@ export class Repository {
     await this.db.prepare(`DELETE FROM studio_contact WHERE id = ? AND studio_id = ?`).bind(contactId, studioId).run();
   }
 
+  // ─── Legacy productions ─────────────────────────────────────────────────────
+  async createLegacyProduction(input: { studioId: string; bookTitle: string; isbn?: string | null; narrator?: string | null; netHours?: number | null; notes?: string | null }) {
+    const id = crypto.randomUUID();
+    await this.db
+      .prepare(`INSERT INTO studio_legacy_production (id, studio_id, book_title, isbn, narrator, net_hours, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(id, input.studioId, input.bookTitle, input.isbn ?? null, input.narrator ?? null, input.netHours ?? null, input.notes ?? null).run();
+    return id;
+  }
+
+  async listLegacyProductions(studioId: string) {
+    const { results } = await this.db
+      .prepare(`SELECT * FROM studio_legacy_production WHERE studio_id = ? ORDER BY created_at DESC`)
+      .bind(studioId).all<StudioLegacyProductionRow>();
+    return results;
+  }
+
   /** True when the email may access the given studio's portal (any contact, or the legacy primary). */
   async isStudioContactEmail(studioId: string, email: string) {
     const norm = email.trim().toLowerCase();
@@ -1022,14 +1040,15 @@ export class Repository {
     const map = new Map<string, StudioAggregate>();
     const ensure = (id: string) => {
       let v = map.get(id);
-      if (!v) { v = { contacts: 0, productionFiles: 0, assignedFiles: 0, samplesTotal: 0, samplesPending: 0, samplesApproved: 0, samplesRefused: 0, deliveries: 0, deliveriesCompleted: 0, netFinalHours: 0 }; map.set(id, v); }
+      if (!v) { v = { contacts: 0, productionFiles: 0, assignedFiles: 0, samplesTotal: 0, samplesPending: 0, samplesApproved: 0, samplesRefused: 0, deliveries: 0, deliveriesCompleted: 0, netFinalHours: 0, legacyProductions: 0, legacyNetHours: 0 }; map.set(id, v); }
       return v;
     };
-    const [contacts, files, samples, deliveries] = await Promise.all([
+    const [contacts, files, samples, deliveries, legacy] = await Promise.all([
       this.db.prepare(`SELECT studio_id, COUNT(*) AS c FROM studio_contact GROUP BY studio_id`).all<{ studio_id: string; c: number }>(),
       this.db.prepare(`SELECT studio_id, COUNT(*) AS total, SUM(CASE WHEN audiobook_id IS NOT NULL THEN 1 ELSE 0 END) AS assigned FROM studio_production_file GROUP BY studio_id`).all<{ studio_id: string; total: number; assigned: number }>(),
       this.db.prepare(`SELECT studio_id, status, COUNT(*) AS c FROM studio_sample GROUP BY studio_id, status`).all<{ studio_id: string; status: string; c: number }>(),
       this.db.prepare(`SELECT studio_id, COUNT(*) AS total, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed, COALESCE(SUM(net_final_hours),0) AS net_hours FROM studio_drive_upload GROUP BY studio_id`).all<{ studio_id: string; total: number; completed: number; net_hours: number }>(),
+      this.db.prepare(`SELECT studio_id, COUNT(*) AS total, COALESCE(SUM(net_hours),0) AS net_hours FROM studio_legacy_production GROUP BY studio_id`).all<{ studio_id: string; total: number; net_hours: number }>(),
     ]);
     for (const r of contacts.results) ensure(r.studio_id).contacts = Number(r.c);
     for (const r of files.results) { const v = ensure(r.studio_id); v.productionFiles = Number(r.total); v.assignedFiles = Number(r.assigned); }
@@ -1040,6 +1059,7 @@ export class Repository {
       else if (r.status === 'refused') v.samplesRefused += c;
     }
     for (const r of deliveries.results) { const v = ensure(r.studio_id); v.deliveries = Number(r.total); v.deliveriesCompleted = Number(r.completed); v.netFinalHours = Number(r.net_hours); }
+    for (const r of legacy.results) { const v = ensure(r.studio_id); v.legacyProductions = Number(r.total); v.legacyNetHours = Number(r.net_hours); }
     return map;
   }
 

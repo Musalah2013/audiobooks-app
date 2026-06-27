@@ -48,12 +48,13 @@ function sampleToApi(s: { id: string; studio_id: string; name: string; object_ke
 studios.get('/', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
   const [list, agg] = await Promise.all([repo.listStudios(), repo.getStudioAggregates()]);
-  const empty = { contacts: 0, productionFiles: 0, assignedFiles: 0, samplesTotal: 0, samplesPending: 0, samplesApproved: 0, samplesRefused: 0, deliveries: 0, deliveriesCompleted: 0, netFinalHours: 0 };
+  const empty = { contacts: 0, productionFiles: 0, assignedFiles: 0, samplesTotal: 0, samplesPending: 0, samplesApproved: 0, samplesRefused: 0, deliveries: 0, deliveriesCompleted: 0, netFinalHours: 0, legacyProductions: 0, legacyNetHours: 0 };
   const studiosWithStats = list.map((s) => {
     const a = agg.get(s.id) ?? empty;
     const rate = s.hourly_rate_usd;
-    const cost = rate != null ? rate * a.netFinalHours : null;
-    return { ...studioToApi(s), stats: { ...a, costUsd: cost } };
+    const totalNetHours = a.netFinalHours + a.legacyNetHours;
+    const cost = rate != null ? rate * totalNetHours : null;
+    return { ...studioToApi(s), stats: { ...a, netFinalHours: totalNetHours, costUsd: cost } };
   });
   const summary = {
     totalStudios: list.length,
@@ -65,22 +66,76 @@ studios.get('/', requirePermission('users'), async (c) => {
     samplesApproved: studiosWithStats.reduce((n, s) => n + s.stats.samplesApproved, 0),
     samplesRefused: studiosWithStats.reduce((n, s) => n + s.stats.samplesRefused, 0),
     totalDeliveries: studiosWithStats.reduce((n, s) => n + s.stats.deliveries, 0),
+    totalLegacyProductions: studiosWithStats.reduce((n, s) => n + s.stats.legacyProductions, 0),
     totalNetHours: studiosWithStats.reduce((n, s) => n + s.stats.netFinalHours, 0),
     totalCostUsd: studiosWithStats.reduce((n, s) => n + (s.stats.costUsd ?? 0), 0),
   };
   return c.json({ studios: studiosWithStats, summary });
 });
 
+// ─── Legacy full import ───────────────────────────────────────────────────────
+// One-time import of pre-existing studios with their users, rate, and the books
+// they already produced (net hours → billing history). Idempotent by slug.
+const legacyStudioSchema = z.object({
+  name: z.string().min(1),
+  slug: z.string().regex(/^[a-z0-9-]+$/).optional(),
+  contactEmail: z.string().email(),
+  emails: z.array(z.string().email()).optional(),
+  hourlyRateUsd: z.number().nonnegative().nullable().optional(),
+  active: z.boolean().optional(),
+  productions: z.array(z.object({
+    bookTitle: z.string().min(1),
+    isbn: z.string().nullish(),
+    narrator: z.string().nullish(),
+    netHours: z.number().nonnegative().nullish(),
+    notes: z.string().nullish(),
+  })).optional(),
+});
+
+studios.post('/legacy-import', requirePermission('users'), async (c) => {
+  const body = z.object({ studios: z.array(legacyStudioSchema).min(1).max(2000) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  let studiosCreated = 0, studiosUpdated = 0, productionsCreated = 0;
+  for (const row of body.studios) {
+    const slug = (row.slug ?? row.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).slice(0, 80) || `studio-${crypto.randomUUID().slice(0, 8)}`;
+    let studio = await repo.getStudioBySlug(slug);
+    if (!studio) {
+      await repo.createStudio({ id: crypto.randomUUID(), name: row.name, slug, contactEmail: row.contactEmail, createdBy: actorEmail(c.req.raw) });
+      studio = await repo.getStudioBySlug(slug);
+      studiosCreated += 1;
+    } else {
+      studiosUpdated += 1;
+    }
+    if (!studio) continue;
+    // Rate / active updates
+    const patch: Partial<{ hourlyRateUsd: number | null; isActive: number }> = {};
+    if ('hourlyRateUsd' in row) patch.hourlyRateUsd = row.hourlyRateUsd ?? null;
+    if (row.active !== undefined) patch.isActive = row.active ? 1 : 0;
+    if (Object.keys(patch).length) await repo.updateStudio(studio.id, patch);
+    // Contacts (primary + extras)
+    await repo.addStudioContact(studio.id, row.contactEmail).catch(() => undefined);
+    for (const e of row.emails ?? []) await repo.addStudioContact(studio.id, e).catch(() => undefined);
+    // Legacy productions
+    for (const p of row.productions ?? []) {
+      await repo.createLegacyProduction({ studioId: studio.id, bookTitle: p.bookTitle, isbn: p.isbn ?? null, narrator: p.narrator ?? null, netHours: p.netHours ?? null, notes: p.notes ?? null });
+      productionsCreated += 1;
+    }
+    await repo.audit('studio', studio.id, 'legacy.imported', actorEmail(c.req.raw), { productions: row.productions?.length ?? 0 });
+  }
+  return c.json({ ok: true, studiosCreated, studiosUpdated, productionsCreated });
+});
+
 studios.get('/:id', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(c.req.param('id')!);
   if (!studio) return c.json({ error: 'Not found' }, 404);
-  const [assets, productionFiles, samples, driveUploads, contacts] = await Promise.all([
+  const [assets, productionFiles, samples, driveUploads, contacts, legacyProductions] = await Promise.all([
     repo.listStudioAssets(studio.id),
     repo.listStudioProductionFiles(studio.id),
     repo.listStudioSamples(studio.id),
     repo.listDriveUploads(studio.id),
     repo.listStudioContacts(studio.id),
+    repo.listLegacyProductions(studio.id),
   ]);
   // Resolve assigned catalog titles for production files (one lookup per distinct id).
   const assignedIds = [...new Set(productionFiles.map((f) => f.audiobook_id).filter((id): id is string => !!id))];
@@ -97,6 +152,7 @@ studios.get('/:id', requirePermission('users'), async (c) => {
     productionFiles: productionFiles.map((f) => productionFileToApi(f, f.audiobook_id ? titleById.get(f.audiobook_id) ?? null : null, approvedFileIds.has(f.id))),
     samples: samples.map(sampleToApi),
     driveUploads: driveUploads.map(driveUploadToApi),
+    legacyProductions: legacyProductions.map((p) => ({ id: p.id, studioId: p.studio_id, bookTitle: p.book_title, isbn: p.isbn, narrator: p.narrator, netHours: p.net_hours, notes: p.notes, createdAt: p.created_at })),
   });
 });
 

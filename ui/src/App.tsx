@@ -17,6 +17,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 const UsersPage = lazy(() => import('./pages/Users'));
 const Studios = lazy(() => import('./pages/Studios'));
 const LegacyImport = lazy(() => import('./pages/LegacyImport'));
+const LegacyStudiosImport = lazy(() => import('./pages/LegacyStudiosImport'));
 const StudioManage = lazy(() => import('./pages/StudioManage'));
 const StudioPortal = lazy(() => import('./pages/StudioPortal'));
 const AcquisitionPortal = lazy(() => import('./pages/AcquisitionPortal'));
@@ -39,6 +40,7 @@ function ProtectedApp({ user, onLogout }: { user: AuthUser; onLogout: () => void
           <Route path="/books" element={<Books />} />
           <Route path="/books/:id" element={<BookDetail />} />
           <Route path="/legacy-import" element={<LegacyImport />} />
+          <Route path="/legacy-studios-import" element={<LegacyStudiosImport />} />
           <Route path="/processing" element={<Processing />} />
           <Route path="/processing/logs" element={<ProcessingLogs />} />
           <Route path="/artifacts" element={<Artifacts />} />

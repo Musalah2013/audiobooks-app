@@ -485,8 +485,22 @@ export interface StudioStats {
   samplesRefused: number;
   deliveries: number;
   deliveriesCompleted: number;
+  /** Net hours across live deliveries + legacy productions. */
   netFinalHours: number;
+  legacyProductions: number;
+  legacyNetHours: number;
   costUsd: number | null;
+}
+
+export interface StudioLegacyProduction {
+  id: string;
+  studioId: string;
+  bookTitle: string;
+  isbn: string | null;
+  narrator: string | null;
+  netHours: number | null;
+  notes: string | null;
+  createdAt: string;
 }
 
 export interface StudioWithStats extends Studio {
@@ -503,6 +517,7 @@ export interface StudiosSummary {
   samplesApproved: number;
   samplesRefused: number;
   totalDeliveries: number;
+  totalLegacyProductions: number;
   totalNetHours: number;
   totalCostUsd: number;
 }
