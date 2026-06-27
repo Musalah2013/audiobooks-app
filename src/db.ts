@@ -25,7 +25,7 @@ type StudioRow = { id: string; name: string; slug: string; contact_email: string
 type StudioAssetRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
 type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null };
 type StudioSampleRow = { id: string; studio_id: string; book_id: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string };
-type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null };
+type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null };
 type AcquisitionUserRow = { id: string; email: string; name: string; is_active: number; created_at: string; created_by: string };
 
 function bindObject(stmt: D1PreparedStatement, values: unknown[]) {
@@ -1084,11 +1084,11 @@ export class Repository {
     return this.db.prepare(`SELECT * FROM studio_sample WHERE id = ?`).bind(id).first<StudioSampleRow>();
   }
 
-  async createDriveUpload(input: { studioId: string; name: string; objectKey: string }) {
+  async createDriveUpload(input: { studioId: string; name: string; objectKey: string; audiobookId?: string | null }) {
     const id = crypto.randomUUID();
     await this.db.prepare(
-      `INSERT INTO studio_drive_upload (id, studio_id, name, object_key) VALUES (?, ?, ?, ?)`
-    ).bind(id, input.studioId, input.name, input.objectKey).run();
+      `INSERT INTO studio_drive_upload (id, studio_id, name, object_key, audiobook_id) VALUES (?, ?, ?, ?, ?)`
+    ).bind(id, input.studioId, input.name, input.objectKey, input.audiobookId ?? null).run();
     return id;
   }
 

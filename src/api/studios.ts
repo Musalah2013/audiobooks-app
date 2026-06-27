@@ -28,8 +28,8 @@ function productionFileToApi(
   };
 }
 
-function driveUploadToApi(d: { id: string; studio_id: string; name: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null }) {
-  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id };
+function driveUploadToApi(d: { id: string; studio_id: string; name: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null }) {
+  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id };
 }
 
 function sampleToApi(s: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string }) {

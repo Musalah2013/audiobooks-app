@@ -454,6 +454,13 @@ export interface StudioDriveUpload {
   createdAt: string;
   /** Intake batch this delivery was bridged into (null = not yet sent to intake). */
   batchId: string | null;
+  /** Catalog title this delivery was assigned to (null = unassigned delivery). */
+  audiobookId: string | null;
+}
+
+export interface AssignedTitle {
+  audiobookId: string;
+  title: string;
 }
 
 export interface StudioPortalResponse {
@@ -462,6 +469,8 @@ export interface StudioPortalResponse {
   productionFiles: StudioProductionFile[];
   samples: StudioSample[];
   driveUploads: StudioDriveUpload[];
+  /** Titles an operator assigned to this studio; valid delivery targets. */
+  assignedTitles: AssignedTitle[];
 }
 
 export interface AcquisitionUser {

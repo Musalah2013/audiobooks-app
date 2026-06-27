@@ -166,6 +166,7 @@ export default function StudioPortal() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sampleSearch, setSampleSearch] = useState('');
   const [selectedBookId, setSelectedBookId] = useState<string>('');
+  const [deliveryTitleId, setDeliveryTitleId] = useState<string>('');
 
   const driveInputRef = useRef<HTMLInputElement>(null);
   const sampleInputRef = useRef<HTMLInputElement>(null);
@@ -176,6 +177,7 @@ export default function StudioPortal() {
   const productionFiles = data?.productionFiles ?? [];
   const samples = data?.samples ?? [];
   const driveUploads = data?.driveUploads ?? [];
+  const assignedTitles = data?.assignedTitles ?? [];
 
   const filteredAssets = useMemo(() => {
     if (!searchQuery) return assets;
@@ -228,7 +230,7 @@ export default function StudioPortal() {
     try {
       const { uploadUrl, uploadId } = await apiRequest<{ uploadUrl: string; uploadId: string }>(`/api/studio-portal/${slug}/drive-upload-url`, {
         method: 'POST',
-        body: { fileName: file.name, contentType: file.type, sizeBytes: file.size },
+        body: { fileName: file.name, contentType: file.type, sizeBytes: file.size, audiobookId: deliveryTitleId || null },
       });
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -240,7 +242,7 @@ export default function StudioPortal() {
         xhr.send(file);
       });
       await apiRequest(`/api/studio-portal/${slug}/drive-uploads/${uploadId}/complete`, { method: 'POST' });
-      showNotice('تم رفع الملف بنجاح وسيتم مزامنته مع Google Drive.');
+      showNotice(deliveryTitleId ? 'تم تسليم الصوت النهائي للعنوان المحدد بنجاح.' : 'تم رفع الملف بنجاح وسيراجعه الفريق.');
       refetch();
     } catch (err) {
       showNotice(err instanceof Error ? err.message : 'فشل الرفع');
@@ -484,8 +486,23 @@ export default function StudioPortal() {
         {activeTab === 'drive' && (
           <div className="space-y-4">
             <div className="bg-white rounded-2xl border border-slate-100 p-6">
-              <h2 className="text-base font-bold text-slate-900 mb-1">رفع الكتب إلى Google Drive</h2>
-              <p className="text-xs text-slate-400 mb-4">ارفع ملفات الكتاب الصوتي النهائية لتُحفظ في Google Drive.</p>
+              <h2 className="text-base font-bold text-slate-900 mb-1">تسليم الصوت النهائي</h2>
+              <p className="text-xs text-slate-400 mb-4">ارفع ملفات الكتاب الصوتي النهائية. اختر العنوان المُسنَد إليك لإرساله مباشرةً إلى المعالجة، أو اتركه دون تحديد لمراجعة الفريق.</p>
+              {assignedTitles.length > 0 && (
+                <div className="mb-4">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">العنوان المُسنَد (اختياري)</label>
+                  <select
+                    value={deliveryTitleId}
+                    onChange={(e) => setDeliveryTitleId(e.target.value)}
+                    className="w-full max-w-md rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">— بدون عنوان (مراجعة الفريق) —</option>
+                    {assignedTitles.map((t) => (
+                      <option key={t.audiobookId} value={t.audiobookId}>{t.title}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <input type="file" ref={driveInputRef} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleDriveUpload(f); }} />
               <div className="flex items-center gap-4">
                 <button
