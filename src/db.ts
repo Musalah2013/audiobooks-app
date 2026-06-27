@@ -956,10 +956,10 @@ export class Repository {
 
   // ─── Studios ────────────────────────────────────────────────────────────────
 
-  async createStudio(input: { id: string; name: string; slug: string; contactEmail: string; driveFolderId?: string; createdBy: string }) {
+  async createStudio(input: { id: string; name: string; slug: string; contactEmail: string; createdBy: string }) {
     await this.db.prepare(
-      `INSERT INTO studio (id, name, slug, contact_email, drive_folder_id, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, ?)`
-    ).bind(input.id, input.name, input.slug, input.contactEmail, input.driveFolderId ?? null, input.createdBy).run();
+      `INSERT INTO studio (id, name, slug, contact_email, is_active, created_by) VALUES (?, ?, ?, ?, 1, ?)`
+    ).bind(input.id, input.name, input.slug, input.contactEmail, input.createdBy).run();
     return this.getStudio(input.id);
   }
 
@@ -976,13 +976,12 @@ export class Repository {
     return results;
   }
 
-  async updateStudio(id: string, patch: Partial<{ name: string; slug: string; contactEmail: string; driveFolderId: string | null; logoObjectKey: string | null; isActive: number }>) {
+  async updateStudio(id: string, patch: Partial<{ name: string; slug: string; contactEmail: string; logoObjectKey: string | null; isActive: number }>) {
     const fields: string[] = [];
     const values: unknown[] = [];
     if (patch.name !== undefined) { fields.push("name = ?"); values.push(patch.name); }
     if (patch.slug !== undefined) { fields.push("slug = ?"); values.push(patch.slug); }
     if (patch.contactEmail !== undefined) { fields.push("contact_email = ?"); values.push(patch.contactEmail); }
-    if ("driveFolderId" in patch) { fields.push("drive_folder_id = ?"); values.push(patch.driveFolderId ?? null); }
     if ("logoObjectKey" in patch) { fields.push("logo_object_key = ?"); values.push(patch.logoObjectKey ?? null); }
     if (patch.isActive !== undefined) { fields.push("is_active = ?"); values.push(patch.isActive); }
     if (!fields.length) return;

@@ -5,12 +5,12 @@ import { Repository } from '../db';
 import { requirePermission, actorEmail } from './auth';
 import { createUploadUrl } from '../pipeline';
 import { sendEmail, magicLinkEmail, notifyOperatorsEmail, sampleReviewedEmail } from '../email';
-import { keySegments, nowIso, signInternalArtifactUrl, extractDriveFolderId } from '../utils';
+import { keySegments, nowIso, signInternalArtifactUrl } from '../utils';
 
 const studios = new Hono<{ Bindings: Env }>();
 
-function studioToApi(s: { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string }) {
-  return { id: s.id, name: s.name, slug: s.slug, contactEmail: s.contact_email, driveFolderId: s.drive_folder_id, logoObjectKey: s.logo_object_key, isActive: !!s.is_active, createdAt: s.created_at, createdBy: s.created_by };
+function studioToApi(s: { id: string; name: string; slug: string; contact_email: string; logo_object_key: string | null; is_active: number; created_at: string; created_by: string }) {
+  return { id: s.id, name: s.name, slug: s.slug, contactEmail: s.contact_email, logoObjectKey: s.logo_object_key, isActive: !!s.is_active, createdAt: s.created_at, createdBy: s.created_by };
 }
 
 function assetToApi(a: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string }) {
@@ -75,10 +75,9 @@ studios.post('/', requirePermission('users'), async (c) => {
     name: z.string().min(1),
     slug: z.string().min(1).regex(/^[a-z0-9-]+$/),
     contactEmail: z.string().email(),
-    driveFolderId: z.string().optional(),
   }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
-  const studio = await repo.createStudio({ id: crypto.randomUUID(), name: body.name, slug: body.slug, contactEmail: body.contactEmail, driveFolderId: extractDriveFolderId(body.driveFolderId) ?? undefined, createdBy: actorEmail(c.req.raw) });
+  const studio = await repo.createStudio({ id: crypto.randomUUID(), name: body.name, slug: body.slug, contactEmail: body.contactEmail, createdBy: actorEmail(c.req.raw) });
   return c.json({ ok: true, studio: studio ? studioToApi(studio) : null }, 201);
 });
 
@@ -87,7 +86,6 @@ studios.patch('/:id', requirePermission('users'), async (c) => {
     name: z.string().min(1).optional(),
     slug: z.string().regex(/^[a-z0-9-]+$/).optional(),
     contactEmail: z.string().email().optional(),
-    driveFolderId: z.string().nullable().optional(),
     isActive: z.boolean().optional(),
   }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
@@ -95,7 +93,6 @@ studios.patch('/:id', requirePermission('users'), async (c) => {
     name: body.name,
     slug: body.slug,
     contactEmail: body.contactEmail,
-    driveFolderId: extractDriveFolderId(body.driveFolderId) ?? undefined,
     isActive: body.isActive !== undefined ? (body.isActive ? 1 : 0) : undefined,
   });
   const studio = await repo.getStudio(c.req.param('id')!);
@@ -230,34 +227,6 @@ studios.patch('/:id/production-files/:fileId/assign', requirePermission('users')
     audiobookId,
   });
   return c.json({ ok: true, productionFile: productionFileToApi({ ...file, audiobook_id: audiobookId }, audiobookTitle) });
-});
-
-// ─── Delivery → intake bridge ─────────────────────────────────────────────────
-
-// Create a Drive intake batch from a studio's delivered audio. Operator-gated so
-// the operator owns the batch grain; the studio's Drive folder becomes the source.
-studios.post('/:id/deliveries/create-batch', requirePermission('intake'), async (c) => {
-  const studioId = c.req.param('id')!;
-  const repo = new Repository(c.env.DB);
-  const studio = await repo.getStudio(studioId);
-  if (!studio) return c.json({ error: 'Studio not found' }, 404);
-  const folderId = extractDriveFolderId(studio.drive_folder_id);
-  if (!folderId) {
-    return c.json({ error: 'Studio has no Google Drive folder configured.', guidance: 'Set the studio Drive folder before bridging deliveries to intake.' }, 400);
-  }
-  // Only bridge completed deliveries that are not already attached to a batch.
-  const uploads = await repo.listDriveUploads(studioId);
-  const unlinked = uploads.filter((u) => u.status === 'completed' && !u.batch_id);
-  if (unlinked.length === 0) {
-    return c.json({ error: 'No completed, unlinked deliveries to bridge.', guidance: 'Deliveries must finish syncing to Drive before they can be sent to intake.' }, 400);
-  }
-  const driveLink = `https://drive.google.com/drive/folders/${folderId}`;
-  const batch = await repo.createBatch({ id: crypto.randomUUID(), sourceType: 'drive', driveLink, studioId });
-  if (!batch) return c.json({ error: 'Failed to create batch' }, 500);
-  await repo.linkDriveUploadsToBatch(unlinked.map((u) => u.id), batch.id);
-  await repo.audit('ingestion_batch', batch.id, 'created', actorEmail(c.req.raw), { source: 'studio_delivery', studioId, deliveryCount: unlinked.length });
-  await repo.audit('studio', studioId, 'deliveries.bridged_to_intake', actorEmail(c.req.raw), { batchId: batch.id, deliveryCount: unlinked.length });
-  return c.json({ ok: true, batchId: batch.id, bridgedDeliveries: unlinked.length });
 });
 
 // ─── Samples ──────────────────────────────────────────────────────────────────

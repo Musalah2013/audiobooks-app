@@ -21,7 +21,7 @@ export default function Studios() {
   const { isArabic } = useLocale();
 
   const [showNewForm, setShowNewForm] = useState(false);
-  const [newForm, setNewForm] = useState({ name: '', slug: '', contactEmail: '', driveFolderId: '' });
+  const [newForm, setNewForm] = useState({ name: '', slug: '', contactEmail: '' });
   const [creating, setCreating] = useState(false);
   const [sendingLink, setSendingLink] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -39,9 +39,9 @@ export default function Studios() {
     }
     setCreating(true);
     try {
-      await apiRequest('/api/studios', { method: 'POST', body: { name: newForm.name, slug: newForm.slug, contactEmail: newForm.contactEmail, driveFolderId: newForm.driveFolderId || undefined } });
+      await apiRequest('/api/studios', { method: 'POST', body: { name: newForm.name, slug: newForm.slug, contactEmail: newForm.contactEmail } });
       addToast(isArabic ? 'تم إنشاء الاستوديو.' : 'Studio created.', 'success');
-      setNewForm({ name: '', slug: '', contactEmail: '', driveFolderId: '' });
+      setNewForm({ name: '', slug: '', contactEmail: '' });
       setShowNewForm(false);
       refetch();
     } catch (err) {
@@ -144,10 +144,6 @@ export default function Studios() {
             <div>
               <label className="text-xs font-semibold text-[color:var(--fg-2)] mb-1 block">{isArabic ? 'البريد الإلكتروني *' : 'Contact Email *'}</label>
               <input className="input w-full" type="email" value={newForm.contactEmail} onChange={(e) => setNewForm((p) => ({ ...p, contactEmail: e.target.value }))} placeholder="studio@example.com" />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-[color:var(--fg-2)] mb-1 block">{isArabic ? 'معرّف مجلد Drive' : 'Drive Folder ID'}</label>
-              <input className="input w-full font-mono text-sm" value={newForm.driveFolderId} onChange={(e) => setNewForm((p) => ({ ...p, driveFolderId: e.target.value }))} placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs" />
             </div>
             <div className="sm:col-span-2 flex gap-2 justify-end">
               <button type="button" className="btn-secondary" onClick={() => setShowNewForm(false)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>

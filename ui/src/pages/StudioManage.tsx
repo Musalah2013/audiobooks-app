@@ -45,7 +45,6 @@ export default function StudioManage() {
   const productionFiles = data?.productionFiles ?? [];
   const samples = sampleData?.samples ?? data?.samples ?? [];
   const driveUploads = data?.driveUploads ?? [];
-  const bridgeableCount = driveUploads.filter((u) => u.status === 'completed' && !u.batchId).length;
 
   function xhrPut(url: string, file: File): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -138,20 +137,6 @@ export default function StudioManage() {
     }
   }
 
-  const [bridging, setBridging] = useState(false);
-  async function bridgeDeliveries() {
-    setBridging(true);
-    try {
-      const res = await apiRequest<{ batchId: string; bridgedDeliveries: number }>(`/api/studios/${id}/deliveries/create-batch`, { method: 'POST' });
-      addToast(isArabic ? `تم إنشاء دفعة استيراد من ${res.bridgedDeliveries} تسليم.` : `Created an intake batch from ${res.bridgedDeliveries} deliver${res.bridgedDeliveries === 1 ? 'y' : 'ies'}.`, 'success');
-      refetch();
-    } catch (err) {
-      addToast(err instanceof Error ? err : (isArabic ? 'فشل إنشاء الدفعة' : 'Failed to create batch'), 'error');
-    } finally {
-      setBridging(false);
-    }
-  }
-
   async function reviewSample(sampleId: string, status: 'approved' | 'refused') {
     setReviewing(sampleId);
     try {
@@ -214,7 +199,6 @@ export default function StudioManage() {
           <div className="grid sm:grid-cols-2 gap-4 text-sm">
             <div><span className="text-[color:var(--fg-2)]">{isArabic ? 'البريد:' : 'Email:'}</span> <span className="font-medium">{studio.contactEmail}</span></div>
             <div><span className="text-[color:var(--fg-2)]">{isArabic ? 'الرابط:' : 'Slug:'}</span> <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{studio.slug}</code></div>
-            {studio.driveFolderId && <div><span className="text-[color:var(--fg-2)]">{isArabic ? 'Drive:' : 'Drive:'}</span> <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{studio.driveFolderId}</code></div>}
           </div>
           <div className="border-t border-slate-100 pt-4">
             <p className="text-xs font-semibold text-[color:var(--fg-2)] mb-2">{isArabic ? 'شعار الاستوديو' : 'Studio Logo'}</p>
@@ -407,27 +391,13 @@ export default function StudioManage() {
       {/* Deliveries tab */}
       {activeTab === 'deliveries' && (
         <div className="space-y-3">
-          <div className="card flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <p className="text-sm font-semibold">{isArabic ? 'تسليمات الصوت النهائي' : 'Finished audio deliveries'}</p>
-              <p className="text-xs text-[color:var(--fg-2)]">
-                {isArabic
-                  ? 'الملفات التي رفعها الاستوديو إلى Google Drive. أنشئ دفعة استيراد لمعالجتها في خط الإنتاج.'
-                  : 'Files the studio delivered to Google Drive. Create an intake batch to process them through the pipeline.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              className="btn-primary text-xs py-2 px-3 disabled:opacity-50"
-              disabled={bridging || bridgeableCount === 0}
-              onClick={bridgeDeliveries}
-              title={bridgeableCount === 0 ? (isArabic ? 'لا توجد تسليمات مكتملة غير مرتبطة' : 'No completed, unlinked deliveries') : undefined}
-            >
-              <Upload className="h-3.5 w-3.5" />
-              {bridging
-                ? (isArabic ? 'جاري الإنشاء…' : 'Creating…')
-                : (isArabic ? `إنشاء دفعة استيراد (${bridgeableCount})` : `Create intake batch (${bridgeableCount})`)}
-            </button>
+          <div className="card">
+            <p className="text-sm font-semibold">{isArabic ? 'تسليمات الصوت النهائي' : 'Finished audio deliveries'}</p>
+            <p className="text-xs text-[color:var(--fg-2)]">
+              {isArabic
+                ? 'الملفات النهائية التي رفعها الاستوديو. تُنشأ دفعة الاستيراد تلقائياً عند كل تسليم — افتحها من رابط الدفعة بجانب كل ملف.'
+                : 'Finished audio the studio uploaded. An intake batch is created automatically on each delivery — open it from the batch link next to each file.'}
+            </p>
           </div>
           {driveUploads.length === 0 ? (
             <div className="card text-sm text-center text-[color:var(--fg-2)] py-6">{isArabic ? 'لا توجد تسليمات بعد.' : 'No deliveries yet.'}</div>

@@ -453,7 +453,6 @@ export interface Studio {
   name: string;
   slug: string;
   contactEmail: string;
-  driveFolderId: string | null;
   logoObjectKey: string | null;
   isActive: boolean;
   createdAt: string;
