@@ -165,6 +165,7 @@ export default function StudioPortal() {
   const [sampleUrls, setSampleUrls] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [sampleSearch, setSampleSearch] = useState('');
+  const [sampleBookFilter, setSampleBookFilter] = useState<string>('');
   const [selectedBookId, setSelectedBookId] = useState<string>('');
   const [deliveryTitleId, setDeliveryTitleId] = useState<string>('');
 
@@ -190,9 +191,40 @@ export default function StudioPortal() {
   }, [productionFiles, searchQuery]);
 
   const filteredSamples = useMemo(() => {
-    if (!sampleSearch) return samples;
-    return samples.filter(s => s.name.toLowerCase().includes(sampleSearch.toLowerCase()));
-  }, [samples, sampleSearch]);
+    return samples.filter((s) => {
+      if (sampleSearch && !s.name.toLowerCase().includes(sampleSearch.toLowerCase())) return false;
+      if (sampleBookFilter === '__none__') return !s.bookId;
+      if (sampleBookFilter && s.bookId !== sampleBookFilter) return false;
+      return true;
+    });
+  }, [samples, sampleSearch, sampleBookFilter]);
+
+  // Group samples by their linked production file (assigned file), for the wrapped view.
+  const groupedSamples = useMemo(() => {
+    const groups = new Map<string, { key: string; bookName: string | null; items: typeof filteredSamples }>();
+    for (const s of filteredSamples) {
+      const key = s.bookId ?? '__none__';
+      if (!groups.has(key)) groups.set(key, { key, bookName: s.bookName ?? null, items: [] });
+      groups.get(key)!.items.push(s);
+    }
+    // Named groups first, "unlinked" last
+    return [...groups.values()].sort((a, b) => {
+      if (a.key === '__none__') return 1;
+      if (b.key === '__none__') return -1;
+      return (a.bookName ?? '').localeCompare(b.bookName ?? '');
+    });
+  }, [filteredSamples]);
+
+  // Production files that actually have samples, for the filter dropdown.
+  const sampleBookOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    let hasUnlinked = false;
+    for (const s of samples) {
+      if (s.bookId) seen.set(s.bookId, s.bookName ?? s.bookId);
+      else hasUnlinked = true;
+    }
+    return { books: [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)), hasUnlinked };
+  }, [samples]);
 
   const stats = useMemo(() => [
     { label: 'الملفات المرجعية', value: assets.length, icon: Package, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -608,15 +640,35 @@ export default function StudioPortal() {
 
             {/* Samples List */}
             <div className="bg-white rounded-2xl border border-slate-100 p-6">
-              <div className="flex items-center gap-3 mb-5">
+              <div className="flex items-center gap-3 mb-5 flex-wrap">
                 <SearchBar value={sampleSearch} onChange={setSampleSearch} placeholder="البحث في العينات..." />
+                <select
+                  value={sampleBookFilter}
+                  onChange={(e) => setSampleBookFilter(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm text-slate-700 max-w-[220px]"
+                  dir="rtl"
+                >
+                  <option value="">كل الملفات</option>
+                  {sampleBookOptions.books.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                  {sampleBookOptions.hasUnlinked && <option value="__none__">غير مرتبط بكتاب</option>}
+                </select>
                 <span className="text-xs text-slate-400 whitespace-nowrap">{filteredSamples.length} عينة</span>
               </div>
               {filteredSamples.length === 0 ? (
                 <EmptyState icon={Music} title="لم تُرفع أي عينات" subtitle="العينات التي ترفعها ستظهر هنا مع حالة المراجعة والكتاب المرتبط." />
               ) : (
-                <div className="grid gap-4">
-                  {filteredSamples.map((s) => (
+                <div className="space-y-6">
+                  {groupedSamples.map((g) => (
+                  <div key={g.key}>
+                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
+                      <BookOpen size={15} className={g.key === '__none__' ? 'text-slate-400' : 'text-blue-500'} />
+                      <h3 className={`text-sm font-bold ${g.key === '__none__' ? 'text-slate-500' : 'text-slate-800'}`}>{g.bookName ?? 'غير مرتبط بكتاب'}</h3>
+                      <span className="text-xs text-slate-400">({g.items.length})</span>
+                    </div>
+                    <div className="grid gap-4">
+                  {g.items.map((s) => (
                     <div key={s.id} className="p-5 rounded-2xl border border-slate-100 hover:border-slate-200 transition-all bg-white">
                       <div className="flex items-center gap-3 mb-3">
                         <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
@@ -636,25 +688,9 @@ export default function StudioPortal() {
                         <StatusBadge status={s.status} />
                       </div>
 
-                      {/* Linked Book */}
-                      {s.bookName && (
-                        <div className="mb-3 p-2.5 bg-blue-50 rounded-xl border border-blue-100 flex items-center gap-2">
-                          <BookOpen size={14} className="text-blue-500" />
-                          <span className="text-xs text-blue-700 font-medium">الكتاب المرتبط:</span>
-                          <span className="text-xs text-blue-600 truncate">{s.bookName}</span>
-                        </div>
-                      )}
-                      {!s.bookName && (
-                        <div className="mb-3 p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-2">
-                          <BookOpen size={14} className="text-slate-400" />
-                          <span className="text-xs text-slate-500">غير مرتبط بكتاب</span>
-                        </div>
-                      )}
-
-                      {/* Play sample — inline player for approved samples */}
+                      {/* Play sample — inline player (any status; the studio can play back its own uploads) */}
                       <div className="mb-3">
-                        {s.status === 'approved' ? (
-                          playingSampleId === s.id && sampleUrls[s.id] ? (
+                        {playingSampleId === s.id && sampleUrls[s.id] ? (
                             <AudioPlayer src={sampleUrls[s.id]} className="mb-1" />
                           ) : (
                             <button
@@ -670,13 +706,7 @@ export default function StudioPortal() {
                               <Music size={14} />
                               تشغيل العينة
                             </button>
-                          )
-                        ) : (
-                          <span className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-slate-50 text-slate-400 cursor-not-allowed">
-                            <Music size={14} />
-                            قيد المراجعة
-                          </span>
-                        )}
+                          )}
                       </div>
 
                       {s.reviewNote && (
@@ -692,6 +722,9 @@ export default function StudioPortal() {
                         </div>
                       )}
                     </div>
+                  ))}
+                    </div>
+                  </div>
                   ))}
                 </div>
               )}
