@@ -60,14 +60,14 @@ studioAuth.post('/request', async (c) => {
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   await repo.createStudioMagicLink(studio.id, token, expiresAt);
 
-  const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
+  const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
 
   // Build signed studio logo URL if available
   let studioLogoUrl: string | undefined;
   if (studio.logo_object_key) {
     const logoExpiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
-    const logoBaseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
+    const logoBaseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
     studioLogoUrl = await signInternalArtifactUrl({
       baseUrl: logoBaseUrl,
       path: `/api/files/${studio.logo_object_key}`,

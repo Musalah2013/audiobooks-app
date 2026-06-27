@@ -116,7 +116,7 @@ studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
     return c.json({ error: 'Uploaded object not found in storage.' }, 404);
   }
 
-  const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
+  const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const notifyOps = async (subject: string, heading: string, body: string, link: string, cta: string) => {
     const operators = (await repo.listOperatorUsers()).filter((op) => op.isActive);
     await Promise.allSettled(operators.map((op) =>
