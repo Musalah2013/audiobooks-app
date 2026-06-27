@@ -211,6 +211,15 @@ export interface BookDetailResponse {
   } | null;
   processingEvents: AuditEvent[];
   dossierEvents: AuditEvent[];
+  /** Studios narrating this title (via assigned production files). */
+  narration?: NarrationLink[];
+}
+
+export interface NarrationLink {
+  studioId: string;
+  studioName: string | null;
+  productionFileId: string;
+  productionFileName: string;
 }
 
 export interface BatchListItem {
@@ -411,6 +420,10 @@ export interface StudioProductionFile {
   sizeBytes: number;
   uploadedBy: string;
   createdAt: string;
+  /** Catalog audiobook this production file is assigned to narrate (null = unassigned). */
+  audiobookId: string | null;
+  /** Title of the assigned catalog audiobook, when assigned. */
+  audiobookTitle: string | null;
 }
 
 export interface StudioSample {

@@ -92,11 +92,25 @@ books.get('/:id', async (c) => {
     repo.listProcessingRuns(c.req.param("id")),
   ]);
   const processingRun = processingRuns[0] ?? null;
-  const [processingEvents, dossierEvents] = await Promise.all([
+  const [processingEvents, dossierEvents, productionFiles] = await Promise.all([
     processingRun ? repo.listAuditEvents("processing_run", processingRun.id) : Promise.resolve([]),
     repo.listAuditEvents("audiobook_record", c.req.param("id")),
+    book ? repo.listStudioProductionFilesByAudiobook(c.req.param("id")) : Promise.resolve([]),
   ]);
-  return c.json({ book, tracks, processingRun, processingEvents, dossierEvents });
+  // Resolve studio names for any studio narrating this title.
+  const studioIds = [...new Set(productionFiles.map((f) => f.studio_id))];
+  const studioNameById = new Map<string, string>();
+  await Promise.all(studioIds.map(async (sid) => {
+    const s = await repo.getStudio(sid);
+    if (s) studioNameById.set(sid, s.name);
+  }));
+  const narration = productionFiles.map((f) => ({
+    studioId: f.studio_id,
+    studioName: studioNameById.get(f.studio_id) ?? null,
+    productionFileId: f.id,
+    productionFileName: f.name,
+  }));
+  return c.json({ book, tracks, processingRun, processingEvents, dossierEvents, narration });
 });
 
 books.post('/:id/prepare-tracks', async (c) => {

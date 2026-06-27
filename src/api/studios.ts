@@ -17,6 +17,17 @@ function assetToApi(a: { id: string; studio_id: string; name: string; object_key
   return { id: a.id, studioId: a.studio_id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at };
 }
 
+function productionFileToApi(
+  f: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null },
+  audiobookTitle: string | null = null,
+) {
+  return {
+    id: f.id, studioId: f.studio_id, name: f.name, objectKey: f.object_key,
+    contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at,
+    audiobookId: f.audiobook_id, audiobookTitle,
+  };
+}
+
 function sampleToApi(s: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string }) {
   return { id: s.id, studioId: s.studio_id, name: s.name, objectKey: s.object_key, contentType: s.content_type, sizeBytes: s.size_bytes, status: s.status as 'pending' | 'approved' | 'refused', reviewedBy: s.reviewed_by, reviewNote: s.review_note, reviewedAt: s.reviewed_at, createdAt: s.created_at };
 }
@@ -38,10 +49,17 @@ studios.get('/:id', requirePermission('users'), async (c) => {
     repo.listStudioProductionFiles(studio.id),
     repo.listStudioSamples(studio.id),
   ]);
+  // Resolve assigned catalog titles for production files (one lookup per distinct id).
+  const assignedIds = [...new Set(productionFiles.map((f) => f.audiobook_id).filter((id): id is string => !!id))];
+  const titleById = new Map<string, string>();
+  await Promise.all(assignedIds.map(async (id) => {
+    const book = await repo.getAudiobook(id);
+    if (book) titleById.set(id, book.title);
+  }));
   return c.json({
     studio: studioToApi(studio),
     assets: assets.map(assetToApi),
-    productionFiles: productionFiles.map(assetToApi),
+    productionFiles: productionFiles.map((f) => productionFileToApi(f, f.audiobook_id ? titleById.get(f.audiobook_id) ?? null : null)),
     samples: samples.map(sampleToApi),
   });
 });
@@ -186,6 +204,26 @@ studios.delete('/:id/production-files/:fileId', requirePermission('users'), asyn
   const deleted = await repo.deleteStudioProductionFile(c.req.param('fileId')!);
   if (deleted?.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key);
   return c.json({ ok: true });
+});
+
+// Assign (or clear) the catalog title a production file narrates.
+studios.patch('/:id/production-files/:fileId/assign', requirePermission('users'), async (c) => {
+  const { audiobookId } = z.object({ audiobookId: z.string().nullable() }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
+  if (!file || file.studio_id !== c.req.param('id')) return c.json({ error: 'Production file not found' }, 404);
+  let audiobookTitle: string | null = null;
+  if (audiobookId) {
+    const book = await repo.getAudiobook(audiobookId);
+    if (!book) return c.json({ error: 'Audiobook not found' }, 404);
+    audiobookTitle = book.title;
+  }
+  await repo.setStudioProductionFileAudiobook(file.id, audiobookId);
+  await repo.audit('studio', file.studio_id, audiobookId ? 'production_file.assigned' : 'production_file.unassigned', actorEmail(c.req.raw), {
+    productionFileId: file.id,
+    audiobookId,
+  });
+  return c.json({ ok: true, productionFile: productionFileToApi({ ...file, audiobook_id: audiobookId }, audiobookTitle) });
 });
 
 // ─── Samples ──────────────────────────────────────────────────────────────────

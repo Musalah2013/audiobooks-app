@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music } from 'lucide-react';
+import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2 } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
-import type { Studio, StudioAsset, StudioProductionFile, StudioSample } from '@api';
+import type { Studio, StudioAsset, StudioProductionFile, StudioSample, BooksResponse } from '@api';
 
 interface ManageData {
   studio: Studio;
@@ -33,6 +33,8 @@ export default function StudioManage() {
   const [reviewNote, setReviewNote] = useState<Record<string, string>>({});
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [assigning, setAssigning] = useState<string | null>(null);
+  const { data: booksData } = useApi<BooksResponse>('/api/books');
   const logoInputRef = useRef<HTMLInputElement>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
@@ -117,6 +119,19 @@ export default function StudioManage() {
       refetch();
     } catch (err) {
       addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
+    }
+  }
+
+  async function assignBook(fileId: string, audiobookId: string | null) {
+    setAssigning(fileId);
+    try {
+      await apiRequest(`/api/studios/${id}/production-files/${fileId}/assign`, { method: 'PATCH', body: { audiobookId } });
+      addToast(audiobookId ? (isArabic ? 'تم ربط الملف بالعنوان.' : 'Linked to catalog title.') : (isArabic ? 'تم إلغاء الربط.' : 'Assignment cleared.'), 'success');
+      refetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الربط' : 'Assign failed'), 'error');
+    } finally {
+      setAssigning(null);
     }
   }
 
@@ -282,7 +297,8 @@ export default function StudioManage() {
           ) : (
             <div className="divide-y divide-slate-100">
               {productionFiles.map((f) => (
-                <div key={f.id} className="flex items-center justify-between py-2.5 gap-3">
+                <div key={f.id} className="py-2.5">
+                <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <FileText className="h-4 w-4 text-red-400 shrink-0" />
                     <div className="min-w-0">
@@ -303,6 +319,27 @@ export default function StudioManage() {
                       <button type="button" className="text-red-400 hover:text-red-600 p-1 rounded" onClick={() => setConfirmDelete(f.id)}><Trash2 className="h-3.5 w-3.5" /></button>
                     )}
                   </div>
+                </div>
+                {/* Catalog assignment */}
+                <div className="mt-2 flex items-center gap-2 pl-7">
+                  <Link2 className="h-3.5 w-3.5 text-[color:var(--fg-2)] shrink-0" />
+                  <select
+                    className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 max-w-[260px] disabled:opacity-50"
+                    value={f.audiobookId ?? ''}
+                    disabled={assigning === f.id}
+                    onChange={(e) => assignBook(f.id, e.target.value || null)}
+                  >
+                    <option value="">{isArabic ? '— غير مرتبط بعنوان —' : '— Not linked to a title —'}</option>
+                    {booksData?.books.map((b) => (
+                      <option key={b.id} value={b.id}>{b.title}{b.publisherName ? ` · ${b.publisherName}` : ''}</option>
+                    ))}
+                  </select>
+                  {f.audiobookId && (
+                    <Link to={`/books/${f.audiobookId}`} className="text-xs text-[color:var(--samawy-blue)] underline shrink-0">
+                      {isArabic ? 'عرض العنوان' : 'View title'}
+                    </Link>
+                  )}
+                </div>
                 </div>
               ))}
             </div>

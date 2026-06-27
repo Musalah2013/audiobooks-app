@@ -345,6 +345,24 @@ export default function BookDetail() {
           </div>
         </div>
 
+        {/* Narration / studio assignment */}
+        {(data?.narration?.length ?? 0) > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2">
+            <Mic2 className="h-4 w-4 text-violet-500 shrink-0" />
+            <span className="text-xs font-semibold text-violet-700">{isArabic ? 'استوديوهات الإنتاج:' : 'Narrating studios:'}</span>
+            {data!.narration!.map((n) => (
+              <Link
+                key={n.productionFileId}
+                to={`/studios/${n.studioId}`}
+                className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-violet-200 hover:bg-violet-100"
+                title={n.productionFileName}
+              >
+                {n.studioName ?? n.studioId}
+              </Link>
+            ))}
+          </div>
+        )}
+
         {/* Pipeline steps */}
         <div className="flex items-center gap-0">
           {pipeline.map((step, i) => {
