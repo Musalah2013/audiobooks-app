@@ -11,6 +11,7 @@ const STAGE_CLASS: Record<ProductionStage, string> = {
   processed:     'bg-sky-100 text-sky-700',
   dossier_ready: 'bg-teal-100 text-teal-700',
   synced:        'bg-emerald-100 text-emerald-700',
+  legacy:        'bg-stone-200 text-stone-600',
   failed:        'bg-red-100 text-red-700',
 };
 

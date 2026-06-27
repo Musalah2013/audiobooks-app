@@ -13,6 +13,7 @@ import {
   Menu,
   Settings,
   Sparkles,
+  Upload,
   Users,
   X,
 } from 'lucide-react';
@@ -45,7 +46,10 @@ export default function Layout({ children, user, onLogout }: LayoutProps) {
     { path: '/analytics', label: isArabic ? 'التحليلات' : 'Analytics', icon: BarChart3 },
     { path: '/users', label: isArabic ? 'المستخدمون' : 'Users', icon: Users },
     { path: '/settings', label: isArabic ? 'الإعدادات' : 'Settings', icon: Settings },
-    ...(isAdmin ? [{ path: '/studios', label: isArabic ? 'الاستوديوهات' : 'Studios', icon: Building2 }] : []),
+    ...(isAdmin ? [
+      { path: '/studios', label: isArabic ? 'الاستوديوهات' : 'Studios', icon: Building2 },
+      { path: '/legacy-import', label: isArabic ? 'استيراد قديم' : 'Legacy Import', icon: Upload },
+    ] : []),
   ];
 
   return (

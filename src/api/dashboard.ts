@@ -39,6 +39,7 @@ dashboard.get('/', async (c) => {
       assigned: link.assigned,
       sampleState: link.sampleState,
       delivered: link.delivered,
+      isLegacy: b.isLegacy,
     }) };
   });
 

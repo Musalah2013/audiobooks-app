@@ -1538,6 +1538,7 @@ export async function materializeApprovedBooks(repo: Repository, batchId: string
       storageCleanupStatus: "pending",
       storageCleanupError: null,
       processingStatus: "pending",
+      isLegacy: false,
     });
   }
 

@@ -120,6 +120,8 @@ export interface AudiobookRecord {
   storageCleanupStatus: StorageCleanupStatus;
   storageCleanupError: string | null;
   processingStatus: ProcessingStatus;
+  /** True for books imported from the pre-existing live system (no processing/sync). */
+  isLegacy: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -239,6 +241,7 @@ function mapAudiobook(row: Row): AudiobookRecord {
     storageCleanupStatus: (row.storage_cleanup_status as StorageCleanupStatus | null) ?? "pending",
     storageCleanupError: row.storage_cleanup_error ? String(row.storage_cleanup_error) : null,
     processingStatus: row.processing_status as ProcessingStatus,
+    isLegacy: !!row.is_legacy,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -423,8 +426,8 @@ export class Repository {
          mp3_specs_summary, source_drive_link, importance_points, classification_decision, metadata_snapshot_json, storage_base_path,
          cover_status, cover_object_key, dossier_status, dossier_workbook_key, dossier_audio_zip_key, clickup_task_id, clickup_task_url,
          clickup_sync_status, clickup_sync_error, clickup_synced_at, sample_track_id, sample_start_seconds, sample_end_seconds,
-         sample_object_key, sample_generated_at, storage_cleanup_status, storage_cleanup_error, processing_status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         sample_object_key, sample_generated_at, storage_cleanup_status, storage_cleanup_error, processing_status, is_legacy, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ),
       [
         record.id,
@@ -470,6 +473,7 @@ export class Repository {
         record.storageCleanupStatus,
         record.storageCleanupError,
         record.processingStatus,
+        record.isLegacy ? 1 : 0,
         now,
         now,
       ],

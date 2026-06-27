@@ -137,6 +137,8 @@ export interface BookListItem {
   totalOriginalSizeBytes: number;
   /** Unified position across the studio→catalog→processing→dossier→ClickUp chain. */
   productionStage: ProductionStage;
+  /** True for books imported from the pre-existing live system. */
+  isLegacy?: boolean;
 }
 
 // ─── Unified production status ──────────────────────────────────────────────
@@ -153,6 +155,7 @@ export type ProductionStage =
   | "processed"      // processing succeeded, dossier not yet ready
   | "dossier_ready"  // dossier built, not yet synced
   | "synced"         // synced to ClickUp — done
+  | "legacy"         // imported from the pre-existing live system
   | "failed";        // processing or dossier failed
 
 export const PRODUCTION_STAGE_ORDER: ProductionStage[] = [
@@ -170,6 +173,7 @@ export const PRODUCTION_STAGE_LABELS: Record<ProductionStage, { en: string; ar: 
   processed:     { en: "Processed",      ar: "تمت المعالجة" },
   dossier_ready: { en: "Dossier ready",  ar: "الملف جاهز" },
   synced:        { en: "Synced",         ar: "تمت المزامنة" },
+  legacy:        { en: "Legacy",         ar: "قديم" },
   failed:        { en: "Failed",         ar: "فشل" },
 };
 
@@ -180,7 +184,9 @@ export function deriveProductionStage(input: {
   assigned: boolean;
   sampleState: "none" | "pending" | "approved" | "refused";
   delivered: boolean;
+  isLegacy?: boolean;
 }): ProductionStage {
+  if (input.isLegacy) return "legacy";
   if (input.processingStatus === "failed" || input.dossierStatus === "failed") return "failed";
   if (input.clickupSyncStatus === "synced") return "synced";
   if (input.dossierStatus === "ready") return "dossier_ready";
