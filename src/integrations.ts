@@ -480,58 +480,6 @@ export async function attachCoverToClickUpTask(
   });
 }
 
-export async function uploadFileToDrive(
-  env: Env,
-  folderId: string,
-  fileName: string,
-  fileData: ArrayBuffer,
-  mimeType: string,
-): Promise<{ id: string; name: string; webViewLink: string }> {
-  const token = await getServiceAccountToken(env);
-  // Extract raw folder ID from full URL if needed
-  const rawFolderId = folderId.includes('/') ? (folderId.match(/\/folders\/([a-zA-Z0-9_-]+)/)?.[1] ?? folderId) : folderId;
-  if (!rawFolderId || rawFolderId.includes('/')) {
-    throw new Error(`Invalid Drive folder ID: ${folderId}`);
-  }
-  const metadata = JSON.stringify({ name: fileName, parents: [rawFolderId] });
-  const boundary = "samawy_boundary_" + crypto.randomUUID().replace(/-/g, "");
-  const encoder = new TextEncoder();
-  const metaPart = encoder.encode(
-    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`,
-  );
-  const filePart = encoder.encode(`--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`);
-  const closePart = encoder.encode(`\r\n--${boundary}--`);
-  const combined = new Uint8Array(metaPart.byteLength + filePart.byteLength + fileData.byteLength + closePart.byteLength);
-  combined.set(metaPart, 0);
-  combined.set(filePart, metaPart.byteLength);
-  combined.set(new Uint8Array(fileData), metaPart.byteLength + filePart.byteLength);
-  combined.set(closePart, metaPart.byteLength + filePart.byteLength + fileData.byteLength);
-
-  const response = await fetchDriveApiWithRetry(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": `multipart/related; boundary=${boundary}`,
-      },
-      body: combined,
-    },
-  );
-  if (!response.ok) {
-    const err = await response.text().catch(() => "");
-    console.error(`[uploadFileToDrive] Failed: ${response.status} ${err}`);
-    if (response.status === 401) {
-      throw new Error(
-        `Drive upload failed (401): Service account cannot access the target folder. ` +
-        `Ensure the Drive folder is shared with ${env.GOOGLE_SERVICE_ACCOUNT_EMAIL} as an Editor.`,
-      );
-    }
-    throw new Error(`Drive upload failed (${response.status}): ${err}`);
-  }
-  return response.json() as Promise<{ id: string; name: string; webViewLink: string }>;
-}
-
 export function createR2Signer(env: Env) {
   if (!env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY || !env.R2_ACCOUNT_ID) return null;
   return new AwsClient({

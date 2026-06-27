@@ -6,6 +6,7 @@ import { useApi, apiRequest } from '../hooks/useApi';
 import { useLocale } from '../hooks/useLocale';
 import { useToast } from '../hooks/useToast.tsx';
 import type { BookListItem } from '@api';
+import { ProductionStageBadge } from '../components/ProductionStageBadge';
 
 const STATUS_COLORS: Record<string, string> = {
   succeeded: 'badge-green',
@@ -279,6 +280,7 @@ export default function Books() {
                       )}
                       <td className="px-4 py-3 max-w-[220px]">
                         <span className="font-semibold text-[color:var(--samawy-ink)] line-clamp-2 leading-snug">{book.title}</span>
+                        {book.productionStage && <div className="mt-1"><ProductionStageBadge stage={book.productionStage} isArabic={isArabic} /></div>}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-[color:var(--fg-2)]">{book.publisherName}</td>
                       <td className="px-4 py-3 max-w-[160px] text-xs text-[color:var(--fg-2)]">

@@ -1061,6 +1061,35 @@ export class Repository {
     return results;
   }
 
+  /**
+   * Bulk studio-linkage signals per audiobook, for deriving unified production
+   * stage across the whole catalog without N+1 queries.
+   */
+  async getProductionLinkageByAudiobook(): Promise<Map<string, { assigned: boolean; sampleState: "none" | "pending" | "approved" | "refused"; delivered: boolean }>> {
+    const map = new Map<string, { assigned: boolean; sampleState: "none" | "pending" | "approved" | "refused"; delivered: boolean }>();
+    const ensure = (id: string) => {
+      let v = map.get(id);
+      if (!v) { v = { assigned: false, sampleState: "none", delivered: false }; map.set(id, v); }
+      return v;
+    };
+    const [assigned, deliveries, samples] = await Promise.all([
+      this.db.prepare(`SELECT DISTINCT audiobook_id FROM studio_production_file WHERE audiobook_id IS NOT NULL`).all<{ audiobook_id: string }>(),
+      this.db.prepare(`SELECT DISTINCT audiobook_id FROM studio_drive_upload WHERE audiobook_id IS NOT NULL AND status = 'completed'`).all<{ audiobook_id: string }>(),
+      this.db.prepare(`SELECT pf.audiobook_id AS audiobook_id, s.status AS status FROM studio_sample s JOIN studio_production_file pf ON s.book_id = pf.id WHERE pf.audiobook_id IS NOT NULL`).all<{ audiobook_id: string; status: string }>(),
+    ]);
+    for (const r of assigned.results) ensure(r.audiobook_id).assigned = true;
+    for (const r of deliveries.results) ensure(r.audiobook_id).delivered = true;
+    // Sample precedence: approved > pending > refused.
+    for (const r of samples.results) {
+      const v = ensure(r.audiobook_id);
+      if (v.sampleState === "approved") continue;
+      if (r.status === "approved") v.sampleState = "approved";
+      else if (r.status === "pending") v.sampleState = "pending";
+      else if (v.sampleState === "none" && r.status === "refused") v.sampleState = "refused";
+    }
+    return map;
+  }
+
   async createStudioSample(input: { studioId: string; bookId?: string | null; name: string; objectKey: string; contentType: string; sizeBytes: number }) {
     const id = crypto.randomUUID();
     await this.db.prepare(

@@ -8,6 +8,8 @@ import {
 import { useApi } from '../hooks/useApi';
 import { useLocale } from '../hooks/useLocale';
 import { InlineError } from '../components/InlineError';
+import { ProductionStageBadge } from '../components/ProductionStageBadge';
+import { PRODUCTION_STAGE_ORDER, type ProductionStage } from '@api';
 
 interface DashboardData {
   batches: Array<{ id: string; status: string; sellerName: string | null; sourceType: string; createdAt: string }>;
@@ -16,6 +18,7 @@ interface DashboardData {
     processingStatus: string; dossierStatus: string; clickupSyncStatus: string;
     totalLengthSeconds: number; totalOriginalSizeBytes: number; totalFinalSizeBytes: number;
     trackCount: number; sellingType: string | null; createdAt: string;
+    productionStage?: ProductionStage;
   }>;
   summaries: {
     totalBatches: number; totalBooks: number;
@@ -146,6 +149,13 @@ export default function Dashboard() {
     const batches = data.batches;
     const s = data.summaries;
 
+    // Unified production stage distribution (studio → pipeline chain)
+    const stageCounts: Record<string, number> = {};
+    for (const b of books) {
+      if (!b.productionStage) continue;
+      stageCounts[b.productionStage] = (stageCounts[b.productionStage] ?? 0) + 1;
+    }
+
     // Content totals
     const totalSeconds = books.reduce((a, b) => a + (b.totalLengthSeconds ?? 0), 0);
     const totalOrigBytes = books.reduce((a, b) => a + (b.totalOriginalSizeBytes ?? 0), 0);
@@ -188,7 +198,7 @@ export default function Dashboard() {
       topPublishers, subCount, alaCount, unknownSelling,
       failedBooks, recentBatches, driveCount, uploadCount,
       total, processingDone, dossierReady, clickupSynced,
-      activeProcessing, activeDossier,
+      activeProcessing, activeDossier, stageCounts,
     };
   }, [data]);
 
@@ -243,6 +253,41 @@ export default function Dashboard() {
           to="/books"
         />
       </div>
+
+      {/* ── Unified production stages (studio → pipeline) ── */}
+      <section className="card space-y-4">
+        <div>
+          <h3 className="text-base font-bold text-[color:var(--samawy-ink)] flex items-center gap-2">
+            <Layers className="h-4 w-4 text-violet-500" />
+            {isArabic ? 'مراحل الإنتاج الموحّدة' : 'Unified production stages'}
+          </h3>
+          <p className="text-xs text-[color:var(--fg-2)] mt-0.5">
+            {isArabic ? 'موضع كل عنوان عبر سلسلة الاستوديو ← المعالجة ← المزامنة' : 'Where every title sits across the studio → processing → sync chain'}
+          </p>
+        </div>
+        {(() => {
+          const order = [...PRODUCTION_STAGE_ORDER, 'failed' as ProductionStage];
+          const maxCount = Math.max(1, ...order.map((st) => c.stageCounts[st] ?? 0));
+          const present = order.filter((st) => (c.stageCounts[st] ?? 0) > 0);
+          if (present.length === 0) return <p className="text-sm text-[color:var(--fg-2)]">{isArabic ? 'لا توجد بيانات بعد.' : 'No data yet.'}</p>;
+          return (
+            <div className="space-y-2">
+              {present.map((st) => {
+                const v = c.stageCounts[st] ?? 0;
+                return (
+                  <div key={st} className="flex items-center gap-3">
+                    <div className="w-28 shrink-0"><ProductionStageBadge stage={st} isArabic={isArabic} /></div>
+                    <div className="flex-1 h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div className="h-full rounded-full bg-violet-400 transition-transform origin-left" style={{ transform: `scaleX(${v / maxCount})` }} />
+                    </div>
+                    <span className="w-10 text-right text-sm font-semibold text-[color:var(--samawy-ink)]">{v}</span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </section>
 
       <div className="grid gap-5 xl:grid-cols-3">
 

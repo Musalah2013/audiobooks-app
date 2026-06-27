@@ -7,9 +7,45 @@ import { buildTrackDrafts, createUploadUrl, generateAudiobookWorkbookBuffer, gen
 import { buildProcessingPayload } from '../processing-contract';
 import type { Env, TrackDraft } from '../types';
 import { buildCatalogStorageBasePath, keySegments, signInternalArtifactUrl } from '../utils';
+import { deriveProductionStage } from '../api-contracts';
 import { requirePermission } from './auth';
 
 const books = new Hono<{ Bindings: Env }>();
+
+// Catalog list with unified production stage per title.
+books.get('/', async (c) => {
+  const repo = new Repository(c.env.DB);
+  const [records, linkage] = await Promise.all([
+    repo.listAudiobooks(10_000),
+    repo.getProductionLinkageByAudiobook(),
+  ]);
+  const list = records.map((b) => {
+    const link = linkage.get(b.id) ?? { assigned: false, sampleState: 'none' as const, delivered: false };
+    return {
+      id: b.id,
+      title: b.title,
+      publisherName: b.publisherName,
+      processingStatus: b.processingStatus,
+      dossierStatus: b.dossierStatus,
+      clickupTaskUrl: b.clickupTaskUrl,
+      clickupSyncStatus: b.clickupSyncStatus,
+      storageBasePath: b.storageBasePath,
+      isbn: b.isbn,
+      author: b.author,
+      narrator: b.narrator,
+      totalOriginalSizeBytes: b.totalOriginalSizeBytes,
+      productionStage: deriveProductionStage({
+        processingStatus: b.processingStatus,
+        dossierStatus: b.dossierStatus,
+        clickupSyncStatus: b.clickupSyncStatus,
+        assigned: link.assigned,
+        sampleState: link.sampleState,
+        delivered: link.delivered,
+      }),
+    };
+  });
+  return c.json({ books: list });
+});
 
 function maybeAudioName(name: string) {
   return /\.(mp3|m4a|m4b|wav|flac|aac|ogg)$/i.test(name);
@@ -110,7 +146,19 @@ books.get('/:id', async (c) => {
     productionFileId: f.id,
     productionFileName: f.name,
   }));
-  return c.json({ book, tracks, processingRun, processingEvents, dossierEvents, narration });
+  let productionStage: ReturnType<typeof deriveProductionStage> | null = null;
+  if (book) {
+    const link = (await repo.getProductionLinkageByAudiobook()).get(book.id) ?? { assigned: false, sampleState: 'none' as const, delivered: false };
+    productionStage = deriveProductionStage({
+      processingStatus: book.processingStatus,
+      dossierStatus: book.dossierStatus,
+      clickupSyncStatus: book.clickupSyncStatus,
+      assigned: link.assigned,
+      sampleState: link.sampleState,
+      delivered: link.delivered,
+    });
+  }
+  return c.json({ book, tracks, processingRun, processingEvents, dossierEvents, narration, productionStage });
 });
 
 books.post('/:id/prepare-tracks', async (c) => {

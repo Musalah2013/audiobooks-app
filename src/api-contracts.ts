@@ -135,6 +135,62 @@ export interface BookListItem {
   author: string | null;
   narrator: string | null;
   totalOriginalSizeBytes: number;
+  /** Unified position across the studio→catalog→processing→dossier→ClickUp chain. */
+  productionStage: ProductionStage;
+}
+
+// ─── Unified production status ──────────────────────────────────────────────
+// One status that spans both the studio graph (assignment, samples, delivery)
+// and the core pipeline (processing, dossier, ClickUp sync).
+
+export type ProductionStage =
+  | "catalog"        // in catalog, no studio assigned
+  | "assigned"       // assigned to a studio, no sample yet
+  | "sample_review"  // studio submitted a sample, awaiting operator review
+  | "narrating"      // sample approved, studio narrating
+  | "delivered"      // finished audio delivered, awaiting processing
+  | "processing"     // audio processing running
+  | "processed"      // processing succeeded, dossier not yet ready
+  | "dossier_ready"  // dossier built, not yet synced
+  | "synced"         // synced to ClickUp — done
+  | "failed";        // processing or dossier failed
+
+export const PRODUCTION_STAGE_ORDER: ProductionStage[] = [
+  "catalog", "assigned", "sample_review", "narrating", "delivered",
+  "processing", "processed", "dossier_ready", "synced",
+];
+
+export const PRODUCTION_STAGE_LABELS: Record<ProductionStage, { en: string; ar: string }> = {
+  catalog:       { en: "In catalog",     ar: "في الفهرس" },
+  assigned:      { en: "Assigned",       ar: "مُسنَد" },
+  sample_review: { en: "Sample review",  ar: "مراجعة عينة" },
+  narrating:     { en: "Narrating",      ar: "قيد التسجيل" },
+  delivered:     { en: "Delivered",      ar: "تم التسليم" },
+  processing:    { en: "Processing",     ar: "قيد المعالجة" },
+  processed:     { en: "Processed",      ar: "تمت المعالجة" },
+  dossier_ready: { en: "Dossier ready",  ar: "الملف جاهز" },
+  synced:        { en: "Synced",         ar: "تمت المزامنة" },
+  failed:        { en: "Failed",         ar: "فشل" },
+};
+
+export function deriveProductionStage(input: {
+  processingStatus: string;
+  dossierStatus: string;
+  clickupSyncStatus: string;
+  assigned: boolean;
+  sampleState: "none" | "pending" | "approved" | "refused";
+  delivered: boolean;
+}): ProductionStage {
+  if (input.processingStatus === "failed" || input.dossierStatus === "failed") return "failed";
+  if (input.clickupSyncStatus === "synced") return "synced";
+  if (input.dossierStatus === "ready") return "dossier_ready";
+  if (input.processingStatus === "succeeded") return "processed";
+  if (input.processingStatus === "running" || input.processingStatus === "queued") return "processing";
+  if (input.delivered) return "delivered";
+  if (input.assigned && input.sampleState === "approved") return "narrating";
+  if (input.assigned && input.sampleState === "pending") return "sample_review";
+  if (input.assigned) return "assigned";
+  return "catalog";
 }
 
 export interface BooksResponse {
@@ -213,6 +269,8 @@ export interface BookDetailResponse {
   dossierEvents: AuditEvent[];
   /** Studios narrating this title (via assigned production files). */
   narration?: NarrationLink[];
+  /** Unified production stage across the studio + pipeline chain. */
+  productionStage?: ProductionStage | null;
 }
 
 export interface NarrationLink {

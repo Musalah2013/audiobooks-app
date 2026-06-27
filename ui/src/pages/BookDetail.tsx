@@ -10,6 +10,7 @@ import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
 import { InlineError } from '../components/InlineError';
 import { AudioPlayer } from '../components/AudioPlayer';
+import { ProductionStageBadge } from '../components/ProductionStageBadge';
 import type { BookDetailResponse, BookDetail } from '@api';
 
 function formatDuration(seconds: number | null | undefined) {
@@ -332,7 +333,10 @@ export default function BookDetail() {
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold tracking-[0.18em] uppercase text-sky-700">{book?.publisherName}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-xs font-semibold tracking-[0.18em] uppercase text-sky-700">{book?.publisherName}</p>
+              {data?.productionStage && <ProductionStageBadge stage={data.productionStage} isArabic={isArabic} />}
+            </div>
             <h1 className="mt-1 text-2xl font-black text-[color:var(--samawy-ink)] leading-tight">{book?.title}</h1>
             {book?.subtitle && <p className="mt-0.5 text-sm text-[color:var(--fg-2)]">{book.subtitle}</p>}
             {(book?.author || book?.narrator) && (
