@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2, CloudUpload, Mail, DollarSign, Plus, Pencil } from 'lucide-react';
+import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2, CloudUpload, Mail, DollarSign, Plus, Pencil, Search, ChevronDown, BookOpen } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { AudioPlayer } from '../components/AudioPlayer';
 import { useToast } from '../hooks/useToast.tsx';
@@ -61,6 +61,37 @@ export default function StudioManage() {
   const productionFiles = data?.productionFiles ?? [];
   const samples = sampleData?.samples ?? data?.samples ?? [];
   const driveUploads = data?.driveUploads ?? [];
+
+  const [sampleSearch, setSampleSearch] = useState('');
+  const [sampleStatusFilter, setSampleStatusFilter] = useState('');
+  const [sampleBookFilter, setSampleBookFilter] = useState('');
+  const [collapsedSampleGroups, setCollapsedSampleGroups] = useState<Set<string>>(new Set());
+  const toggleSampleGroup = (key: string) => setCollapsedSampleGroups((p) => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n; });
+
+  const filteredSamples = useMemo(() => samples.filter((s) => {
+    if (sampleSearch && !s.name.toLowerCase().includes(sampleSearch.toLowerCase())) return false;
+    if (sampleStatusFilter && s.status !== sampleStatusFilter) return false;
+    if (sampleBookFilter === '__none__') return !s.bookId;
+    if (sampleBookFilter && s.bookId !== sampleBookFilter) return false;
+    return true;
+  }), [samples, sampleSearch, sampleStatusFilter, sampleBookFilter]);
+
+  const groupedSamples = useMemo(() => {
+    const groups = new Map<string, { key: string; bookName: string | null; items: typeof filteredSamples }>();
+    for (const s of filteredSamples) {
+      const key = s.bookId ?? '__none__';
+      if (!groups.has(key)) groups.set(key, { key, bookName: s.bookName ?? null, items: [] });
+      groups.get(key)!.items.push(s);
+    }
+    return [...groups.values()].sort((a, b) => a.key === '__none__' ? 1 : b.key === '__none__' ? -1 : (a.bookName ?? '').localeCompare(b.bookName ?? ''));
+  }, [filteredSamples]);
+
+  const sampleBookOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    let hasUnlinked = false;
+    for (const s of samples) { if (s.bookId) seen.set(s.bookId, s.bookName ?? s.bookId); else hasUnlinked = true; }
+    return { books: [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)), hasUnlinked };
+  }, [samples]);
   const legacyProductions = data?.legacyProductions ?? [];
 
   useEffect(() => {
@@ -500,37 +531,80 @@ export default function StudioManage() {
         <div className="space-y-3">
           {samples.length === 0 ? (
             <div className="card text-sm text-center text-[color:var(--fg-2)] py-6">{isArabic ? 'لم يرفع الاستوديو أي عينات بعد.' : 'No samples submitted yet.'}</div>
-          ) : samples.map((s) => (
-            <div key={s.id} className="card space-y-3">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2.5">
-                  <Music className="h-4 w-4 text-[color:var(--samawy-blue)]" />
-                  <div>
-                    <p className="text-sm font-semibold">{s.name}</p>
-                    <p className="text-xs text-[color:var(--fg-2)]">{formatBytes(s.sizeBytes)} · {new Date(s.createdAt).toLocaleDateString()}</p>
-                  </div>
+          ) : (
+            <>
+              {/* Filter bar */}
+              <div className="card flex items-center gap-2 flex-wrap">
+                <div className="relative flex-1 min-w-[160px]">
+                  <Search className="absolute ltr:left-3 rtl:right-3 top-1/2 -translate-y-1/2 text-slate-400 h-4 w-4" />
+                  <input className="input w-full ltr:pl-9 rtl:pr-9 text-sm" placeholder={isArabic ? 'البحث في العينات…' : 'Search samples…'} value={sampleSearch} onChange={(e) => setSampleSearch(e.target.value)} />
                 </div>
-                <span className={`badge-${s.status === 'approved' ? 'green' : s.status === 'refused' ? 'red' : 'yellow'}`}>
-                  {s.status === 'approved' ? (isArabic ? 'موافقة' : 'Approved') : s.status === 'refused' ? (isArabic ? 'مرفوضة' : 'Refused') : (isArabic ? 'قيد المراجعة' : 'Pending')}
-                </span>
+                <select className="input text-sm w-auto" value={sampleStatusFilter} onChange={(e) => setSampleStatusFilter(e.target.value)}>
+                  <option value="">{isArabic ? 'كل الحالات' : 'All statuses'}</option>
+                  <option value="pending">{isArabic ? 'قيد المراجعة' : 'Pending'}</option>
+                  <option value="approved">{isArabic ? 'معتمدة' : 'Approved'}</option>
+                  <option value="refused">{isArabic ? 'مرفوضة' : 'Refused'}</option>
+                </select>
+                <select className="input text-sm w-auto max-w-[220px]" value={sampleBookFilter} onChange={(e) => setSampleBookFilter(e.target.value)}>
+                  <option value="">{isArabic ? 'كل الكتب' : 'All books'}</option>
+                  {sampleBookOptions.books.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  {sampleBookOptions.hasUnlinked && <option value="__none__">{isArabic ? 'غير مرتبط بكتاب' : 'Unlinked'}</option>}
+                </select>
+                <span className="text-xs text-[color:var(--fg-2)] whitespace-nowrap">{filteredSamples.length} {isArabic ? 'عينة' : 'samples'}</span>
               </div>
-              <AudioPlayer src={`${API_BASE}/api/files/${s.objectKey}?preview=1`} />
-              {s.reviewNote && <p className="text-xs text-[color:var(--fg-2)] bg-slate-50 rounded-[10px] px-3 py-2">{s.reviewNote}</p>}
-              {s.status === 'pending' && (
-                <div className="flex gap-2 items-center flex-wrap">
-                  <input className="input text-sm flex-1 min-w-[160px]" placeholder={isArabic ? 'ملاحظة (اختياري)' : 'Note (optional)'} value={reviewNote[s.id] ?? ''} onChange={(e) => setReviewNote((p) => ({ ...p, [s.id]: e.target.value }))} />
-                  <button type="button" className="btn-primary text-xs py-1.5 px-3" disabled={reviewing === s.id} onClick={() => reviewSample(s.id, 'approved')}>
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    {isArabic ? 'موافقة' : 'Approve'}
-                  </button>
-                  <button type="button" className="btn-secondary text-xs py-1.5 px-3 text-red-600 border-red-200 hover:bg-red-50" disabled={reviewing === s.id} onClick={() => reviewSample(s.id, 'refused')}>
-                    <XCircle className="h-3.5 w-3.5" />
-                    {isArabic ? 'رفض' : 'Refuse'}
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
+
+              {filteredSamples.length === 0 ? (
+                <div className="card text-sm text-center text-[color:var(--fg-2)] py-6">{isArabic ? 'لا توجد نتائج.' : 'No matching samples.'}</div>
+              ) : groupedSamples.map((g) => {
+                const collapsed = collapsedSampleGroups.has(g.key);
+                return (
+                  <div key={g.key} className="card p-0 overflow-hidden">
+                    <button type="button" onClick={() => toggleSampleGroup(g.key)} className="w-full flex items-center gap-2 px-4 py-3 bg-slate-50/60 hover:bg-slate-50 transition-colors text-start">
+                      <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+                      <BookOpen className={`h-4 w-4 ${g.key === '__none__' ? 'text-slate-400' : 'text-[color:var(--samawy-blue)]'}`} />
+                      <h3 className={`text-sm font-bold flex-1 ${g.key === '__none__' ? 'text-slate-500' : 'text-[color:var(--samawy-ink)]'}`}>{g.bookName ?? (isArabic ? 'غير مرتبط بكتاب' : 'Unlinked')}</h3>
+                      <span className="text-xs text-[color:var(--fg-2)]">{g.items.length}</span>
+                    </button>
+                    {!collapsed && (
+                      <div className="p-4 space-y-3">
+                        {g.items.map((s) => (
+                          <div key={s.id} className="rounded-xl border border-slate-100 p-3 space-y-3">
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
+                              <div className="flex items-center gap-2.5">
+                                <Music className="h-4 w-4 text-[color:var(--samawy-blue)]" />
+                                <div>
+                                  <p className="text-sm font-semibold">{s.name}</p>
+                                  <p className="text-xs text-[color:var(--fg-2)]">{formatBytes(s.sizeBytes)} · {new Date(s.createdAt).toLocaleDateString()}</p>
+                                </div>
+                              </div>
+                              <span className={`badge-${s.status === 'approved' ? 'green' : s.status === 'refused' ? 'red' : 'yellow'}`}>
+                                {s.status === 'approved' ? (isArabic ? 'موافقة' : 'Approved') : s.status === 'refused' ? (isArabic ? 'مرفوضة' : 'Refused') : (isArabic ? 'قيد المراجعة' : 'Pending')}
+                              </span>
+                            </div>
+                            <AudioPlayer src={`${API_BASE}/api/files/${s.objectKey}?preview=1`} />
+                            {s.reviewNote && <p className="text-xs text-[color:var(--fg-2)] bg-slate-50 rounded-[10px] px-3 py-2">{s.reviewNote}</p>}
+                            {s.status === 'pending' && (
+                              <div className="flex gap-2 items-center flex-wrap">
+                                <input className="input text-sm flex-1 min-w-[160px]" placeholder={isArabic ? 'ملاحظة (اختياري)' : 'Note (optional)'} value={reviewNote[s.id] ?? ''} onChange={(e) => setReviewNote((p) => ({ ...p, [s.id]: e.target.value }))} />
+                                <button type="button" className="btn-primary text-xs py-1.5 px-3" disabled={reviewing === s.id} onClick={() => reviewSample(s.id, 'approved')}>
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  {isArabic ? 'موافقة' : 'Approve'}
+                                </button>
+                                <button type="button" className="btn-secondary text-xs py-1.5 px-3 text-red-600 border-red-200 hover:bg-red-50" disabled={reviewing === s.id} onClick={() => reviewSample(s.id, 'refused')}>
+                                  <XCircle className="h-3.5 w-3.5" />
+                                  {isArabic ? 'رفض' : 'Refuse'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
         </div>
       )}
 

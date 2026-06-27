@@ -39,8 +39,8 @@ function driveUploadToApi(d: { id: string; studio_id: string; name: string; driv
   return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id, netFinalHours: d.net_final_hours, notes: d.notes };
 }
 
-function sampleToApi(s: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string }) {
-  return { id: s.id, studioId: s.studio_id, name: s.name, objectKey: s.object_key, contentType: s.content_type, sizeBytes: s.size_bytes, status: s.status as 'pending' | 'approved' | 'refused', reviewedBy: s.reviewed_by, reviewNote: s.review_note, reviewedAt: s.reviewed_at, createdAt: s.created_at };
+function sampleToApi(s: { id: string; studio_id: string; book_id?: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string }, bookName: string | null = null) {
+  return { id: s.id, studioId: s.studio_id, bookId: s.book_id ?? null, bookName, name: s.name, objectKey: s.object_key, contentType: s.content_type, sizeBytes: s.size_bytes, status: s.status as 'pending' | 'approved' | 'refused', reviewedBy: s.reviewed_by, reviewNote: s.review_note, reviewedAt: s.reviewed_at, createdAt: s.created_at };
 }
 
 // ─── Studios CRUD ─────────────────────────────────────────────────────────────
@@ -175,12 +175,13 @@ studios.get('/:id', requirePermission('users'), async (c) => {
     if (book) titleById.set(id, book.title);
   }));
   const approvedFileIds = new Set(samples.filter((s) => s.status === 'approved' && s.book_id).map((s) => s.book_id!));
+  const fileNameById = new Map(productionFiles.map((f) => [f.id, f.name]));
   return c.json({
     studio: studioToApi(studio),
     contacts: contacts.map(contactToApi),
     assets: assets.map(assetToApi),
     productionFiles: productionFiles.map((f) => productionFileToApi(f, f.audiobook_id ? titleById.get(f.audiobook_id) ?? null : null, approvedFileIds.has(f.id))),
-    samples: samples.map(sampleToApi),
+    samples: samples.map((s) => sampleToApi(s, s.book_id ? fileNameById.get(s.book_id) ?? null : null)),
     driveUploads: driveUploads.map(driveUploadToApi),
     legacyProductions: legacyProductions.map((p) => ({ id: p.id, studioId: p.studio_id, bookTitle: p.book_title, isbn: p.isbn, narrator: p.narrator, netHours: p.net_hours, notes: p.notes, createdAt: p.created_at })),
   });
@@ -372,8 +373,12 @@ studios.patch('/:id/production-files/:fileId/assign', requirePermission('users')
 
 studios.get('/:id/samples', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const samples = await repo.listStudioSamples(c.req.param('id')!);
-  return c.json({ samples: samples.map(sampleToApi) });
+  const [samples, files] = await Promise.all([
+    repo.listStudioSamples(c.req.param('id')!),
+    repo.listStudioProductionFiles(c.req.param('id')!),
+  ]);
+  const fileNameById = new Map(files.map((f) => [f.id, f.name]));
+  return c.json({ samples: samples.map((s) => sampleToApi(s, s.book_id ? fileNameById.get(s.book_id) ?? null : null)) });
 });
 
 studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async (c) => {
