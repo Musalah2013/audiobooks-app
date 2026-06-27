@@ -37,14 +37,14 @@ export default function StudioManage() {
   const [activeTab, setActiveTab] = useState<TabKey>('info');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [bulk, setBulk] = useState<{ done: number; total: number; name: string } | null>(null);
+  const [dragTarget, setDragTarget] = useState<'asset' | 'production' | null>(null);
   const [reviewNote, setReviewNote] = useState<Record<string, string>>({});
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<string | null>(null);
   const { data: booksData } = useApi<BooksResponse>('/api/books');
   const logoInputRef = useRef<HTMLInputElement>(null);
-  const assetInputRef = useRef<HTMLInputElement>(null);
-  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   const [newContactEmail, setNewContactEmail] = useState('');
   const [savingContact, setSavingContact] = useState(false);
@@ -173,32 +173,30 @@ export default function StudioManage() {
     }
   }
 
-  async function uploadAsset(file: File) {
-    setUploading(true); setUploadProgress(0);
-    try {
-      const { uploadUrl } = await apiRequest<{ uploadUrl: string }>(`/api/studios/${id}/asset-upload-url`, { method: 'POST', body: { fileName: file.name, contentType: file.type, sizeBytes: file.size } });
-      await xhrPut(uploadUrl, file);
-      addToast(isArabic ? 'تم رفع الملف.' : 'Asset uploaded.', 'success');
-      refetch();
-    } catch (err) {
-      addToast(err instanceof Error ? err : (isArabic ? 'فشل الرفع' : 'Upload failed'), 'error');
-    } finally {
-      setUploading(false); setUploadProgress(0);
+  // Bulk upload (multiple files, one at a time) for assets or production files.
+  async function bulkUpload(files: File[], kind: 'asset' | 'production') {
+    const list = files.filter(Boolean);
+    if (list.length === 0) return;
+    const endpoint = kind === 'asset' ? 'asset-upload-url' : 'production-file-upload-url';
+    setUploading(true);
+    let ok = 0; const failedNames: string[] = [];
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      setBulk({ done: i, total: list.length, name: file.name });
+      setUploadProgress(0);
+      try {
+        const { uploadUrl } = await apiRequest<{ uploadUrl: string }>(`/api/studios/${id}/${endpoint}`, { method: 'POST', body: { fileName: file.name, contentType: file.type, sizeBytes: file.size } });
+        await xhrPut(uploadUrl, file);
+        ok += 1;
+      } catch {
+        failedNames.push(file.name);
+      }
     }
-  }
-
-  async function uploadPDF(file: File) {
-    setUploading(true); setUploadProgress(0);
-    try {
-      const { uploadUrl } = await apiRequest<{ uploadUrl: string }>(`/api/studios/${id}/production-file-upload-url`, { method: 'POST', body: { fileName: file.name, contentType: file.type, sizeBytes: file.size } });
-      await xhrPut(uploadUrl, file);
-      addToast(isArabic ? 'تم رفع ملف الإنتاج وإشعار الاستوديو.' : 'Production file uploaded and studio notified.', 'success');
-      refetch();
-    } catch (err) {
-      addToast(err instanceof Error ? err : (isArabic ? 'فشل الرفع' : 'Upload failed'), 'error');
-    } finally {
-      setUploading(false); setUploadProgress(0);
-    }
+    setBulk(null);
+    setUploading(false); setUploadProgress(0);
+    if (failedNames.length) addToast(`${isArabic ? 'تم رفع' : 'Uploaded'} ${ok}/${list.length}. ${isArabic ? 'فشل:' : 'Failed:'} ${failedNames.join(', ')}`, 'error');
+    else addToast(`${isArabic ? 'تم رفع' : 'Uploaded'} ${ok} ${isArabic ? 'ملف' : 'file(s)'}.`, 'success');
+    refetch();
   }
 
   async function deleteAsset(assetId: string) {
@@ -248,6 +246,39 @@ export default function StudioManage() {
     } finally {
       setReviewing(null);
     }
+  }
+
+  function renderDropzone(kind: 'asset' | 'production', accept: string | undefined, label: string, hint: string) {
+    const active = dragTarget === kind;
+    return (
+      <div
+        onDragOver={(e) => { e.preventDefault(); if (!uploading) setDragTarget(kind); }}
+        onDragLeave={(e) => { e.preventDefault(); setDragTarget(null); }}
+        onDrop={(e) => { e.preventDefault(); setDragTarget(null); const files = Array.from(e.dataTransfer.files); if (files.length && !uploading) bulkUpload(files, kind); }}
+        className={`rounded-2xl border-2 border-dashed px-4 py-6 text-center transition-colors ${active ? 'border-[color:var(--samawy-blue)] bg-[rgba(11,128,255,0.06)]' : 'border-slate-200'}`}
+      >
+        <input type="file" multiple accept={accept} className="hidden" id={`dz-${kind}`} disabled={uploading}
+          onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) bulkUpload(fs, kind); e.target.value = ''; }} />
+        <CloudUpload className="h-7 w-7 mx-auto mb-2 text-slate-300" />
+        {uploading && bulk ? (
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">{isArabic ? 'جاري الرفع' : 'Uploading'} {bulk.done + 1}/{bulk.total}</p>
+            <p className="text-xs text-[color:var(--fg-2)] truncate">{bulk.name}</p>
+            <div className="h-1.5 max-w-[240px] mx-auto bg-slate-200 rounded-full overflow-hidden">
+              <div className="h-full bg-[color:var(--samawy-blue)] rounded-full transition-all" style={{ width: `${uploadProgress}%` }} />
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm font-medium text-[color:var(--samawy-ink)]">{active ? (isArabic ? 'أفلِت للرفع' : 'Drop to upload') : label}</p>
+            <p className="text-xs text-[color:var(--fg-2)] mb-2">{hint}</p>
+            <label htmlFor={`dz-${kind}`} className="btn-secondary text-xs cursor-pointer inline-flex">
+              <Upload className="h-3.5 w-3.5" />{isArabic ? 'اختيار ملفات' : 'Choose files'}
+            </label>
+          </>
+        )}
+      </div>
+    );
   }
 
   if (loading) return <div className="card text-sm text-center text-[color:var(--fg-2)]">{isArabic ? 'جاري التحميل…' : 'Loading…'}</div>;
@@ -362,21 +393,7 @@ export default function StudioManage() {
       {/* Assets tab */}
       {activeTab === 'assets' && (
         <div className="card space-y-4">
-          <div className="flex items-center justify-end gap-3">
-            <input type="file" ref={assetInputRef} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAsset(f); }} />
-            {uploading && (
-              <div className="flex items-center gap-2 flex-1 max-w-[200px]">
-                <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                  <div className="h-full bg-[color:var(--samawy-blue)] rounded-full transition-all duration-200" style={{ width: `${uploadProgress}%` }} />
-                </div>
-                <span className="text-xs text-[color:var(--fg-2)] tabular-nums w-8">{uploadProgress}%</span>
-              </div>
-            )}
-            <button type="button" className="btn-primary text-sm" disabled={uploading} onClick={() => assetInputRef.current?.click()}>
-              <Upload className="h-4 w-4" />
-              {uploading ? (isArabic ? 'جاري الرفع…' : 'Uploading…') : (isArabic ? 'رفع ملف' : 'Upload Asset')}
-            </button>
-          </div>
+          {renderDropzone('asset', undefined, isArabic ? 'اسحب وأفلِت الملفات هنا' : 'Drag & drop files here', isArabic ? 'يمكن رفع عدة ملفات دفعة واحدة' : 'Upload multiple files at once')}
           {assets.length === 0 ? (
             <p className="text-sm text-center text-[color:var(--fg-2)] py-4">{isArabic ? 'لا توجد ملفات.' : 'No assets yet.'}</p>
           ) : (
@@ -413,21 +430,7 @@ export default function StudioManage() {
       {/* Production files tab */}
       {activeTab === 'production' && (
         <div className="card space-y-4">
-          <div className="flex items-center justify-end gap-3">
-            <input type="file" ref={pdfInputRef} className="hidden" accept=".pdf,application/pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadPDF(f); }} />
-            {uploading && (
-              <div className="flex items-center gap-2 flex-1 max-w-[200px]">
-                <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                  <div className="h-full bg-[color:var(--samawy-blue)] rounded-full transition-all duration-200" style={{ width: `${uploadProgress}%` }} />
-                </div>
-                <span className="text-xs text-[color:var(--fg-2)] tabular-nums w-8">{uploadProgress}%</span>
-              </div>
-            )}
-            <button type="button" className="btn-primary text-sm" disabled={uploading} onClick={() => pdfInputRef.current?.click()}>
-              <Upload className="h-4 w-4" />
-              {uploading ? (isArabic ? 'جاري الرفع…' : 'Uploading…') : (isArabic ? 'رفع ملف PDF' : 'Upload PDF')}
-            </button>
-          </div>
+          {renderDropzone('production', '.pdf,application/pdf', isArabic ? 'اسحب وأفلِت ملفات الإنتاج هنا' : 'Drag & drop production files here', isArabic ? 'يمكن رفع عدة ملفات دفعة واحدة' : 'Upload multiple files at once')}
           {productionFiles.length === 0 ? (
             <p className="text-sm text-center text-[color:var(--fg-2)] py-4">{isArabic ? 'لا توجد ملفات إنتاج.' : 'No production files yet.'}</p>
           ) : (
