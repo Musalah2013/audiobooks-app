@@ -77,9 +77,11 @@ studios.get('/', requirePermission('users'), async (c) => {
 // One-time import of pre-existing studios with their users, rate, and the books
 // they already produced (net hours → billing history). Idempotent by slug.
 const legacyStudioSchema = z.object({
+  // When studioId is set, productions attach to that existing studio.
+  studioId: z.string().optional(),
   name: z.string().min(1),
   slug: z.string().regex(/^[a-z0-9-]+$/).optional(),
-  contactEmail: z.string().email(),
+  contactEmail: z.string().email().optional(),
   emails: z.array(z.string().email()).optional(),
   hourlyRateUsd: z.number().nonnegative().nullable().optional(),
   active: z.boolean().optional(),
@@ -97,14 +99,22 @@ studios.post('/legacy-import', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
   let studiosCreated = 0, studiosUpdated = 0, productionsCreated = 0;
   for (const row of body.studios) {
-    const slug = (row.slug ?? row.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).slice(0, 80) || `studio-${crypto.randomUUID().slice(0, 8)}`;
-    let studio = await repo.getStudioBySlug(slug);
-    if (!studio) {
-      await repo.createStudio({ id: crypto.randomUUID(), name: row.name, slug, contactEmail: row.contactEmail, createdBy: actorEmail(c.req.raw) });
-      studio = await repo.getStudioBySlug(slug);
-      studiosCreated += 1;
-    } else {
+    let studio = row.studioId ? await repo.getStudio(row.studioId) : null;
+    if (row.studioId) {
+      // Attaching to an existing studio.
+      if (!studio) continue;
       studiosUpdated += 1;
+    } else {
+      const slug = (row.slug ?? row.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).slice(0, 80) || `studio-${crypto.randomUUID().slice(0, 8)}`;
+      studio = await repo.getStudioBySlug(slug);
+      if (!studio) {
+        if (!row.contactEmail) continue; // new studios need a contact email
+        await repo.createStudio({ id: crypto.randomUUID(), name: row.name, slug, contactEmail: row.contactEmail, createdBy: actorEmail(c.req.raw) });
+        studio = await repo.getStudioBySlug(slug);
+        studiosCreated += 1;
+      } else {
+        studiosUpdated += 1;
+      }
     }
     if (!studio) continue;
     // Rate / active updates
@@ -113,7 +123,7 @@ studios.post('/legacy-import', requirePermission('users'), async (c) => {
     if (row.active !== undefined) patch.isActive = row.active ? 1 : 0;
     if (Object.keys(patch).length) await repo.updateStudio(studio.id, patch);
     // Contacts (primary + extras)
-    await repo.addStudioContact(studio.id, row.contactEmail).catch(() => undefined);
+    if (row.contactEmail) await repo.addStudioContact(studio.id, row.contactEmail).catch(() => undefined);
     for (const e of row.emails ?? []) await repo.addStudioContact(studio.id, e).catch(() => undefined);
     // Legacy productions
     for (const p of row.productions ?? []) {
