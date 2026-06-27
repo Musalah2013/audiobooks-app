@@ -47,8 +47,28 @@ function sampleToApi(s: { id: string; studio_id: string; name: string; object_ke
 
 studios.get('/', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const list = await repo.listStudios();
-  return c.json({ studios: list.map(studioToApi) });
+  const [list, agg] = await Promise.all([repo.listStudios(), repo.getStudioAggregates()]);
+  const empty = { contacts: 0, productionFiles: 0, assignedFiles: 0, samplesTotal: 0, samplesPending: 0, samplesApproved: 0, samplesRefused: 0, deliveries: 0, deliveriesCompleted: 0, netFinalHours: 0 };
+  const studiosWithStats = list.map((s) => {
+    const a = agg.get(s.id) ?? empty;
+    const rate = s.hourly_rate_usd;
+    const cost = rate != null ? rate * a.netFinalHours : null;
+    return { ...studioToApi(s), stats: { ...a, costUsd: cost } };
+  });
+  const summary = {
+    totalStudios: list.length,
+    activeStudios: list.filter((s) => s.is_active).length,
+    totalUsers: studiosWithStats.reduce((n, s) => n + s.stats.contacts, 0),
+    totalProductionFiles: studiosWithStats.reduce((n, s) => n + s.stats.productionFiles, 0),
+    totalAssigned: studiosWithStats.reduce((n, s) => n + s.stats.assignedFiles, 0),
+    samplesPending: studiosWithStats.reduce((n, s) => n + s.stats.samplesPending, 0),
+    samplesApproved: studiosWithStats.reduce((n, s) => n + s.stats.samplesApproved, 0),
+    samplesRefused: studiosWithStats.reduce((n, s) => n + s.stats.samplesRefused, 0),
+    totalDeliveries: studiosWithStats.reduce((n, s) => n + s.stats.deliveries, 0),
+    totalNetHours: studiosWithStats.reduce((n, s) => n + s.stats.netFinalHours, 0),
+    totalCostUsd: studiosWithStats.reduce((n, s) => n + (s.stats.costUsd ?? 0), 0),
+  };
+  return c.json({ studios: studiosWithStats, summary });
 });
 
 studios.get('/:id', requirePermission('users'), async (c) => {

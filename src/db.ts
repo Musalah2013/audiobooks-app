@@ -23,6 +23,11 @@ type Row = Record<string, unknown>;
 // ─── Studio row types ────────────────────────────────────────────────────────
 type StudioRow = { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string; hourly_rate_usd: number | null };
 type StudioContactRow = { id: string; studio_id: string; email: string; name: string | null; created_at: string };
+type StudioAggregate = {
+  contacts: number; productionFiles: number; assignedFiles: number;
+  samplesTotal: number; samplesPending: number; samplesApproved: number; samplesRefused: number;
+  deliveries: number; deliveriesCompleted: number; netFinalHours: number;
+};
 type StudioAssetRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
 type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null };
 type StudioSampleRow = { id: string; studio_id: string; book_id: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string };
@@ -1006,6 +1011,32 @@ export class Repository {
   async listStudios(limit = 100, offset = 0) {
     const { results } = await this.db.prepare(`SELECT * FROM studio ORDER BY name LIMIT ? OFFSET ?`).bind(limit, offset).all<StudioRow>();
     return results;
+  }
+
+  /** Per-studio aggregate stats for the studios dashboard, keyed by studio id. */
+  async getStudioAggregates(): Promise<Map<string, StudioAggregate>> {
+    const map = new Map<string, StudioAggregate>();
+    const ensure = (id: string) => {
+      let v = map.get(id);
+      if (!v) { v = { contacts: 0, productionFiles: 0, assignedFiles: 0, samplesTotal: 0, samplesPending: 0, samplesApproved: 0, samplesRefused: 0, deliveries: 0, deliveriesCompleted: 0, netFinalHours: 0 }; map.set(id, v); }
+      return v;
+    };
+    const [contacts, files, samples, deliveries] = await Promise.all([
+      this.db.prepare(`SELECT studio_id, COUNT(*) AS c FROM studio_contact GROUP BY studio_id`).all<{ studio_id: string; c: number }>(),
+      this.db.prepare(`SELECT studio_id, COUNT(*) AS total, SUM(CASE WHEN audiobook_id IS NOT NULL THEN 1 ELSE 0 END) AS assigned FROM studio_production_file GROUP BY studio_id`).all<{ studio_id: string; total: number; assigned: number }>(),
+      this.db.prepare(`SELECT studio_id, status, COUNT(*) AS c FROM studio_sample GROUP BY studio_id, status`).all<{ studio_id: string; status: string; c: number }>(),
+      this.db.prepare(`SELECT studio_id, COUNT(*) AS total, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed, COALESCE(SUM(net_final_hours),0) AS net_hours FROM studio_drive_upload GROUP BY studio_id`).all<{ studio_id: string; total: number; completed: number; net_hours: number }>(),
+    ]);
+    for (const r of contacts.results) ensure(r.studio_id).contacts = Number(r.c);
+    for (const r of files.results) { const v = ensure(r.studio_id); v.productionFiles = Number(r.total); v.assignedFiles = Number(r.assigned); }
+    for (const r of samples.results) {
+      const v = ensure(r.studio_id); const c = Number(r.c); v.samplesTotal += c;
+      if (r.status === 'pending') v.samplesPending += c;
+      else if (r.status === 'approved') v.samplesApproved += c;
+      else if (r.status === 'refused') v.samplesRefused += c;
+    }
+    for (const r of deliveries.results) { const v = ensure(r.studio_id); v.deliveries = Number(r.total); v.deliveriesCompleted = Number(r.completed); v.netFinalHours = Number(r.net_hours); }
+    return map;
   }
 
   async updateStudio(id: string, patch: Partial<{ name: string; slug: string; contactEmail: string; logoObjectKey: string | null; isActive: number; hourlyRateUsd: number | null }>) {

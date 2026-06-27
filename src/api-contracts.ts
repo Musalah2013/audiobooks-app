@@ -469,6 +469,43 @@ export interface Studio {
   hourlyRateUsd?: number | null;
 }
 
+export interface StudioStats {
+  contacts: number;
+  productionFiles: number;
+  assignedFiles: number;
+  samplesTotal: number;
+  samplesPending: number;
+  samplesApproved: number;
+  samplesRefused: number;
+  deliveries: number;
+  deliveriesCompleted: number;
+  netFinalHours: number;
+  costUsd: number | null;
+}
+
+export interface StudioWithStats extends Studio {
+  stats: StudioStats;
+}
+
+export interface StudiosSummary {
+  totalStudios: number;
+  activeStudios: number;
+  totalUsers: number;
+  totalProductionFiles: number;
+  totalAssigned: number;
+  samplesPending: number;
+  samplesApproved: number;
+  samplesRefused: number;
+  totalDeliveries: number;
+  totalNetHours: number;
+  totalCostUsd: number;
+}
+
+export interface StudiosResponse {
+  studios: StudioWithStats[];
+  summary: StudiosSummary;
+}
+
 export interface StudioAsset {
   id: string;
   studioId: string;
