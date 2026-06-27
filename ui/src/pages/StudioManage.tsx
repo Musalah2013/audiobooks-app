@@ -1,17 +1,22 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2, CloudUpload } from 'lucide-react';
+import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2, CloudUpload, Mail, DollarSign, Plus } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
-import type { Studio, StudioAsset, StudioProductionFile, StudioSample, StudioDriveUpload, BooksResponse } from '@api';
+import type { Studio, StudioContact, StudioAsset, StudioProductionFile, StudioSample, StudioDriveUpload, BooksResponse } from '@api';
 
 interface ManageData {
   studio: Studio;
+  contacts: StudioContact[];
   assets: StudioAsset[];
   productionFiles: StudioProductionFile[];
   samples: StudioSample[];
   driveUploads: StudioDriveUpload[];
+}
+
+function fmtHours(h: number | null | undefined) {
+  return h == null ? '—' : `${h} h`;
 }
 
 type TabKey = 'info' | 'assets' | 'production' | 'samples' | 'deliveries';
@@ -40,11 +45,58 @@ export default function StudioManage() {
   const assetInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
+  const [newContactEmail, setNewContactEmail] = useState('');
+  const [savingContact, setSavingContact] = useState(false);
+  const [rateInput, setRateInput] = useState('');
+  const [savingRate, setSavingRate] = useState(false);
+
   const studio = data?.studio;
+  const contacts = data?.contacts ?? [];
   const assets = data?.assets ?? [];
   const productionFiles = data?.productionFiles ?? [];
   const samples = sampleData?.samples ?? data?.samples ?? [];
   const driveUploads = data?.driveUploads ?? [];
+
+  useEffect(() => {
+    if (studio) setRateInput(studio.hourlyRateUsd != null ? String(studio.hourlyRateUsd) : '');
+  }, [studio?.id, studio?.hourlyRateUsd]);
+
+  async function addContact() {
+    const email = newContactEmail.trim();
+    if (!email) return;
+    setSavingContact(true);
+    try {
+      await apiRequest(`/api/studios/${id}/contacts`, { method: 'POST', body: { email } });
+      setNewContactEmail('');
+      addToast(isArabic ? 'تمت إضافة المستخدم.' : 'User added.', 'success');
+      refetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الإضافة' : 'Failed to add'), 'error');
+    } finally { setSavingContact(false); }
+  }
+
+  async function removeContact(contactId: string) {
+    try {
+      await apiRequest(`/api/studios/${id}/contacts/${contactId}`, { method: 'DELETE' });
+      addToast(isArabic ? 'تم حذف المستخدم.' : 'User removed.', 'success');
+      refetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Failed to remove'), 'error');
+    }
+  }
+
+  async function saveRate() {
+    setSavingRate(true);
+    try {
+      const v = rateInput.trim() === '' ? null : Number(rateInput);
+      if (v != null && (!Number.isFinite(v) || v < 0)) throw new Error(isArabic ? 'قيمة غير صالحة' : 'Invalid value');
+      await apiRequest(`/api/studios/${id}`, { method: 'PATCH', body: { hourlyRateUsd: v } });
+      addToast(isArabic ? 'تم حفظ السعر.' : 'Rate saved.', 'success');
+      refetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحفظ' : 'Failed to save'), 'error');
+    } finally { setSavingRate(false); }
+  }
 
   function xhrPut(url: string, file: File): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -222,6 +274,41 @@ export default function StudioManage() {
               </div>
             </div>
           </div>
+
+          {/* Studio users (login contacts) */}
+          <div className="border-t border-slate-100 pt-4">
+            <p className="text-xs font-semibold text-[color:var(--fg-2)] mb-2 flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" />{isArabic ? 'مستخدمو الاستوديو (بريد الدخول)' : 'Studio users (login emails)'}</p>
+            <div className="space-y-1.5 mb-2">
+              {contacts.map((ct) => (
+                <div key={ct.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-1.5">
+                  <span className="text-sm truncate">{ct.email}</span>
+                  {contacts.length > 1 && (
+                    <button type="button" className="text-red-400 hover:text-red-600" onClick={() => removeContact(ct.id)} title={isArabic ? 'حذف' : 'Remove'}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input className="input flex-1 text-sm" type="email" placeholder={isArabic ? 'بريد إلكتروني جديد' : 'New email'} value={newContactEmail} onChange={(e) => setNewContactEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addContact()} />
+              <button type="button" className="btn-secondary text-xs px-3" disabled={savingContact || !newContactEmail.trim()} onClick={addContact}>
+                <Plus className="h-3.5 w-3.5" />{isArabic ? 'إضافة' : 'Add'}
+              </button>
+            </div>
+          </div>
+
+          {/* Hourly rate */}
+          <div className="border-t border-slate-100 pt-4">
+            <p className="text-xs font-semibold text-[color:var(--fg-2)] mb-2 flex items-center gap-1.5"><DollarSign className="h-3.5 w-3.5" />{isArabic ? 'سعر الساعة النهائية (USD)' : 'Final hour rate (USD)'}</p>
+            <div className="flex gap-2 items-center">
+              <input className="input w-40 text-sm" type="number" min="0" step="0.01" placeholder="0.00" value={rateInput} onChange={(e) => setRateInput(e.target.value)} />
+              <span className="text-xs text-[color:var(--fg-2)]">{isArabic ? '/ ساعة صافية' : '/ net hour'}</span>
+              <button type="button" className="btn-secondary text-xs px-3" disabled={savingRate} onClick={saveRate}>
+                <CheckCircle2 className="h-3.5 w-3.5" />{savingRate ? '…' : (isArabic ? 'حفظ' : 'Save')}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -342,6 +429,14 @@ export default function StudioManage() {
                     </Link>
                   )}
                 </div>
+                {/* Studio production plan (read-only) */}
+                {(f.narrator || f.expectedNetHours != null || f.estimatedFinishHours != null) && (
+                  <div className="mt-2 ml-7 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[color:var(--fg-2)]">
+                    {f.narrator && <span>{isArabic ? 'الراوي:' : 'Narrator:'} <strong className="text-[color:var(--samawy-ink)]">{f.narrator}</strong></span>}
+                    <span>{isArabic ? 'ساعات صافية متوقعة:' : 'Expected net:'} <strong className="text-[color:var(--samawy-ink)]">{fmtHours(f.expectedNetHours)}</strong></span>
+                    <span>{isArabic ? 'إنجاز مقدّر:' : 'Est. finish:'} <strong className="text-[color:var(--samawy-ink)]">{fmtHours(f.estimatedFinishHours)}</strong></span>
+                  </div>
+                )}
                 </div>
               ))}
             </div>
@@ -403,8 +498,12 @@ export default function StudioManage() {
             <div className="card text-sm text-center text-[color:var(--fg-2)] py-6">{isArabic ? 'لا توجد تسليمات بعد.' : 'No deliveries yet.'}</div>
           ) : (
             <div className="card divide-y divide-slate-100">
-              {driveUploads.map((u) => (
-                <div key={u.id} className="flex items-center justify-between gap-3 py-2.5">
+              {driveUploads.map((u) => {
+                const rate = studio?.hourlyRateUsd ?? null;
+                const cost = rate != null && u.netFinalHours != null ? rate * u.netFinalHours : null;
+                return (
+                <div key={u.id} className="py-2.5">
+                <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <CloudUpload className="h-4 w-4 text-emerald-500 shrink-0" />
                     <div className="min-w-0">
@@ -424,7 +523,16 @@ export default function StudioManage() {
                     )}
                   </div>
                 </div>
-              ))}
+                {(u.netFinalHours != null || u.notes || cost != null) && (
+                  <div className="mt-1.5 ml-7 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[color:var(--fg-2)]">
+                    {u.netFinalHours != null && <span>{isArabic ? 'ساعات صافية:' : 'Net hours:'} <strong className="text-[color:var(--samawy-ink)]">{u.netFinalHours} h</strong></span>}
+                    {cost != null && <span className="text-emerald-700 font-semibold">${cost.toFixed(2)}</span>}
+                    {u.notes && <span className="italic">“{u.notes}”</span>}
+                  </div>
+                )}
+                </div>
+                );
+              })}
             </div>
           )}
         </div>

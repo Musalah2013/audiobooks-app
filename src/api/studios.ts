@@ -9,8 +9,12 @@ import { keySegments, nowIso, signInternalArtifactUrl } from '../utils';
 
 const studios = new Hono<{ Bindings: Env }>();
 
-function studioToApi(s: { id: string; name: string; slug: string; contact_email: string; logo_object_key: string | null; is_active: number; created_at: string; created_by: string }) {
-  return { id: s.id, name: s.name, slug: s.slug, contactEmail: s.contact_email, logoObjectKey: s.logo_object_key, isActive: !!s.is_active, createdAt: s.created_at, createdBy: s.created_by };
+function studioToApi(s: { id: string; name: string; slug: string; contact_email: string; logo_object_key: string | null; is_active: number; created_at: string; created_by: string; hourly_rate_usd: number | null }) {
+  return { id: s.id, name: s.name, slug: s.slug, contactEmail: s.contact_email, logoObjectKey: s.logo_object_key, isActive: !!s.is_active, createdAt: s.created_at, createdBy: s.created_by, hourlyRateUsd: s.hourly_rate_usd };
+}
+
+function contactToApi(c: { id: string; studio_id: string; email: string; name: string | null; created_at: string }) {
+  return { id: c.id, studioId: c.studio_id, email: c.email, name: c.name, createdAt: c.created_at };
 }
 
 function assetToApi(a: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string }) {
@@ -18,18 +22,21 @@ function assetToApi(a: { id: string; studio_id: string; name: string; object_key
 }
 
 function productionFileToApi(
-  f: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null },
+  f: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null },
   audiobookTitle: string | null = null,
+  hasApprovedSample = false,
 ) {
   return {
     id: f.id, studioId: f.studio_id, name: f.name, objectKey: f.object_key,
     contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at,
     audiobookId: f.audiobook_id, audiobookTitle,
+    narrator: f.narrator, expectedNetHours: f.expected_net_hours, estimatedFinishHours: f.estimated_finish_hours,
+    hasApprovedSample,
   };
 }
 
-function driveUploadToApi(d: { id: string; studio_id: string; name: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null }) {
-  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id };
+function driveUploadToApi(d: { id: string; studio_id: string; name: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; net_final_hours: number | null; notes: string | null }) {
+  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id, netFinalHours: d.net_final_hours, notes: d.notes };
 }
 
 function sampleToApi(s: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string }) {
@@ -48,11 +55,12 @@ studios.get('/:id', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(c.req.param('id')!);
   if (!studio) return c.json({ error: 'Not found' }, 404);
-  const [assets, productionFiles, samples, driveUploads] = await Promise.all([
+  const [assets, productionFiles, samples, driveUploads, contacts] = await Promise.all([
     repo.listStudioAssets(studio.id),
     repo.listStudioProductionFiles(studio.id),
     repo.listStudioSamples(studio.id),
     repo.listDriveUploads(studio.id),
+    repo.listStudioContacts(studio.id),
   ]);
   // Resolve assigned catalog titles for production files (one lookup per distinct id).
   const assignedIds = [...new Set(productionFiles.map((f) => f.audiobook_id).filter((id): id is string => !!id))];
@@ -61,13 +69,36 @@ studios.get('/:id', requirePermission('users'), async (c) => {
     const book = await repo.getAudiobook(id);
     if (book) titleById.set(id, book.title);
   }));
+  const approvedFileIds = new Set(samples.filter((s) => s.status === 'approved' && s.book_id).map((s) => s.book_id!));
   return c.json({
     studio: studioToApi(studio),
+    contacts: contacts.map(contactToApi),
     assets: assets.map(assetToApi),
-    productionFiles: productionFiles.map((f) => productionFileToApi(f, f.audiobook_id ? titleById.get(f.audiobook_id) ?? null : null)),
+    productionFiles: productionFiles.map((f) => productionFileToApi(f, f.audiobook_id ? titleById.get(f.audiobook_id) ?? null : null, approvedFileIds.has(f.id))),
     samples: samples.map(sampleToApi),
     driveUploads: driveUploads.map(driveUploadToApi),
   });
+});
+
+// ─── Studio contacts (login users) ────────────────────────────────────────────
+studios.post('/:id/contacts', requirePermission('users'), async (c) => {
+  const { email, name } = z.object({ email: z.string().email(), name: z.string().optional() }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudio(c.req.param('id')!);
+  if (!studio) return c.json({ error: 'Studio not found' }, 404);
+  await repo.addStudioContact(studio.id, email, name ?? null);
+  const contacts = await repo.listStudioContacts(studio.id);
+  return c.json({ ok: true, contacts: contacts.map(contactToApi) });
+});
+
+studios.delete('/:id/contacts/:contactId', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const studioId = c.req.param('id')!;
+  const contacts = await repo.listStudioContacts(studioId);
+  if (contacts.length <= 1) return c.json({ error: 'A studio must keep at least one contact.' }, 400);
+  await repo.deleteStudioContact(studioId, c.req.param('contactId')!);
+  const next = await repo.listStudioContacts(studioId);
+  return c.json({ ok: true, contacts: next.map(contactToApi) });
 });
 
 studios.post('/', requirePermission('users'), async (c) => {
@@ -87,6 +118,7 @@ studios.patch('/:id', requirePermission('users'), async (c) => {
     slug: z.string().regex(/^[a-z0-9-]+$/).optional(),
     contactEmail: z.string().email().optional(),
     isActive: z.boolean().optional(),
+    hourlyRateUsd: z.number().nonnegative().nullable().optional(),
   }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   await repo.updateStudio(c.req.param('id')!, {
@@ -94,6 +126,7 @@ studios.patch('/:id', requirePermission('users'), async (c) => {
     slug: body.slug,
     contactEmail: body.contactEmail,
     isActive: body.isActive !== undefined ? (body.isActive ? 1 : 0) : undefined,
+    ...('hourlyRateUsd' in body ? { hourlyRateUsd: body.hourlyRateUsd ?? null } : {}),
   });
   const studio = await repo.getStudio(c.req.param('id')!);
   return c.json({ ok: true, studio: studio ? studioToApi(studio) : null });

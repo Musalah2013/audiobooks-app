@@ -54,7 +54,9 @@ studioAuth.post('/request', async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudioBySlug(slug);
   if (!studio || !studio.is_active) return c.json({ ok: true }); // silent — don't reveal existence
-  if (studio.contact_email.toLowerCase() !== email.toLowerCase()) return c.json({ ok: true }); // silent
+  // Email must be one of the studio's registered contacts (users).
+  const isContact = await repo.isStudioContactEmail(studio.id, email);
+  if (!isContact && studio.contact_email.toLowerCase() !== email.toLowerCase()) return c.json({ ok: true }); // silent
 
   const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -79,7 +81,7 @@ studioAuth.post('/request', async (c) => {
   }
 
   await sendEmail({
-    to: studio.contact_email,
+    to: email, // send the link to the contact who requested it
     toName: studio.name,
     subject: 'رابط الدخول إلى بوابة سماوي',
     html: magicLinkEmail(link, studio.name, studioLogoUrl),

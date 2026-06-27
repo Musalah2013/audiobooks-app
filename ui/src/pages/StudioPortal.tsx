@@ -168,6 +168,10 @@ export default function StudioPortal() {
   const [sampleBookFilter, setSampleBookFilter] = useState<string>('');
   const [selectedBookId, setSelectedBookId] = useState<string>('');
   const [deliveryTitleId, setDeliveryTitleId] = useState<string>('');
+  const [deliveryNetHours, setDeliveryNetHours] = useState<string>('');
+  const [deliveryNotes, setDeliveryNotes] = useState<string>('');
+  const [planDraft, setPlanDraft] = useState<Record<string, { narrator: string; expectedNetHours: string; estimatedFinishHours: string }>>({});
+  const [savingPlan, setSavingPlan] = useState<string | null>(null);
 
   const driveInputRef = useRef<HTMLInputElement>(null);
   const sampleInputRef = useRef<HTMLInputElement>(null);
@@ -257,12 +261,36 @@ export default function StudioPortal() {
     return url;
   }
 
+  async function submitPlan(fileId: string) {
+    const d = planDraft[fileId] ?? { narrator: '', expectedNetHours: '', estimatedFinishHours: '' };
+    setSavingPlan(fileId);
+    try {
+      await apiRequest(`/api/studio-portal/${slug}/production-files/${fileId}/plan`, {
+        method: 'POST',
+        body: {
+          narrator: d.narrator.trim() || null,
+          expectedNetHours: d.expectedNetHours.trim() === '' ? null : Number(d.expectedNetHours),
+          estimatedFinishHours: d.estimatedFinishHours.trim() === '' ? null : Number(d.estimatedFinishHours),
+        },
+      });
+      showNotice('تم حفظ بيانات الإنتاج بنجاح.');
+      refetch();
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : 'فشل حفظ البيانات');
+    } finally { setSavingPlan(null); }
+  }
+
   async function handleDriveUpload(file: File) {
     setUploading(true); setUploadProgress(0);
     try {
       const { uploadUrl, uploadId } = await apiRequest<{ uploadUrl: string; uploadId: string }>(`/api/studio-portal/${slug}/drive-upload-url`, {
         method: 'POST',
-        body: { fileName: file.name, contentType: file.type, sizeBytes: file.size, audiobookId: deliveryTitleId || null },
+        body: {
+          fileName: file.name, contentType: file.type, sizeBytes: file.size,
+          audiobookId: deliveryTitleId || null,
+          netFinalHours: deliveryNetHours.trim() === '' ? null : Number(deliveryNetHours),
+          notes: deliveryNotes.trim() || null,
+        },
       });
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
@@ -274,6 +302,7 @@ export default function StudioPortal() {
         xhr.send(file);
       });
       await apiRequest(`/api/studio-portal/${slug}/drive-uploads/${uploadId}/complete`, { method: 'POST' });
+      setDeliveryNetHours(''); setDeliveryNotes('');
       showNotice(deliveryTitleId ? 'تم تسليم الصوت النهائي للعنوان المحدد بنجاح.' : 'تم رفع الملف بنجاح وسيراجعه الفريق.');
       refetch();
     } catch (err) {
@@ -485,30 +514,67 @@ export default function StudioPortal() {
               <EmptyState icon={FileText} title="لا توجد ملفات إنتاج" subtitle="ملفات PDF أرسلها إليك فريق سماوي لمتابعة الإنتاج." />
             ) : (
               <div className="grid gap-3">
-                {filteredProduction.map((f) => (
-                  <div key={f.id} className="flex items-center gap-4 p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all bg-white">
-                    <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center flex-shrink-0">
-                      <FileText size={18} className="text-rose-500" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate">{f.name}</p>
-                      <div className="flex items-center gap-3 mt-1">
-                        <span className="text-xs text-slate-400 flex items-center gap-1">
-                          <Hash size={12} /> {formatBytes(f.sizeBytes)}
-                        </span>
-                        <span className="text-xs text-slate-400 flex items-center gap-1">
-                          <Calendar size={12} /> {formatDate(f.createdAt)}
-                        </span>
+                {filteredProduction.map((f) => {
+                  const d = planDraft[f.id] ?? {
+                    narrator: f.narrator ?? '',
+                    expectedNetHours: f.expectedNetHours != null ? String(f.expectedNetHours) : '',
+                    estimatedFinishHours: f.estimatedFinishHours != null ? String(f.estimatedFinishHours) : '',
+                  };
+                  const setField = (k: 'narrator' | 'expectedNetHours' | 'estimatedFinishHours', v: string) =>
+                    setPlanDraft((prev) => ({ ...prev, [f.id]: { ...d, [k]: v } }));
+                  const showPlan = !!f.audiobookId && !!f.hasApprovedSample;
+                  return (
+                  <div key={f.id} className="p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all bg-white">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center flex-shrink-0">
+                        <FileText size={18} className="text-rose-500" />
                       </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{f.name}</p>
+                        <div className="flex items-center gap-3 mt-1 flex-wrap">
+                          {f.audiobookTitle && <span className="text-xs text-blue-600 flex items-center gap-1"><BookOpen size={12} /> {f.audiobookTitle}</span>}
+                          <span className="text-xs text-slate-400 flex items-center gap-1"><Hash size={12} /> {formatBytes(f.sizeBytes)}</span>
+                          <span className="text-xs text-slate-400 flex items-center gap-1"><Calendar size={12} /> {formatDate(f.createdAt)}</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => { const url = await getPdfDownloadUrl(f.objectKey); window.open(url, '_blank'); }}
+                        className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-lg transition-all flex-shrink-0"
+                      >
+                        <Download size={14} /> تنزيل
+                      </button>
                     </div>
-                    <button
-                      onClick={async () => { const url = await getPdfDownloadUrl(f.objectKey); window.open(url, '_blank'); }}
-                      className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-lg transition-all"
-                    >
-                      <Download size={14} /> تنزيل
-                    </button>
+
+                    {/* Production plan — available once a sample is approved */}
+                    {showPlan && (
+                      <div className="mt-3 pt-3 border-t border-slate-100">
+                        <p className="text-xs font-semibold text-slate-600 mb-2">بيانات الإنتاج (بعد اعتماد العينة)</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div>
+                            <label className="block text-[11px] text-slate-400 mb-1">الراوي</label>
+                            <input className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm" value={d.narrator} onChange={(e) => setField('narrator', e.target.value)} placeholder="اسم الراوي" />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-slate-400 mb-1">الساعات الصافية المتوقعة</label>
+                            <input className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm" type="number" min="0" step="0.1" value={d.expectedNetHours} onChange={(e) => setField('expectedNetHours', e.target.value)} placeholder="0" />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-slate-400 mb-1">ساعات الإنجاز المقدّرة</label>
+                            <input className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm" type="number" min="0" step="0.1" value={d.estimatedFinishHours} onChange={(e) => setField('estimatedFinishHours', e.target.value)} placeholder="0" />
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => submitPlan(f.id)}
+                          disabled={savingPlan === f.id}
+                          className="mt-2 flex items-center gap-1.5 px-4 py-2 bg-[#0b80ff] text-white rounded-lg text-xs font-semibold disabled:opacity-50 hover:bg-blue-600 transition-all"
+                        >
+                          <CheckCircle2 size={14} /> {savingPlan === f.id ? 'جاري الحفظ…' : 'حفظ بيانات الإنتاج'}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -535,6 +601,17 @@ export default function StudioPortal() {
                   </select>
                 </div>
               )}
+              {/* Final delivery data */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">الساعات الصافية النهائية</label>
+                  <input className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" type="number" min="0" step="0.1" value={deliveryNetHours} onChange={(e) => setDeliveryNetHours(e.target.value)} placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">ملاحظات (اختياري)</label>
+                  <input className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" value={deliveryNotes} onChange={(e) => setDeliveryNotes(e.target.value)} placeholder="أي ملاحظات حول الملف" />
+                </div>
+              </div>
               <input type="file" ref={driveInputRef} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleDriveUpload(f); }} />
               <div className="flex items-center gap-4">
                 <button

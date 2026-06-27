@@ -448,6 +448,14 @@ export interface AiSettingsResponse {
 
 // ─── Studio portal ────────────────────────────────────────────────────────────
 
+export interface StudioContact {
+  id: string;
+  studioId: string;
+  email: string;
+  name: string | null;
+  createdAt: string;
+}
+
 export interface Studio {
   id: string;
   name: string;
@@ -457,6 +465,8 @@ export interface Studio {
   isActive: boolean;
   createdAt: string;
   createdBy: string;
+  /** Admin-set rate paid per net final hour of finished audio, in USD. */
+  hourlyRateUsd?: number | null;
 }
 
 export interface StudioAsset {
@@ -483,6 +493,12 @@ export interface StudioProductionFile {
   audiobookId: string | null;
   /** Title of the assigned catalog audiobook, when assigned. */
   audiobookTitle: string | null;
+  /** Studio production plan (filled after a sample is approved). */
+  narrator?: string | null;
+  expectedNetHours?: number | null;
+  estimatedFinishHours?: number | null;
+  /** Whether this file has an approved narration sample (gates the plan form). */
+  hasApprovedSample?: boolean;
 }
 
 export interface StudioSample {
@@ -513,6 +529,10 @@ export interface StudioDriveUpload {
   batchId: string | null;
   /** Catalog title this delivery was assigned to (null = unassigned delivery). */
   audiobookId: string | null;
+  /** Net hours of finished audio reported by the studio at upload. */
+  netFinalHours?: number | null;
+  /** Free-text notes the studio attached to the delivery. */
+  notes?: string | null;
 }
 
 export interface AssignedTitle {

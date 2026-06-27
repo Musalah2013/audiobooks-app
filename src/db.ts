@@ -21,11 +21,12 @@ import { jsonParse, nowIso } from "./utils";
 type Row = Record<string, unknown>;
 
 // ─── Studio row types ────────────────────────────────────────────────────────
-type StudioRow = { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string };
+type StudioRow = { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string; hourly_rate_usd: number | null };
+type StudioContactRow = { id: string; studio_id: string; email: string; name: string | null; created_at: string };
 type StudioAssetRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
-type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null };
+type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null };
 type StudioSampleRow = { id: string; studio_id: string; book_id: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string };
-type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null };
+type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; net_final_hours: number | null; notes: string | null };
 type AcquisitionUserRow = { id: string; email: string; name: string; is_active: number; created_at: string; created_by: string };
 
 function bindObject(stmt: D1PreparedStatement, values: unknown[]) {
@@ -960,7 +961,38 @@ export class Repository {
     await this.db.prepare(
       `INSERT INTO studio (id, name, slug, contact_email, is_active, created_by) VALUES (?, ?, ?, ?, 1, ?)`
     ).bind(input.id, input.name, input.slug, input.contactEmail, input.createdBy).run();
+    // The primary contact is also a manageable studio user.
+    await this.addStudioContact(input.id, input.contactEmail).catch(() => undefined);
     return this.getStudio(input.id);
+  }
+
+  // ─── Studio contacts (login users) ──────────────────────────────────────────
+  async listStudioContacts(studioId: string) {
+    const { results } = await this.db
+      .prepare(`SELECT * FROM studio_contact WHERE studio_id = ? ORDER BY created_at ASC`)
+      .bind(studioId).all<StudioContactRow>();
+    return results;
+  }
+
+  async addStudioContact(studioId: string, email: string, name?: string | null) {
+    const id = crypto.randomUUID();
+    await this.db
+      .prepare(`INSERT OR IGNORE INTO studio_contact (id, studio_id, email, name) VALUES (?, ?, ?, ?)`)
+      .bind(id, studioId, email.trim().toLowerCase(), name ?? null).run();
+    return id;
+  }
+
+  async deleteStudioContact(studioId: string, contactId: string) {
+    await this.db.prepare(`DELETE FROM studio_contact WHERE id = ? AND studio_id = ?`).bind(contactId, studioId).run();
+  }
+
+  /** True when the email may access the given studio's portal (any contact, or the legacy primary). */
+  async isStudioContactEmail(studioId: string, email: string) {
+    const norm = email.trim().toLowerCase();
+    const row = await this.db
+      .prepare(`SELECT 1 AS ok FROM studio_contact WHERE studio_id = ? AND lower(email) = ? LIMIT 1`)
+      .bind(studioId, norm).first<{ ok: number }>();
+    return !!row;
   }
 
   async getStudio(id: string) {
@@ -976,12 +1008,13 @@ export class Repository {
     return results;
   }
 
-  async updateStudio(id: string, patch: Partial<{ name: string; slug: string; contactEmail: string; logoObjectKey: string | null; isActive: number }>) {
+  async updateStudio(id: string, patch: Partial<{ name: string; slug: string; contactEmail: string; logoObjectKey: string | null; isActive: number; hourlyRateUsd: number | null }>) {
     const fields: string[] = [];
     const values: unknown[] = [];
     if (patch.name !== undefined) { fields.push("name = ?"); values.push(patch.name); }
     if (patch.slug !== undefined) { fields.push("slug = ?"); values.push(patch.slug); }
     if (patch.contactEmail !== undefined) { fields.push("contact_email = ?"); values.push(patch.contactEmail); }
+    if ("hourlyRateUsd" in patch) { fields.push("hourly_rate_usd = ?"); values.push(patch.hourlyRateUsd ?? null); }
     if ("logoObjectKey" in patch) { fields.push("logo_object_key = ?"); values.push(patch.logoObjectKey ?? null); }
     if (patch.isActive !== undefined) { fields.push("is_active = ?"); values.push(patch.isActive); }
     if (!fields.length) return;
@@ -1051,6 +1084,13 @@ export class Repository {
     await this.db.prepare(`UPDATE studio_production_file SET audiobook_id = ? WHERE id = ?`).bind(audiobookId, id).run();
   }
 
+  /** Studio-supplied production plan (filled after sample approval). */
+  async setStudioProductionFilePlan(id: string, plan: { narrator: string | null; expectedNetHours: number | null; estimatedFinishHours: number | null }) {
+    await this.db
+      .prepare(`UPDATE studio_production_file SET narrator = ?, expected_net_hours = ?, estimated_finish_hours = ? WHERE id = ?`)
+      .bind(plan.narrator, plan.expectedNetHours, plan.estimatedFinishHours, id).run();
+  }
+
   /** Production files (across all studios) assigned to a given catalog title. */
   async listStudioProductionFilesByAudiobook(audiobookId: string) {
     const { results } = await this.db
@@ -1112,11 +1152,11 @@ export class Repository {
     return this.db.prepare(`SELECT * FROM studio_sample WHERE id = ?`).bind(id).first<StudioSampleRow>();
   }
 
-  async createDriveUpload(input: { studioId: string; name: string; objectKey: string; audiobookId?: string | null }) {
+  async createDriveUpload(input: { studioId: string; name: string; objectKey: string; audiobookId?: string | null; netFinalHours?: number | null; notes?: string | null }) {
     const id = crypto.randomUUID();
     await this.db.prepare(
-      `INSERT INTO studio_drive_upload (id, studio_id, name, object_key, audiobook_id) VALUES (?, ?, ?, ?, ?)`
-    ).bind(id, input.studioId, input.name, input.objectKey, input.audiobookId ?? null).run();
+      `INSERT INTO studio_drive_upload (id, studio_id, name, object_key, audiobook_id, net_final_hours, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, input.studioId, input.name, input.objectKey, input.audiobookId ?? null, input.netFinalHours ?? null, input.notes ?? null).run();
     return id;
   }
 
