@@ -156,6 +156,46 @@ studios.delete('/:id/legacy-productions/:prodId', requirePermission('users'), as
   return c.json({ ok: true });
 });
 
+// ─── Acquisition users ────────────────────────────────────────────────────────
+// NOTE: these literal `/acquisition-users` paths MUST be registered before the
+// `/:id` studio routes below, otherwise Hono matches `/:id` first and treats
+// "acquisition-users" as a studio id (shadowing the list/create endpoints).
+
+studios.get('/acquisition-users', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const users = await repo.listAcquisitionUsers();
+  return c.json({ users: users.map((u) => ({ id: u.id, email: u.email, name: u.name, isActive: !!u.is_active, createdAt: u.created_at })) });
+});
+
+studios.post('/acquisition-users', requirePermission('users'), async (c) => {
+  const { email, name } = z.object({ email: z.string().email(), name: z.string().min(1) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const id = await repo.createAcquisitionUser({ email, name, createdBy: actorEmail(c.req.raw) });
+  return c.json({ ok: true, id }, 201);
+});
+
+studios.patch('/acquisition-users/:id', requirePermission('users'), async (c) => {
+  const { name, isActive } = z.object({ name: z.string().min(1).optional(), isActive: z.boolean().optional() }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  await repo.updateAcquisitionUser(c.req.param('id')!, { name, isActive: isActive !== undefined ? (isActive ? 1 : 0) : undefined });
+  return c.json({ ok: true });
+});
+
+studios.post('/acquisition-users/:id/magic-link', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const user = await repo.getAcquisitionUser(c.req.param('id')!);
+  if (!user) return c.json({ error: 'User not found' }, 404);
+  const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  await repo.createAcquisitionMagicLink(user.id, token, expiresAt);
+  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
+  const link = `${baseUrl}/api/acquisition-auth/verify?token=${token}`;
+  await sendEmail({ to: user.email, toName: user.name, subject: 'رابط الدخول — بوابة الاقتناء', html: magicLinkEmail(link, user.name), emailBinding: c.env.EMAIL });
+  return c.json({ ok: true });
+});
+
+// ─── Studio detail + CRUD ─────────────────────────────────────────────────────
+
 studios.get('/:id', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(c.req.param('id')!);
@@ -534,41 +574,6 @@ studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async 
     html: sampleReviewedEmail(sample.name, status, note ?? null, studio.name),
     emailBinding: c.env.EMAIL,
   });
-  return c.json({ ok: true });
-});
-
-// ─── Acquisition users ────────────────────────────────────────────────────────
-
-studios.get('/acquisition-users', requirePermission('users'), async (c) => {
-  const repo = new Repository(c.env.DB);
-  const users = await repo.listAcquisitionUsers();
-  return c.json({ users: users.map((u) => ({ id: u.id, email: u.email, name: u.name, isActive: !!u.is_active, createdAt: u.created_at })) });
-});
-
-studios.post('/acquisition-users', requirePermission('users'), async (c) => {
-  const { email, name } = z.object({ email: z.string().email(), name: z.string().min(1) }).parse(await c.req.json());
-  const repo = new Repository(c.env.DB);
-  const id = await repo.createAcquisitionUser({ email, name, createdBy: actorEmail(c.req.raw) });
-  return c.json({ ok: true, id }, 201);
-});
-
-studios.patch('/acquisition-users/:id', requirePermission('users'), async (c) => {
-  const { name, isActive } = z.object({ name: z.string().min(1).optional(), isActive: z.boolean().optional() }).parse(await c.req.json());
-  const repo = new Repository(c.env.DB);
-  await repo.updateAcquisitionUser(c.req.param('id')!, { name, isActive: isActive !== undefined ? (isActive ? 1 : 0) : undefined });
-  return c.json({ ok: true });
-});
-
-studios.post('/acquisition-users/:id/magic-link', requirePermission('users'), async (c) => {
-  const repo = new Repository(c.env.DB);
-  const user = await repo.getAcquisitionUser(c.req.param('id')!);
-  if (!user) return c.json({ error: 'User not found' }, 404);
-  const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  await repo.createAcquisitionMagicLink(user.id, token, expiresAt);
-  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
-  const link = `${baseUrl}/api/acquisition-auth/verify?token=${token}`;
-  await sendEmail({ to: user.email, toName: user.name, subject: 'رابط الدخول — بوابة الاقتناء', html: magicLinkEmail(link, user.name), emailBinding: c.env.EMAIL });
   return c.json({ ok: true });
 });
 
