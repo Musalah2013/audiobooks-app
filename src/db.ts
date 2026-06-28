@@ -1185,7 +1185,7 @@ export class Repository {
     };
     const [assigned, deliveries, samples] = await Promise.all([
       this.db.prepare(`SELECT DISTINCT audiobook_id FROM studio_production_file WHERE audiobook_id IS NOT NULL`).all<{ audiobook_id: string }>(),
-      this.db.prepare(`SELECT DISTINCT audiobook_id FROM studio_drive_upload WHERE audiobook_id IS NOT NULL AND status = 'completed'`).all<{ audiobook_id: string }>(),
+      this.db.prepare(`SELECT DISTINCT audiobook_id FROM studio_drive_upload WHERE audiobook_id IS NOT NULL AND status IN ('completed', 'pushed')`).all<{ audiobook_id: string }>(),
       this.db.prepare(`SELECT pf.audiobook_id AS audiobook_id, s.status AS status FROM studio_sample s JOIN studio_production_file pf ON s.book_id = pf.id WHERE pf.audiobook_id IS NOT NULL`).all<{ audiobook_id: string; status: string }>(),
     ]);
     for (const r of assigned.results) ensure(r.audiobook_id).assigned = true;
@@ -1249,6 +1249,10 @@ export class Repository {
 
   async deleteDriveUpload(id: string) {
     await this.db.prepare(`DELETE FROM studio_drive_upload WHERE id = ?`).bind(id).run();
+  }
+
+  async setDriveUploadAudiobook(id: string, audiobookId: string | null) {
+    await this.db.prepare(`UPDATE studio_drive_upload SET audiobook_id = ? WHERE id = ?`).bind(audiobookId, id).run();
   }
 
   /** Link a set of a studio's drive uploads to the intake batch that will process them. */

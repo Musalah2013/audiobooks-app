@@ -53,6 +53,8 @@ export default function StudioManage() {
   const [savingRate, setSavingRate] = useState(false);
   const [pushingDelivery, setPushingDelivery] = useState<string | null>(null);
   const [confirmDeleteDelivery, setConfirmDeleteDelivery] = useState<string | null>(null);
+  const [pushTitleFor, setPushTitleFor] = useState<string | null>(null);
+  const [pushTitleId, setPushTitleId] = useState('');
   const [editingProd, setEditingProd] = useState<string | null>(null);
   const [prodDraft, setProdDraft] = useState<{ bookTitle: string; narrator: string; isbn: string; netHours: string; notes: string }>({ bookTitle: '', narrator: '', isbn: '', netHours: '', notes: '' });
   const [confirmDeleteProd, setConfirmDeleteProd] = useState<string | null>(null);
@@ -124,11 +126,12 @@ export default function StudioManage() {
     }
   }
 
-  async function pushDelivery(uploadId: string) {
+  async function pushDelivery(uploadId: string, audiobookId?: string) {
     setPushingDelivery(uploadId);
     try {
-      const res = await apiRequest<{ mode: string; audiobookId?: string; batchId?: string }>(`/api/studios/${id}/deliveries/${uploadId}/push`, { method: 'POST' });
-      addToast(res.mode === 'assigned' ? (isArabic ? 'تم دفع التسليم إلى العنوان.' : 'Pushed to the catalog title.') : (isArabic ? 'تم إنشاء دفعة استيراد.' : 'Created an intake batch.'), 'success');
+      await apiRequest(`/api/studios/${id}/deliveries/${uploadId}/push`, { method: 'POST', body: audiobookId ? { audiobookId } : {} });
+      addToast(isArabic ? 'تم دفع التسليم إلى العنوان.' : 'Pushed to the catalog title.', 'success');
+      setPushTitleFor(null); setPushTitleId('');
       refetch();
     } catch (err) {
       addToast(err instanceof Error ? err : (isArabic ? 'فشل الدفع' : 'Push failed'), 'error');
@@ -671,7 +674,12 @@ export default function StudioManage() {
                       <span className="badge-green !px-2 !py-0.5 !text-[10px]">{isArabic ? 'تم الدفع' : 'Pushed'}</span>
                     ) : u.status === 'completed' ? (
                       <>
-                        <button type="button" className="btn-primary text-xs py-1 px-2.5 disabled:opacity-50" disabled={pushingDelivery === u.id} onClick={() => pushDelivery(u.id)}>
+                        <button
+                          type="button"
+                          className="btn-primary text-xs py-1 px-2.5 disabled:opacity-50"
+                          disabled={pushingDelivery === u.id}
+                          onClick={() => u.audiobookId ? pushDelivery(u.id) : setPushTitleFor(pushTitleFor === u.id ? null : u.id)}
+                        >
                           <Upload className="h-3.5 w-3.5" />{pushingDelivery === u.id ? '…' : (isArabic ? 'دفع للنظام' : 'Push to system')}
                         </button>
                         {confirmDeleteDelivery === u.id ? (
@@ -690,6 +698,18 @@ export default function StudioManage() {
                     )}
                   </div>
                 </div>
+                {pushTitleFor === u.id && !u.audiobookId && u.status === 'completed' && (
+                  <div className="mt-2 ml-7 flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-[color:var(--fg-2)]">{isArabic ? 'اختر العنوان:' : 'Choose title:'}</span>
+                    <select className="input text-xs w-auto max-w-[260px]" value={pushTitleId} onChange={(e) => setPushTitleId(e.target.value)}>
+                      <option value="">{isArabic ? '— اختر —' : '— Select —'}</option>
+                      {booksData?.books.map((b) => <option key={b.id} value={b.id}>{b.title}{b.publisherName ? ` · ${b.publisherName}` : ''}</option>)}
+                    </select>
+                    <button type="button" className="btn-primary text-xs py-1 px-2.5 disabled:opacity-50" disabled={!pushTitleId || pushingDelivery === u.id} onClick={() => pushDelivery(u.id, pushTitleId)}>
+                      {isArabic ? 'تأكيد الدفع' : 'Confirm push'}
+                    </button>
+                  </div>
+                )}
                 {(u.netFinalHours != null || u.notes || cost != null) && (
                   <div className="mt-1.5 ml-7 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[color:var(--fg-2)]">
                     {u.netFinalHours != null && <span>{isArabic ? 'ساعات صافية:' : 'Net hours:'} <strong className="text-[color:var(--samawy-ink)]">{u.netFinalHours} h</strong></span>}

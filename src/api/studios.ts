@@ -189,50 +189,47 @@ studios.get('/:id', requirePermission('users'), async (c) => {
 
 // ─── Deliveries (operator review) ─────────────────────────────────────────────
 
-// Push a delivered file into the audiobooks system: attach to its assigned title
-// (skips intake) or create an upload-type intake batch for an unassigned file.
+// Push a delivered file into the audiobooks system by attaching its audio to a
+// catalog title (skips intake → straight to track prep + processing). Uses the
+// delivery's assigned title, or a title the operator picks for unassigned ones.
 studios.post('/:id/deliveries/:uploadId/push', requirePermission('intake'), async (c) => {
   const studioId = c.req.param('id')!;
   const uploadId = c.req.param('uploadId')!;
+  const { audiobookId } = z.object({ audiobookId: z.string().optional() }).parse(await c.req.json().catch(() => ({})));
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(studioId);
   const upload = await repo.getDriveUpload(uploadId);
   if (!studio || !upload || upload.studio_id !== studioId) return c.json({ error: 'Delivery not found' }, 404);
   if (upload.status !== 'completed') return c.json({ error: 'Only completed deliveries can be pushed.' }, 400);
-  if (upload.batch_id) return c.json({ error: 'This delivery was already pushed.' }, 400);
   const object = await c.env.ASSET_BUCKET.head(upload.object_key);
   if (!object) return c.json({ error: 'Delivered file is no longer in storage.' }, 404);
 
-  // Assigned → attach to the catalog title and reset it to pending.
-  if (upload.audiobook_id) {
-    const book = await repo.getAudiobook(upload.audiobook_id);
-    const candidate = book?.candidateId ? await repo.getCandidate(book.candidateId) : null;
-    if (!book || !candidate) return c.json({ error: 'Assigned title is no longer available.' }, 409);
-    const fileName = upload.object_key.split('/').pop() ?? upload.name;
-    const newSourceGroup = {
-      ...(candidate.sourceGroup ?? {}),
-      items: [{ key: upload.object_key, name: fileName, mimeType: object.httpMetadata?.contentType ?? 'application/octet-stream', sizeBytes: object.size, parentPath: '' }],
-      coverCandidates: candidate.sourceGroup?.coverCandidates ?? [],
-    };
-    await repo.updateCandidateSourceGroup(candidate.id, newSourceGroup.groupKey ?? null, newSourceGroup as Parameters<typeof repo.updateCandidateSourceGroup>[2]);
-    await repo.replaceTracks(book.id, []);
-    await repo.updateAudiobook(book.id, {
-      processingStatus: 'pending', dossierStatus: 'pending',
-      dossierWorkbookKey: null, dossierAudioZipKey: null,
-      sampleTrackId: null, sampleStartSeconds: null, sampleEndSeconds: null, sampleObjectKey: null, sampleGeneratedAt: null,
-    });
-    await repo.updateDriveUpload(uploadId, { status: 'pushed' });
-    await repo.audit('audiobook_record', book.id, 'delivery.pushed', actorEmail(c.req.raw), { studioId, uploadId });
-    return c.json({ ok: true, mode: 'assigned', audiobookId: book.id });
+  const targetId = upload.audiobook_id ?? audiobookId ?? null;
+  if (!targetId) {
+    return c.json({ error: 'Select a catalog title to push this delivery to.', guidance: 'This delivery is not assigned to a title — choose one to attach the audio to.' }, 400);
   }
+  const book = await repo.getAudiobook(targetId);
+  const candidate = book?.candidateId ? await repo.getCandidate(book.candidateId) : null;
+  if (!book || !candidate) return c.json({ error: 'Target title is no longer available.' }, 409);
 
-  // Unassigned → create an upload-type intake batch for operator metadata.
-  const batch = await repo.createBatch({ id: crypto.randomUUID(), sourceType: 'upload', uploadObjectKey: upload.object_key, studioId });
-  if (!batch) return c.json({ error: 'Failed to create intake batch.' }, 500);
-  await repo.linkDriveUploadsToBatch([uploadId], batch.id);
+  const fileName = upload.object_key.split('/').pop() ?? upload.name;
+  const newSourceGroup = {
+    ...(candidate.sourceGroup ?? {}),
+    items: [{ key: upload.object_key, name: fileName, mimeType: object.httpMetadata?.contentType ?? 'application/octet-stream', sizeBytes: object.size, parentPath: '' }],
+    coverCandidates: candidate.sourceGroup?.coverCandidates ?? [],
+  };
+  await repo.updateCandidateSourceGroup(candidate.id, newSourceGroup.groupKey ?? null, newSourceGroup as Parameters<typeof repo.updateCandidateSourceGroup>[2]);
+  await repo.replaceTracks(book.id, []);
+  await repo.updateAudiobook(book.id, {
+    processingStatus: 'pending', dossierStatus: 'pending',
+    dossierWorkbookKey: null, dossierAudioZipKey: null,
+    sampleTrackId: null, sampleStartSeconds: null, sampleEndSeconds: null, sampleObjectKey: null, sampleGeneratedAt: null,
+  });
+  // Record the link back to the title on the delivery, and mark it pushed.
+  if (!upload.audiobook_id) await repo.setDriveUploadAudiobook(uploadId, targetId);
   await repo.updateDriveUpload(uploadId, { status: 'pushed' });
-  await repo.audit('ingestion_batch', batch.id, 'created', actorEmail(c.req.raw), { source: 'studio_delivery_pushed', studioId, uploadId });
-  return c.json({ ok: true, mode: 'unassigned', batchId: batch.id });
+  await repo.audit('audiobook_record', book.id, 'delivery.pushed', actorEmail(c.req.raw), { studioId, uploadId });
+  return c.json({ ok: true, mode: 'assigned', audiobookId: book.id });
 });
 
 studios.delete('/:id/deliveries/:uploadId', requirePermission('users'), async (c) => {
