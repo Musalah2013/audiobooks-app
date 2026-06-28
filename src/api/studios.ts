@@ -338,6 +338,19 @@ studios.post('/:id/deliveries/:uploadId/push', requirePermission('intake'), asyn
   return c.json({ ok: true, mode: 'created', audiobookId: bookId });
 });
 
+// Operator edits the final net hours / notes on a delivery (recomputes cost).
+studios.patch('/:id/deliveries/:uploadId', requirePermission('users'), async (c) => {
+  const { netFinalHours, notes } = z.object({
+    netFinalHours: z.number().nonnegative().nullable().optional(),
+    notes: z.string().nullable().optional(),
+  }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const upload = await repo.getDriveUpload(c.req.param('uploadId')!);
+  if (!upload || upload.studio_id !== c.req.param('id')) return c.json({ error: 'Delivery not found' }, 404);
+  await repo.setDriveUploadMeta(upload.id, { netFinalHours, notes });
+  return c.json({ ok: true });
+});
+
 studios.delete('/:id/deliveries/:uploadId', requirePermission('users'), async (c) => {
   const studioId = c.req.param('id')!;
   const uploadId = c.req.param('uploadId')!;

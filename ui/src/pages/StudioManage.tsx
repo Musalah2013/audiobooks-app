@@ -55,6 +55,10 @@ export default function StudioManage() {
   const [pushingDelivery, setPushingDelivery] = useState<string | null>(null);
   const [confirmDeleteDelivery, setConfirmDeleteDelivery] = useState<string | null>(null);
   const [pushFormFor, setPushFormFor] = useState<string | null>(null);
+  const [editingHours, setEditingHours] = useState<string | null>(null);
+  const [hoursDraft, setHoursDraft] = useState<string>('');
+  const [notesDraft, setNotesDraft] = useState<string>('');
+  const [savingHours, setSavingHours] = useState<string | null>(null);
   const [sellerQuery, setSellerQuery] = useState('');
   const [sellerResults, setSellerResults] = useState<{ id: number; name: string }[]>([]);
   const [pushSeller, setPushSeller] = useState<{ id: number; name: string } | null>(null);
@@ -182,6 +186,20 @@ export default function StudioManage() {
     } catch (err) {
       addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
     }
+  }
+
+  async function saveDeliveryHours(uploadId: string) {
+    setSavingHours(uploadId);
+    try {
+      const v = hoursDraft.trim() === '' ? null : Number(hoursDraft);
+      if (v != null && (!Number.isFinite(v) || v < 0)) throw new Error(isArabic ? 'قيمة غير صالحة' : 'Invalid value');
+      await apiRequest(`/api/studios/${id}/deliveries/${uploadId}`, { method: 'PATCH', body: { netFinalHours: v, notes: notesDraft.trim() || null } });
+      addToast(isArabic ? 'تم تحديث الساعات.' : 'Net hours updated.', 'success');
+      setEditingHours(null);
+      refetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحفظ' : 'Failed to save'), 'error');
+    } finally { setSavingHours(null); }
   }
 
   function startEditProd(p: StudioLegacyProduction) {
@@ -809,11 +827,29 @@ export default function StudioManage() {
                     </div>
                   </div>
                 )}
-                {(u.netFinalHours != null || u.notes || cost != null) && (
+                {editingHours === u.id ? (
+                  <div className="mt-1.5 ml-7 flex flex-wrap items-end gap-2">
+                    <div>
+                      <label className="block text-[10px] text-[color:var(--fg-2)] mb-0.5">{isArabic ? 'ساعات صافية' : 'Net hours'}</label>
+                      <input className="input text-xs w-24" type="number" min="0" step="0.1" value={hoursDraft} onChange={(e) => setHoursDraft(e.target.value)} placeholder="0" autoFocus />
+                    </div>
+                    <div className="flex-1 min-w-[120px]">
+                      <label className="block text-[10px] text-[color:var(--fg-2)] mb-0.5">{isArabic ? 'ملاحظات' : 'Notes'}</label>
+                      <input className="input text-xs w-full" value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} placeholder={isArabic ? 'اختياري' : 'Optional'} />
+                    </div>
+                    <button type="button" className="btn-primary text-xs py-1 px-2.5 disabled:opacity-50" disabled={savingHours === u.id} onClick={() => saveDeliveryHours(u.id)}>{isArabic ? 'حفظ' : 'Save'}</button>
+                    <button type="button" className="text-xs text-slate-500" onClick={() => setEditingHours(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
+                  </div>
+                ) : (
                   <div className="mt-1.5 ml-7 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[color:var(--fg-2)]">
-                    {u.netFinalHours != null && <span>{isArabic ? 'ساعات صافية:' : 'Net hours:'} <strong className="text-[color:var(--samawy-ink)]">{u.netFinalHours} h</strong></span>}
+                    {u.netFinalHours != null
+                      ? <span>{isArabic ? 'ساعات صافية:' : 'Net hours:'} <strong className="text-[color:var(--samawy-ink)]">{u.netFinalHours} h</strong></span>
+                      : <span className="text-amber-600">{isArabic ? 'لا ساعات صافية' : 'No net hours'}</span>}
                     {cost != null && <span className="text-emerald-700 font-semibold">${cost.toFixed(2)}</span>}
                     {u.notes && <span className="italic">“{u.notes}”</span>}
+                    <button type="button" className="inline-flex items-center gap-1 text-[color:var(--samawy-blue)] hover:underline" onClick={() => { setEditingHours(u.id); setHoursDraft(u.netFinalHours != null ? String(u.netFinalHours) : ''); setNotesDraft(u.notes ?? ''); }}>
+                      <Pencil className="h-3 w-3" />{isArabic ? 'تعديل الساعات' : 'Edit hours'}
+                    </button>
                   </div>
                 )}
                 </div>
