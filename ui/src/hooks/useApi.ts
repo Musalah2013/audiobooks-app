@@ -69,6 +69,9 @@ export async function downloadFile(objectKey: string, fallbackName?: string) {
 interface FetchOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
+  /** Override the default 15s request timeout (ms). Use for long server-side
+   *  work like cold-starting the processing container during track prep. */
+  timeoutMs?: number;
 }
 
 export function useApi<T>(endpoint: string, options?: FetchOptions) {
@@ -139,7 +142,7 @@ export function useApi<T>(endpoint: string, options?: FetchOptions) {
 
 export async function apiRequest<T>(endpoint: string, options?: FetchOptions): Promise<T> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+  const timeoutId = setTimeout(() => controller.abort(), options?.timeoutMs ?? 15_000);
   const response = await fetch(`${API_BASE}${endpoint}`, {
     method: options?.method || 'GET',
     cache: 'no-store',

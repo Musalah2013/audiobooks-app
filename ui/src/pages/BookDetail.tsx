@@ -486,7 +486,10 @@ export default function BookDetail() {
                             disabled={actionLoading === 'prepare' || !canPrepareTracks}
                             title={isArabic ? 'اكتشف التراكات الصوتية من الملفات المصدر وأنشئ قائمة أولية' : 'Detect audio tracks from the source files and build the initial list'}
                             onClick={() => runAction('prepare', async () => {
-                              await apiRequest(`/api/books/${id}/prepare-tracks`, { method: 'POST' });
+                              // Detecting tracks may cold-start the ffmpeg container
+                              // (image pull + boot) and unzip the delivery, so allow
+                              // a generous timeout instead of the default 15s.
+                              await apiRequest(`/api/books/${id}/prepare-tracks`, { method: 'POST', timeoutMs: 180_000 });
                               addToast(isArabic ? 'تم تجهيز التراكات.' : 'Tracks prepared.', 'success');
                             })}
                           >
@@ -814,6 +817,7 @@ export default function BookDetail() {
                 await apiRequest(`/api/books/${id}/generate-sample`, {
                   method: 'POST',
                   body: { trackId: sampleTrackId, startSeconds: sampleStartSeconds, endSeconds: sampleEndSeconds },
+                  timeoutMs: 180_000,
                 });
                 addToast(isArabic ? 'تم توليد العينة.' : 'Sample generated.', 'success');
               })}

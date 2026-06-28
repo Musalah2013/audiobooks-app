@@ -172,13 +172,34 @@ async function inspectArchiveTrackDrafts(env: Env, audiobookId: string, apiBaseU
     accessClientSecret: env.CF_ACCESS_CLIENT_SECRET,
   };
   const container = getContainer<AudioProcessorContainer>(env.AUDIO_PROCESSOR_CONTAINER, audiobookId);
-  const response = await container.fetch(
-    new Request("http://container/inspect-archive", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }),
-  );
+  // Cold-starting the ffmpeg container (image pull + boot) can exceed the
+  // library's default ~8s/20s start budget and abort the request-scoped
+  // fetch ("signal is aborted without reason"). Warm it with a generous
+  // timeout and retry the inspection a couple of times before giving up.
+  const requestBody = JSON.stringify(payload);
+  let response: Response | null = null;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await container.startAndWaitForPorts(8080, { instanceGetTimeoutMS: 60_000, portReadyTimeoutMS: 120_000 });
+      response = await container.fetch(
+        new Request("http://container/inspect-archive", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: requestBody,
+        }),
+      );
+      break;
+    } catch (error) {
+      lastError = error;
+      // Retry only on startup/abort flakiness; surface other errors immediately.
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/abort|signal|timeout|not ready|starting/i.test(message)) throw error;
+    }
+  }
+  if (!response) {
+    throw new Error(`Archive inspection container did not become ready: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+  }
   if (!response.ok) {
     throw new Error(`Archive inspection failed: ${response.status}`);
   }
