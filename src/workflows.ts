@@ -20,6 +20,11 @@ export async function runProcessingPipeline(env: Env, payload: ProcessingJobPayl
   });
 
   const container = getContainer<AudioProcessorContainer>(env.AUDIO_PROCESSOR_CONTAINER, payload.audiobookId);
+  // Give the ffmpeg container time to cold-start (image pull + boot). The
+  // library's default ~8s/20s start budget aborts before a fresh container is
+  // ready, which would throw out of every retry and leave the book stuck in
+  // "running". Warm it explicitly with a generous budget first.
+  await container.startAndWaitForPorts(8080, { instanceGetTimeoutMS: 60_000, portReadyTimeoutMS: 120_000 });
 
   // Check if the job is already running before (re-)starting it — avoids duplicate starts on CF Workflow retries
   const existingJobResponse = await container.fetch(new Request(`http://container/jobs/${payload.processingRunId}`));
