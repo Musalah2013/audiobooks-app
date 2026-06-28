@@ -199,6 +199,9 @@ export default function StudioPortal() {
   const [savingPlan, setSavingPlan] = useState<string | null>(null);
   const [statusChanging, setStatusChanging] = useState<string | null>(null);
   const [deliveringBookId, setDeliveringBookId] = useState<string | null>(null);
+  const [deliverPanelFor, setDeliverPanelFor] = useState<string | null>(null);
+  const [bookDeliveryHours, setBookDeliveryHours] = useState<string>('');
+  const [bookDeliveryNotes, setBookDeliveryNotes] = useState<string>('');
 
   const driveInputRef = useRef<HTMLInputElement>(null);
   const sampleInputRef = useRef<HTMLInputElement>(null);
@@ -329,6 +332,8 @@ export default function StudioPortal() {
   // which marks it "delivered" server-side.
   async function deliverBook(fileId: string, file: File) {
     setDeliveringBookId(fileId); setUploadProgress(0);
+    const netFinalHours = bookDeliveryHours.trim() === '' ? null : Number(bookDeliveryHours);
+    const notes = bookDeliveryNotes.trim() || null;
     const LARGE = 80 * 1024 * 1024;
     try {
       let uploadId: string;
@@ -336,7 +341,7 @@ export default function StudioPortal() {
         const PART_SIZE = 25 * 1024 * 1024;
         const numParts = Math.max(1, Math.ceil(file.size / PART_SIZE));
         const startInfo = await apiRequest<{ uploadId: string; multipartStartUrl: string }>(`/api/studio-portal/${slug}/delivery-multipart-start`, {
-          method: 'POST', body: { fileName: file.name, contentType: file.type || 'application/octet-stream', productionFileId: fileId },
+          method: 'POST', body: { fileName: file.name, contentType: file.type || 'application/octet-stream', productionFileId: fileId, netFinalHours, notes },
         });
         const startRes = await fetch(`${startInfo.multipartStartUrl}&numParts=${numParts}&contentType=${encodeURIComponent(file.type || 'application/octet-stream')}`, { method: 'POST', credentials: 'include' });
         if (!startRes.ok) throw new Error(`Multipart start failed: ${startRes.status}`);
@@ -353,13 +358,14 @@ export default function StudioPortal() {
         uploadId = startInfo.uploadId;
       } else {
         const res = await apiRequest<{ uploadUrl: string; uploadId: string }>(`/api/studio-portal/${slug}/drive-upload-url`, {
-          method: 'POST', body: { fileName: file.name, contentType: file.type, sizeBytes: file.size, productionFileId: fileId },
+          method: 'POST', body: { fileName: file.name, contentType: file.type, sizeBytes: file.size, productionFileId: fileId, netFinalHours, notes },
         });
         await xhrPut(res.uploadUrl, file);
         uploadId = res.uploadId;
       }
       await apiRequest(`/api/studio-portal/${slug}/drive-uploads/${uploadId}/complete`, { method: 'POST' });
       showNotice(t('تم تسليم الكتاب بنجاح.', 'Book delivered.'));
+      setDeliverPanelFor(null); setBookDeliveryHours(''); setBookDeliveryNotes('');
       refetch();
     } catch (err) {
       showNotice(err instanceof Error ? err.message : t('فشل التسليم', 'Delivery failed'));
@@ -683,7 +689,7 @@ export default function StudioPortal() {
                             <input type="file" className="hidden" ref={(el) => { bookDeliveryInputRef.current[f.id] = el; }} onChange={(e) => { const file = e.target.files?.[0]; if (file) deliverBook(f.id, file); e.target.value = ''; }} />
                             <button
                               disabled={deliveringBookId === f.id}
-                              onClick={() => bookDeliveryInputRef.current[f.id]?.click()}
+                              onClick={() => { setDeliverPanelFor((cur) => (cur === f.id ? null : f.id)); setBookDeliveryHours(''); setBookDeliveryNotes(''); }}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 transition-colors"
                             >
                               {deliveringBookId === f.id ? <Loader2 size={13} className="animate-spin" /> : <CloudUpload size={13} />}
@@ -692,6 +698,30 @@ export default function StudioPortal() {
                           </>
                         )}
                       </div>
+
+                      {/* Book-row delivery panel: capture net hours before uploading */}
+                      {deliverPanelFor === f.id && f.productionStatus !== 'delivered' && (
+                        <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
+                          <p className="text-xs font-semibold text-slate-600 mb-2">{t('تفاصيل التسليم', 'Delivery details')}</p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                            <div>
+                              <label className="block text-[11px] text-slate-500 mb-1">{t('الساعات الصافية النهائية', 'Final net hours')}</label>
+                              <input className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm" type="number" min="0" step="0.1" value={bookDeliveryHours} onChange={(e) => setBookDeliveryHours(e.target.value)} placeholder="0" />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] text-slate-500 mb-1">{t('ملاحظات (اختياري)', 'Notes (optional)')}</label>
+                              <input className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm" value={bookDeliveryNotes} onChange={(e) => setBookDeliveryNotes(e.target.value)} placeholder={t('أي ملاحظات', 'Any notes')} />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button disabled={deliveringBookId === f.id} onClick={() => bookDeliveryInputRef.current[f.id]?.click()} className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50 hover:bg-emerald-600 transition-colors">
+                              {deliveringBookId === f.id ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                              {deliveringBookId === f.id ? `${t('جاري الرفع', 'Uploading')} ${uploadProgress}%` : t('اختيار الملف والتسليم', 'Choose file & deliver')}
+                            </button>
+                            <button onClick={() => setDeliverPanelFor(null)} className="text-xs text-slate-500">{t('إلغاء', 'Cancel')}</button>
+                          </div>
+                        </div>
+                      )}
 
                       {showPlan && (
                         <div className="mt-3 pt-3 border-t border-slate-100">
