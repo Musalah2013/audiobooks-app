@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { Repository } from '../db';
+import { deriveProductionStage } from '../api-contracts';
 import type { Env } from '../types';
 
 const dashboard = new Hono<{ Bindings: Env }>();
@@ -23,11 +24,24 @@ async function summarizeRetainedStorage(bucket: R2Bucket) {
 
 dashboard.get('/', async (c) => {
   const repo = new Repository(c.env.DB);
-  const [batches, audiobooks, retained] = await Promise.all([
-    repo.listBatches(),
-    repo.listAudiobooks(),
+  const [batches, rawAudiobooks, retained, linkage] = await Promise.all([
+    repo.listBatches(10_000),
+    repo.listAudiobooks(10_000),
     summarizeRetainedStorage(c.env.ASSET_BUCKET),
+    repo.getProductionLinkageByAudiobook(),
   ]);
+  const audiobooks = rawAudiobooks.map((b) => {
+    const link = linkage.get(b.id) ?? { assigned: false, sampleState: 'none' as const, delivered: false };
+    return { ...b, productionStage: deriveProductionStage({
+      processingStatus: b.processingStatus,
+      dossierStatus: b.dossierStatus,
+      clickupSyncStatus: b.clickupSyncStatus,
+      assigned: link.assigned,
+      sampleState: link.sampleState,
+      delivered: link.delivered,
+      isLegacy: b.isLegacy,
+    }) };
+  });
 
   const batchStatusCounts = batches.reduce<Record<string, number>>((acc, batch) => {
     acc[batch.status] = (acc[batch.status] ?? 0) + 1;

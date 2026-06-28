@@ -188,7 +188,7 @@ The app is now live again after the latest deploy, and the most recent hardening
 
 ## Live environment
 
-- Worker/API + frontend: `https://samawy-ops.com`
+- Worker/API + frontend: `https://audiobooks.samawy-ops.com`
 - Current live Worker version:
   - `39887fc9-e2d9-4235-beda-821afb827ad9`
 

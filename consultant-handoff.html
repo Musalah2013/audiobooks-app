@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Audiobooks App — Consultant Handoff</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --ink: #0f172a;
+    --ink-2: #334155;
+    --ink-3: #64748b;
+    --surface: #ffffff;
+    --surface-2: #f8fafc;
+    --surface-3: #f1f5f9;
+    --border: #e2e8f0;
+    --accent: #0b80ff;
+    --accent-light: #eff6ff;
+    --green: #16a34a;
+    --green-light: #f0fdf4;
+    --amber: #d97706;
+    --amber-light: #fffbeb;
+    --red: #dc2626;
+    --red-light: #fef2f2;
+    --purple: #7c3aed;
+    --purple-light: #f5f3ff;
+    --sidebar-w: 260px;
+    --radius: 8px;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.05);
+    --shadow-md: 0 4px 6px -1px rgba(0,0,0,.08), 0 2px 4px -1px rgba(0,0,0,.04);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--ink);
+    background: var(--surface-2);
+    line-height: 1.6;
+    font-size: 14px;
+  }
+
+  /* ── Layout ── */
+  .layout { display: flex; min-height: 100vh; }
+
+  nav {
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    overflow-y: auto;
+    padding: 24px 0 32px;
+    z-index: 100;
+  }
+
+  .nav-logo {
+    padding: 0 20px 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+  }
+  .nav-logo .product { font-size: 15px; font-weight: 700; color: var(--ink); }
+  .nav-logo .subtitle { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+
+  nav a {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 20px;
+    color: var(--ink-2);
+    text-decoration: none;
+    font-size: 13px;
+    border-radius: 0;
+    transition: background .12s, color .12s;
+  }
+  nav a:hover { background: var(--surface-3); color: var(--ink); }
+  nav a.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
+  .nav-section {
+    padding: 16px 20px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  main {
+    margin-left: var(--sidebar-w);
+    flex: 1;
+    padding: 40px 48px 80px;
+    max-width: calc(var(--sidebar-w) + 900px);
+  }
+
+  /* ── Header ── */
+  .page-header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 40px;
+  }
+  .page-header .tag {
+    display: inline-block;
+    background: var(--accent-light);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 100px;
+    margin-bottom: 12px;
+  }
+  .page-header h1 { font-size: 28px; font-weight: 800; color: var(--ink); line-height: 1.2; }
+  .page-header .meta { color: var(--ink-3); font-size: 13px; margin-top: 6px; }
+
+  /* ── Sections ── */
+  section { margin-bottom: 56px; scroll-margin-top: 32px; }
+  h2 {
+    font-size: 20px; font-weight: 700; color: var(--ink);
+    margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2 .num {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    font-size: 12px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  h3 {
+    font-size: 15px; font-weight: 700; color: var(--ink);
+    margin: 24px 0 10px;
+  }
+  p { color: var(--ink-2); margin-bottom: 12px; }
+  ul, ol { padding-left: 20px; color: var(--ink-2); }
+  li { margin-bottom: 5px; }
+
+  /* ── Tables ── */
+  .table-wrap { overflow-x: auto; margin: 12px 0 20px; border-radius: var(--radius); border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead tr { background: var(--surface-3); }
+  th {
+    text-align: left; padding: 10px 14px;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: .05em; text-transform: uppercase;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--ink-2);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface-2); }
+  code {
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 12px;
+    color: var(--purple);
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow);
+  }
+  .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+  @media (max-width: 720px) { .card-grid { grid-template-columns: 1fr; } }
+  .card .label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 6px; }
+  .card .value { font-size: 14px; color: var(--ink); font-weight: 500; }
+  .card .value code { background: none; border: none; padding: 0; font-size: 13px; color: var(--purple); }
+
+  /* ── Process Flow ── */
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .flow-step {
+    display: flex; gap: 16px; position: relative;
+  }
+  .flow-step::before {
+    content: '';
+    position: absolute;
+    left: 19px; top: 40px; bottom: -1px;
+    width: 2px;
+    background: var(--border);
+  }
+  .flow-step:last-child::before { display: none; }
+  .flow-num {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: var(--accent-light);
+    color: var(--accent);
+    font-size: 14px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    z-index: 1;
+  }
+  .flow-body { padding: 8px 0 32px; flex: 1; }
+  .flow-body h3 { margin-top: 0; font-size: 15px; color: var(--ink); }
+  .flow-body .phase-label {
+    display: inline-block;
+    font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 6px;
+  }
+  .flow-body p { margin-bottom: 8px; }
+  .flow-body .status-after {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--green-light); color: var(--green);
+    font-size: 11px; font-weight: 600;
+    padding: 3px 10px; border-radius: 100px;
+    margin-top: 4px;
+  }
+
+  /* ── Badges ── */
+  .badge {
+    display: inline-block;
+    font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: 100px;
+  }
+  .badge-blue { background: var(--accent-light); color: var(--accent); }
+  .badge-green { background: var(--green-light); color: var(--green); }
+  .badge-amber { background: var(--amber-light); color: var(--amber); }
+  .badge-red { background: var(--red-light); color: var(--red); }
+  .badge-purple { background: var(--purple-light); color: var(--purple); }
+
+  /* ── Alert boxes ── */
+  .alert {
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    border-left: 4px solid;
+    font-size: 13px;
+  }
+  .alert-amber { background: var(--amber-light); border-color: var(--amber); color: #92400e; }
+  .alert-red { background: var(--red-light); border-color: var(--red); color: #7f1d1d; }
+  .alert-blue { background: var(--accent-light); border-color: var(--accent); color: #1e3a5f; }
+  .alert strong { font-weight: 700; }
+
+  /* ── Code block ── */
+  pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 12.5px;
+    overflow-x: auto;
+    line-height: 1.65;
+    margin: 12px 0 20px;
+  }
+  pre .cm { color: #64748b; }
+  pre .kw { color: #93c5fd; }
+  pre .str { color: #86efac; }
+  pre .num { color: #fca5a5; }
+  pre .key { color: #c4b5fd; }
+
+  /* ── Concerns grid ── */
+  .concerns { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .concerns { grid-template-columns: 1fr; } }
+  .concern {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+  }
+  .concern .c-title { font-weight: 700; font-size: 13px; color: var(--ink); margin-bottom: 4px; }
+  .concern .c-desc { font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
+  .concern.high { border-left: 3px solid var(--red); }
+  .concern.med { border-left: 3px solid var(--amber); }
+  .concern.low { border-left: 3px solid var(--green); }
+
+  /* ── Tree ── */
+  .file-tree {
+    background: #0f172a;
+    color: #94a3b8;
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.8;
+    margin-bottom: 20px;
+    overflow-x: auto;
+  }
+  .file-tree .dir { color: #93c5fd; }
+  .file-tree .file { color: #e2e8f0; }
+  .file-tree .comment { color: #475569; }
+
+  /* ── Footer ── */
+  footer {
+    margin-left: var(--sidebar-w);
+    padding: 20px 48px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--ink-3);
+    background: var(--surface);
+  }
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+<!-- ── Sidebar ── -->
+<nav>
+  <div class="nav-logo">
+    <div class="product">Audiobooks App</div>
+    <div class="subtitle">Consultant Handoff · June 2026</div>
+  </div>
+
+  <div class="nav-section">Overview</div>
+  <a href="#overview">What the System Does</a>
+  <a href="#stack">Technology Stack</a>
+  <a href="#infra">Infrastructure Bindings</a>
+
+  <div class="nav-section">Data</div>
+  <a href="#schema">Database Schema</a>
+  <a href="#queues">Queue Messages</a>
+  <a href="#emails">Email Templates</a>
+
+  <div class="nav-section">Process</div>
+  <a href="#process">End-to-End Process Map</a>
+  <a href="#container">Audio Processor (Container)</a>
+
+  <div class="nav-section">API & UI</div>
+  <a href="#api">API Surface</a>
+  <a href="#ui">UI Pages</a>
+  <a href="#permissions">Permissions Model</a>
+
+  <div class="nav-section">Integrations</div>
+  <a href="#integrations">External Integrations</a>
+  <a href="#repo">Repository Layout</a>
+
+  <div class="nav-section">Review</div>
+  <a href="#concerns">Constraints &amp; Debt</a>
+  <a href="#focus">Recommended Focus Areas</a>
+</nav>
+
+<!-- ── Main Content ── -->
+<main>
+
+  <div class="page-header">
+    <div class="tag">Consultant Handoff Document</div>
+    <h1>Audiobooks App<br>Process Map &amp; Codebase Summary</h1>
+    <div class="meta">Prepared June 19, 2026 &nbsp;·&nbsp; Reflects production codebase post PR #4 merge &nbsp;·&nbsp; <strong>Confidential — Samawy Internal</strong></div>
+  </div>
+
+  <!-- 1. Overview -->
+  <section id="overview">
+    <h2><span class="num">1</span> What the System Does</h2>
+    <p>The Audiobooks App is an <strong>internal operations platform</strong> built by Samawy for ingesting, processing, and cataloging Arabic audiobooks. It manages the complete pipeline from receiving raw audio from publishers through to producing a publication-ready dossier.</p>
+    <p>There are <strong>three user-facing portals</strong>:</p>
+    <div class="card-grid">
+      <div class="card">
+        <div class="label">Operator Portal</div>
+        <div class="value">Internal Samawy staff — the primary application. Manages all batch ingestion, book processing, dossier generation, and catalog sync.</div>
+      </div>
+      <div class="card">
+        <div class="label">Studio Portal</div>
+        <div class="value">Publishing partners upload audio samples and production files, receive status updates, and request Google Drive file deliveries.</div>
+      </div>
+      <div class="card">
+        <div class="label">Acquisition Portal</div>
+        <div class="value">Partner acquisition teams review and approve production files submitted by studios.</div>
+      </div>
+      <div class="card">
+        <div class="label">Audience</div>
+        <div class="value">Arabic-language audiobook market. All content, metadata, and email templates are bilingual (Arabic primary, English secondary).</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Stack -->
+  <section id="stack">
+    <h2><span class="num">2</span> Technology Stack</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Layer</th><th>Technology</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Runtime</td><td>Cloudflare Workers (TypeScript)</td><td>Hono framework for routing</td></tr>
+          <tr><td>Database</td><td>Cloudflare D1 (SQLite)</td><td>Single region — no failover</td></tr>
+          <tr><td>Object Storage</td><td>Cloudflare R2</td><td>Single bucket, versioning enabled for dossiers</td></tr>
+          <tr><td>Async Jobs</td><td>Cloudflare Queues</td><td>Two queues (ingest + drive-sync)</td></tr>
+          <tr><td>Workflow Orchestration</td><td>Cloudflare Workflows</td><td>Processing + Dossier workflows</td></tr>
+          <tr><td>Audio Processing</td><td>Cloudflare Containers</td><td>Durable Object, Express.js + ffmpeg; max 12 instances</td></tr>
+          <tr><td>AI</td><td>Cloudflare AI</td><td>Metadata column detection (Claude models)</td></tr>
+          <tr><td>Email</td><td>Cloudflare Email Routing</td><td>SendEmail binding</td></tr>
+          <tr><td>Frontend</td><td>React + Vite SPA</td><td>Served from same Worker via <code>ASSETS</code> binding</td></tr>
+          <tr><td>Shared Types</td><td><code>api-contracts.ts</code></td><td>Single source of truth for request/response types</td></tr>
+          <tr><td>Google Drive</td><td>Drive API v3</td><td>Service account auth (JWT)</td></tr>
+          <tr><td>Catalog</td><td>Samawy DB Proxy</td><td>OAuth2 client credentials</td></tr>
+          <tr><td>Task Management</td><td>ClickUp API v2</td><td>API token, operator-configurable field mappings</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 3. Infra -->
+  <section id="infra">
+    <h2><span class="num">3</span> Infrastructure Bindings</h2>
+    <pre><span class="cm"># wrangler.toml — production bindings</span>
+
+<span class="key">DB</span>                         → <span class="str">D1 database: audiobooks_app_prod_20260510</span>
+<span class="key">ASSET_BUCKET</span>               → <span class="str">R2 bucket: audiobooks-ops-prod-20260510</span>
+<span class="key">ASSETS</span>                     → <span class="str">Frontend SPA (Workers Static Assets)</span>
+
+<span class="key">INGEST_QUEUE</span>               → <span class="str">Queue: audiobooks-ingest-prod-20260510</span>
+<span class="key">STUDIO_DRIVE_SYNC_QUEUE</span>    → <span class="str">Queue: studio-drive-sync-prod</span>
+
+<span class="key">PROCESSING_WORKFLOW</span>        → <span class="str">Workflow class: ProcessingWorkflow</span>
+<span class="key">DOSSIER_WORKFLOW</span>           → <span class="str">Workflow class: DossierWorkflow</span>
+<span class="key">AUDIO_PROCESSOR_CONTAINER</span>  → <span class="str">Durable Object (max 12 concurrent, standard-1)</span>
+
+<span class="key">AI</span>                         → <span class="str">Cloudflare AI models</span>
+<span class="key">EMAIL</span>                      → <span class="str">SendEmail (noreply@audiobooks.samawy-ops.com)</span></pre>
+
+    <p><strong>Secrets configured at deploy time:</strong> Google service account key/email, ClickUp API token, Samawy DB proxy client ID/secret, Cloudflare Access client credentials, Internal API HMAC secret.</p>
+    <p><strong>Runtime variables:</strong> <code>APP_BASE_URL</code>, <code>APP_ENV</code>, <code>GOOGLE_DRIVE_API_BASE_URL</code>, <code>CLICKUP_API_BASE_URL</code>, <code>CLICKUP_AUDIOBOOKS_LIST_ID</code>, <code>SOURCE_BUCKET_NAME</code>.</p>
+  </section>
+
+  <!-- 4. Schema -->
+  <section id="schema">
+    <h2><span class="num">4</span> Database Schema</h2>
+    <p>11 sequential migrations applied via Wrangler tag <code>v1</code>. All <code>CREATE TABLE IF NOT EXISTS</code> (idempotent). Composite indexes on foreign key lookups and audit event queries.</p>
+
+    <h3>Ingestion &amp; Cataloging</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Table</th><th>Purpose</th><th>Key Fields</th></tr></thead>
+        <tbody>
+          <tr><td><code>ingestion_batch</code></td><td>One record per delivery (Drive link or uploaded ZIP)</td><td>source_type, status, normalization JSON, manifest</td></tr>
+          <tr><td><code>ingestion_candidate</code></td><td>One book found within a batch</td><td>decision, source_group JSON, metadata_override, samawy_candidates JSON</td></tr>
+          <tr><td><code>audiobook_record</code></td><td>Approved book awaiting or post-processing</td><td>processing_status, dossier_status, clickup_sync_status, seller_id, publisher_id</td></tr>
+          <tr><td><code>track_record</code></td><td>Individual audio track within a book</td><td>approval_status, original/final spec fields (bitrate, duration, channels), proposed_title</td></tr>
+          <tr><td><code>processing_run</code></td><td>One audio processing job per start-processing call</td><td>container_job_id, result JSON, started_at, completed_at</td></tr>
+          <tr><td><code>artifact_record</code></td><td>Generated files in R2 (workbooks, zips, samples)</td><td>artifact_type, object_key, size_bytes</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Operations &amp; Users</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Table</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>operator_user</code></td><td>Staff accounts with role (admin / ops_coordinator / ops_specialist) and per-permission flags</td></tr>
+          <tr><td><code>operator_invite</code></td><td>Email-based onboarding tokens</td></tr>
+          <tr><td><code>operator_audit_log</code></td><td>Immutable action log — resource_type, resource_id, action, actor, detail_json, timestamp</td></tr>
+          <tr><td><code>app_settings</code></td><td>Key-value config: ClickUp token, field mappings, description template</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Studio Partner System</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Table</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>studio</code></td><td>Publisher partner profile: name, slug, contact_email, drive_folder_id, logo</td></tr>
+          <tr><td><code>studio_magic_link</code></td><td>One-time sign-in tokens (24-hour expiry)</td></tr>
+          <tr><td><code>studio_asset</code></td><td>Logos and branding files uploaded by operators to R2</td></tr>
+          <tr><td><code>studio_production_file</code></td><td>Raw audio files uploaded by studios for operator review</td></tr>
+          <tr><td><code>studio_sample</code></td><td>Audio samples cut from production files; stores review status + reviewer note</td></tr>
+          <tr><td><code>studio_drive_upload</code></td><td>Files queued for background sync to studio's Google Drive folder</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Acquisition</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Table</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>acquisition_user</code></td><td>External acquisition partner accounts</td></tr>
+          <tr><td><code>acquisition_magic_link</code></td><td>One-time sign-in tokens (24-hour expiry)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 5. Process Map -->
+  <section id="process">
+    <h2><span class="num">5</span> End-to-End Process Map</h2>
+
+    <div class="flow">
+
+      <div class="flow-step">
+        <div class="flow-num">0</div>
+        <div class="flow-body">
+          <div class="phase-label">Delivery</div>
+          <h3>File Delivery</h3>
+          <p>A publisher sends audio files either by sharing a Google Drive folder or uploading a ZIP. An operator creates a batch in the system recording the source type and entering state <strong>ingested</strong>. No processing begins until the operator explicitly starts intake.</p>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">1</div>
+        <div class="flow-body">
+          <div class="phase-label">Queue: drive-intake / upload-intake</div>
+          <h3>Intake Normalization</h3>
+          <p>The intake worker lists the Drive folder or extracts the ZIP manifest. It infers the delivery structure (single book ZIP, multi-book batch, flat tracks, subfolders, or mixed). Files are grouped by inferred book — audio files, cover image, and metadata sheet identified per group. Source files are copied from Drive/ZIP to R2 at <code>ingestions/{batchId}/source/</code>. The normalized group structure is saved to <code>batch.normalization.groups</code>.</p>
+          <p><strong>Resilience:</strong> Each file copy is checkpointed. On queue timeout (5 s), an <code>IntakeCheckpointError</code> requeues without counting toward the retry limit. Up to 20 redeliveries allowed; the 8th <em>real</em> failure moves the batch to <code>intake_failed</code>. Operators can manually retry a stuck batch.</p>
+          <div class="status-after">→ Status: normalized</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">2</div>
+        <div class="flow-body">
+          <div class="phase-label">Queue: metadata-parse</div>
+          <h3>Metadata Parsing</h3>
+          <p>The metadata spreadsheet (XLSX) identified within the batch is loaded. Cloudflare AI (Claude) or a heuristic column detector finds the header row and maps columns to fields: title, author, publisher, ISBN, narrator, blurb, genre, year, pricing, track count. Rows are extracted and saved to <code>batch.normalization.metadataRows</code>.</p>
+          <p>Operators can re-select the sheet and re-parse with different column overrides if the AI mapping is incorrect.</p>
+          <div class="status-after">→ Status: metadata_parsed</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">3</div>
+        <div class="flow-body">
+          <div class="phase-label">Manual — Operator</div>
+          <h3>Seller Lock</h3>
+          <p>Operator selects the <strong>seller</strong> and <strong>publisher</strong> from a Samawy catalog lookup. This locks the batch commercially and governs catalog association. Currently batch-level only (per-book seller assignment is a planned future feature).</p>
+          <div class="status-after">→ Status: seller_locked</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">4</div>
+        <div class="flow-body">
+          <div class="phase-label">Manual — Operator</div>
+          <h3>Reconciliation</h3>
+          <p>For each normalized group, an <code>ingestion_candidate</code> record is created. The Samawy catalog is searched for title matches; potential matches are stored with confidence scores. The operator reviews each candidate and sets a decision:</p>
+          <ul>
+            <li><strong>Approved (existing)</strong> — matches an existing catalog entry</li>
+            <li><strong>Approved (new)</strong> — new title to be added</li>
+            <li><strong>Parked</strong> — missing files, missing metadata, or needs business review</li>
+            <li><strong>Excluded</strong> — duplicate, extra source, or non-book artifact</li>
+          </ul>
+          <p>On finalization: <code>audiobook_record</code> and <code>track_record</code> rows are created for each approved candidate. Metadata precedence: manual override &gt; metadata sheet &gt; catalog candidate.</p>
+          <div class="status-after">→ Status: records_created</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">5</div>
+        <div class="flow-body">
+          <div class="phase-label">Manual — Operator</div>
+          <h3>Track Preparation &amp; Approval</h3>
+          <p><strong>Prepare:</strong> The source ZIP/files are read, filtered by audio extension (mp3, m4a, m4b, wav, flac, aac, ogg), sorted by filename/order, and a <code>TrackDraft[]</code> is built with proposed titles derived from the metadata sheet, audio tags, or filename heuristics.</p>
+          <p><strong>Approve:</strong> The operator reviews and edits track titles and order, then confirms. Each track records its <code>titleProvenance</code> (metadata_sheet / audio_tag / filename / generated_placeholder).</p>
+          <div class="status-after">→ Track approval_status: approved</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">6</div>
+        <div class="flow-body">
+          <div class="phase-label">Cloudflare Workflow: ProcessingWorkflow</div>
+          <h3>Audio Processing</h3>
+          <p>Operator clicks "Start Processing". The system:</p>
+          <ol>
+            <li>Generates HMAC-signed download + upload URLs for each track (1-hour expiry)</li>
+            <li>Starts or reuses a container instance for this book</li>
+            <li>Container downloads each source track (direct audio or extracts from ZIP), probes with ffprobe, transcodes to MP3 at target bitrate, and uploads via <strong>multipart upload</strong> (25 MB chunks) to <code>artifacts/processed/</code></li>
+            <li>Worker polls the container every 2 seconds for up to 30 minutes</li>
+          </ol>
+          <p><strong>On success:</strong> book <code>processingStatus = succeeded</code> → DossierWorkflow is triggered automatically.<br>
+          <strong>On failure:</strong> retried up to 2 times (10-second delay), then <code>processingStatus = failed</code>.</p>
+          <p><strong>Reupload flow:</strong> If processing fails due to bad source files, the operator can replace the source ZIP in-place (same book ID) and re-trigger processing.</p>
+          <div class="status-after">→ processingStatus: succeeded</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">7</div>
+        <div class="flow-body">
+          <div class="phase-label">Cloudflare Workflow: DossierWorkflow</div>
+          <h3>Dossier Generation</h3>
+          <p>Triggered automatically after processing succeeds. <strong>Zero retries</strong> — any failure requires manual reset and re-trigger.</p>
+          <ol>
+            <li>Build XLSX workbook: Sheet 1 = full metadata + track specs (text fields truncated at 32,767 chars for Excel compatibility); Sheet 2 = sample link</li>
+            <li>Generate audio sample clip via container (if <code>sample_*_seconds</code> configured)</li>
+            <li>Build dossier audio ZIP of all final MP3 tracks (multipart upload for large books)</li>
+            <li>Upload workbook + ZIP to <code>dossier/</code> prefix in R2</li>
+            <li>Mark <code>dossierStatus = ready</code></li>
+          </ol>
+          <div class="status-after">→ dossierStatus: ready</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">8</div>
+        <div class="flow-body">
+          <div class="phase-label">Manual — Operator (or automatic)</div>
+          <h3>ClickUp Sync</h3>
+          <p>Triggered manually per book or automatically after dossier finalization:</p>
+          <ol>
+            <li>Map audiobook fields to ClickUp custom fields (configured in Settings UI)</li>
+            <li>Create or update task in the configured ClickUp list</li>
+            <li>Attach cover image if available</li>
+            <li>Generate task description from template (includes workbook download URL, audio ZIP URL, app deep link)</li>
+          </ol>
+          <div class="status-after">→ clickupSyncStatus: synced</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="flow-num">9</div>
+        <div class="flow-body">
+          <div class="phase-label">Parallel Track — Studio Portal</div>
+          <h3>Studio Integration</h3>
+          <p>Studios interact via a separate magic-link portal (no password — 24-hour token):</p>
+          <ul>
+            <li>Upload audio samples for quality review → operator approves/rejects → studio receives email notification</li>
+            <li>Request files to be delivered to their Google Drive folder → background queue syncs → confirmation email sent</li>
+            <li>Download production files prepared by operators</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 6. Container -->
+  <section id="container">
+    <h2><span class="num">6</span> Audio Processor (Container)</h2>
+    <div class="card-grid">
+      <div class="card">
+        <div class="label">Runtime</div>
+        <div class="value">Node.js ESM, Express.js</div>
+      </div>
+      <div class="card">
+        <div class="label">Binaries</div>
+        <div class="value">ffmpeg, ffprobe</div>
+      </div>
+      <div class="card">
+        <div class="label">npm deps</div>
+        <div class="value">node-xlsx, jszip, fast-xml-parser, express, multer</div>
+      </div>
+      <div class="card">
+        <div class="label">Concurrency</div>
+        <div class="value">Max 12 simultaneous instances (hard Cloudflare limit)</div>
+      </div>
+    </div>
+
+    <h3>Container Endpoints</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Route</th><th>Method</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>POST /process</code></td><td>POST</td><td>Accept <code>ProcessingJobPayload</code>, begin encoding job, return <code>{ jobId }</code></td></tr>
+          <tr><td><code>GET /jobs/:jobId</code></td><td>GET</td><td>Poll job status + result JSON</td></tr>
+          <tr><td><code>POST /inspect-archive</code></td><td>POST</td><td>List audio entries in a ZIP without full extraction</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Upload Strategy for Large Files</h3>
+    <ul>
+      <li>Files ≤ ~25 MB: single PUT to signed URL</li>
+      <li>Files &gt; 25 MB: multipart — <code>POST /api/internal/multipart-start</code> → PUT each 25 MB chunk → <code>POST /api/internal/multipart-complete</code></li>
+    </ul>
+    <p><strong>Limits:</strong> max book size 1 GB; max single track 200 MB. Container↔Worker communication is HMAC-signed (internal secret) to prevent unauthorized access to R2 artifacts.</p>
+  </section>
+
+  <!-- 7. API -->
+  <section id="api">
+    <h2><span class="num">7</span> API Surface (~80 routes)</h2>
+
+    <h3>Authentication</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Prefix</th><th>Coverage</th></tr></thead>
+        <tbody>
+          <tr><td><code>/api/auth/*</code></td><td>Operator login, user management, invites, permission PATCH</td></tr>
+          <tr><td><code>/api/studio-auth/*</code></td><td>Studio magic-link request, verify, logout</td></tr>
+          <tr><td><code>/api/acquisition-auth/*</code></td><td>Acquisition partner magic-link request, verify, logout</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Ingestion &amp; Books</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Prefix</th><th>Coverage</th></tr></thead>
+        <tbody>
+          <tr><td><code>/api/ingestions/*</code></td><td>Batch CRUD, direct upload URLs, metadata select/parse/remap, intake start/retry, skip file, lock seller, reconcile, finalize, revert</td></tr>
+          <tr><td><code>/api/books/*</code></td><td>Audiobook list/detail/delete, track prepare/approve, start processing, reupload, metadata PATCH, workbook download, sample generation, dossier finalize/reset, ClickUp sync</td></tr>
+          <tr><td><code>/api/candidates/*</code></td><td>Per-candidate decision, source-group reassignment, metadata override</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Processing, Artifacts &amp; Settings</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Prefix</th><th>Coverage</th></tr></thead>
+        <tbody>
+          <tr><td><code>/api/processing/*</code></td><td>Processing run history (paginated), run detail &amp; result JSON</td></tr>
+          <tr><td><code>/api/artifacts/*</code></td><td>Artifact list, analytics (size/count), dossier vs. interim storage breakdown</td></tr>
+          <tr><td><code>/api/settings/clickup/*</code></td><td>ClickUp config fetch/update, field list, token PUT/DELETE, bulk reset sync status</td></tr>
+          <tr><td><code>/api/dashboard</code></td><td>Summary counts: batches, books by status, active processing, storage totals</td></tr>
+          <tr><td><code>/api/sellers</code></td><td>Samawy catalog seller/publisher search</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Studios &amp; Portals</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Prefix</th><th>Coverage</th></tr></thead>
+        <tbody>
+          <tr><td><code>/api/studios/*</code></td><td>Studio CRUD, magic-link generate/revoke, logo upload, assets, production files, samples (review), acquisition users</td></tr>
+          <tr><td><code>/api/studio-portal/*</code></td><td>Studio-side: profile, presigned URLs for sample upload / production file download / Drive upload, complete Drive upload</td></tr>
+          <tr><td><code>/api/acquisition-portal/*</code></td><td>Acquisition-side: list production files, upload on behalf of studio</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Internal (Container ↔ Worker)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Route</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>GET /api/internal/artifacts</code></td><td>Download source artifact (HMAC-signed, for container use)</td></tr>
+          <tr><td><code>PUT /api/internal/artifacts</code></td><td>Upload processed artifact (HMAC-signed, from container)</td></tr>
+          <tr><td><code>POST /api/internal/track-progress</code></td><td>Container reports per-track encoding progress</td></tr>
+          <tr><td><code>POST /api/internal/processing-progress</code></td><td>Container reports processing step completion</td></tr>
+          <tr><td><code>POST /api/internal/multipart-start</code></td><td>Initiate multipart upload for large file</td></tr>
+          <tr><td><code>PUT /api/internal/multipart-part</code></td><td>Upload 25 MB chunk</td></tr>
+          <tr><td><code>POST /api/internal/multipart-complete</code></td><td>Finalize multipart upload</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 8. Queues -->
+  <section id="queues">
+    <h2><span class="num">8</span> Queue Messages</h2>
+
+    <h3>audiobooks-ingest-prod <span class="badge badge-blue">max 10/batch · 20 retries · 5s timeout</span></h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Type</th><th>Payload</th><th>Handler</th></tr></thead>
+        <tbody>
+          <tr><td><code>drive-intake</code></td><td><code>{ batchId }</code></td><td>Normalize Google Drive folder into book groups</td></tr>
+          <tr><td><code>upload-intake</code></td><td><code>{ batchId, manifest }</code></td><td>Normalize uploaded ZIP into book groups</td></tr>
+          <tr><td><code>metadata-parse</code></td><td><code>{ batchId }</code></td><td>Parse XLSX, extract metadata rows</td></tr>
+          <tr><td><code>build-intake-report</code></td><td><code>{ batchId }</code></td><td>Generate intake summary workbook</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="alert alert-blue">
+      <strong>Checkpoint pattern:</strong> If the 5-second queue execution budget is hit mid-intake, an <code>IntakeCheckpointError</code> is thrown. This requeues the message without consuming a retry slot — the batch resumes exactly where it left off. Real failures (not budget timeouts) count toward the 20-retry limit. After 8 real failures, the batch is moved to <code>intake_failed</code>.
+    </div>
+
+    <h3>studio-drive-sync-prod <span class="badge badge-purple">max 1/batch · 3 retries</span></h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Type</th><th>Payload</th><th>Handler</th></tr></thead>
+        <tbody>
+          <tr><td><code>drive-sync</code></td><td><code>{ driveUploadId }</code></td><td>Upload studio file to their Google Drive folder; update DB status; send confirmation email to studio contact</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 9. Email -->
+  <section id="emails">
+    <h2><span class="num">9</span> Email Templates</h2>
+    <p>All emails are sent from <code>noreply@audiobooks.samawy-ops.com</code> via Cloudflare Email Routing. RTL Arabic layout, Samawy branding, 480px max-width, responsive.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Template</th><th>Recipient</th><th>Trigger</th><th>Content</th></tr></thead>
+        <tbody>
+          <tr><td><code>magicLinkEmail()</code></td><td>Studio / operator</td><td>Magic link requested</td><td>24-hour one-time portal sign-in URL</td></tr>
+          <tr><td><code>notifyOperatorsEmail()</code></td><td>Internal operators</td><td>System alerts</td><td>Generic title + HTML body + optional CTA button</td></tr>
+          <tr><td><code>sampleReviewedEmail()</code></td><td>Studio contact</td><td>Sample approved or rejected</td><td>Status indicator (approved/rejected) + reviewer note</td></tr>
+          <tr><td><code>driveUploadCompleteEmail()</code></td><td>Studio contact</td><td>Drive sync completes</td><td>File name confirmation + Google Drive file link</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 10. UI Pages -->
+  <section id="ui">
+    <h2><span class="num">10</span> UI Pages</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Page</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Login</strong></td><td>Operator email/password sign-in</td></tr>
+          <tr><td><strong>Dashboard</strong></td><td>Summary counts: batches, books by status, active processing, storage totals</td></tr>
+          <tr><td><strong>Batches</strong></td><td>All ingestion batches; human-readable status labels; Drive preview groups collapsed by default</td></tr>
+          <tr><td><strong>BatchDetail</strong></td><td>Full batch view: source manifest, candidates, decisions, intake step timeline, collapsible logs; "Restart intake" for stuck batches</td></tr>
+          <tr><td><strong>Books</strong></td><td>All audiobooks; <em>failed books surfaced first</em> in red section; filter by publisher + search; human-readable status labels</td></tr>
+          <tr><td><strong>BookDetail</strong></td><td>Numbered 1-2-3 stepper (Prepare → Approve → Process); processing log as inline accordion; reupload button on failure</td></tr>
+          <tr><td><strong>Processing</strong></td><td>Active and historical processing runs</td></tr>
+          <tr><td><strong>ProcessingLogs</strong></td><td>Container job log detail</td></tr>
+          <tr><td><strong>Artifacts</strong></td><td>Browse all generated R2 artifacts</td></tr>
+          <tr><td><strong>Analytics</strong></td><td>Storage and throughput metrics</td></tr>
+          <tr><td><strong>Settings</strong></td><td>ClickUp API token, field mappings, description template editor</td></tr>
+          <tr><td><strong>Users</strong></td><td>Operator user list, invite, permission management</td></tr>
+          <tr><td><strong>Studios</strong></td><td>Studio partner list — create, edit, delete, generate magic links</td></tr>
+          <tr><td><strong>StudioManage</strong></td><td>Per-studio config: logo, Drive folder, assets, active magic links</td></tr>
+          <tr><td><strong>StudioPortal</strong></td><td>Studio-side portal: upload samples, request Drive delivery, download books</td></tr>
+          <tr><td><strong>AcquisitionPortal</strong></td><td>Acquisition partner portal: review and upload production files</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 11. Permissions -->
+  <section id="permissions">
+    <h2><span class="num">11</span> Permissions Model</h2>
+    <p>Operator authentication uses session cookies (email + password). Studio and acquisition portal access uses magic links (24-hour, single-use).</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Permission</th><th>Controls</th><th>Default Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>intake</code></td><td>Create batches, manage intake process</td><td>ops_coordinator +</td></tr>
+          <tr><td><code>metadata</code></td><td>Parse and remap metadata spreadsheets</td><td>ops_coordinator +</td></tr>
+          <tr><td><code>matching</code></td><td>Reconcile candidates, approve audiobooks</td><td>ops_coordinator +</td></tr>
+          <tr><td><code>processing</code></td><td>Start processing, manage samples</td><td>ops_coordinator +</td></tr>
+          <tr><td><code>dossier</code></td><td>Generate/review dossiers, finalize for catalog</td><td>ops_coordinator +</td></tr>
+          <tr><td><code>users</code></td><td>Manage operators, studios, acquisition partners</td><td>admin only</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Roles are not hierarchical by code — each permission is an independent boolean flag on the user record that admins can grant or revoke individually.</p>
+  </section>
+
+  <!-- 12. Integrations -->
+  <section id="integrations">
+    <h2><span class="num">12</span> External Integrations</h2>
+
+    <div class="card">
+      <div class="label">Google Drive API v3</div>
+      <div class="value">
+        <p style="margin-top:8px;">Auth: Service account (JWT token exchange). Used to list Drive folders, stream source files into R2, and push synced studio files to their Drive folder. Retry: 4 attempts with exponential backoff on 408/429/500–504.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="label">Samawy Catalog Proxy</div>
+      <div class="value">
+        <p style="margin-top:8px;">Auth: OAuth2 client credentials. Used during reconciliation to search for existing book titles, list publishers, and look up sellers. Optional — the system degrades gracefully if the proxy is unreachable.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="label">ClickUp API v2</div>
+      <div class="value">
+        <p style="margin-top:8px;">Auth: API token (stored in <code>app_settings</code>, configurable via Settings UI). Used to create/update book tasks, populate custom field values, and attach cover images. Field mappings are fully configurable — no hardcoded field IDs.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="label">Cloudflare AI (Claude)</div>
+      <div class="value">
+        <p style="margin-top:8px;">Used for metadata spreadsheet column detection — identifies which XLSX columns map to title, author, ISBN, etc. Falls back to heuristic regex-based detection on AI failure.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13. Repo Layout -->
+  <section id="repo">
+    <h2><span class="num">13</span> Repository Layout</h2>
+    <div class="file-tree">
+<span class="dir">/</span>
+├── <span class="dir">src/</span>
+│   ├── <span class="file">index.ts</span>              <span class="comment"># Worker entry point — routes, queue handlers, env</span>
+│   ├── <span class="file">workflows.ts</span>          <span class="comment"># ProcessingWorkflow + DossierWorkflow</span>
+│   ├── <span class="file">pipeline.ts</span>           <span class="comment"># Core business logic (~2,400 lines)</span>
+│   ├── <span class="file">processing-contract.ts</span> <span class="comment"># Build ProcessingJobPayload with HMAC-signed URLs</span>
+│   ├── <span class="file">email.ts</span>              <span class="comment"># All email templates + sendEmail utility</span>
+│   ├── <span class="file">types.ts</span>              <span class="comment"># Backend TypeScript types</span>
+│   ├── <span class="file">api-contracts.ts</span>      <span class="comment"># API request/response types (shared with UI)</span>
+│   ├── <span class="file">utils.ts</span>              <span class="comment"># HMAC signing, R2 key helpers</span>
+│   └── <span class="dir">api/</span>
+│       ├── <span class="file">books.ts</span>          <span class="comment"># /api/books/* handlers</span>
+│       ├── <span class="file">batches.ts</span>        <span class="comment"># /api/ingestions/* handlers</span>
+│       ├── <span class="file">studios.ts</span>        <span class="comment"># /api/studios/* handlers (operator)</span>
+│       ├── <span class="file">studio-portal.ts</span>  <span class="comment"># /api/studio-portal/* (studio-side)</span>
+│       └── <span class="file">...</span>               <span class="comment"># users, auth, settings, artifacts, etc.</span>
+│
+├── <span class="dir">container/</span>
+│   └── <span class="file">server.mjs</span>            <span class="comment"># Audio processor (Express + ffmpeg)</span>
+│
+├── <span class="dir">ui/</span>
+│   └── <span class="dir">src/pages/</span>            <span class="comment"># React pages (16 listed above)</span>
+│
+├── <span class="dir">migrations/</span>               <span class="comment"># D1 schema migrations (0001–0011)</span>
+├── <span class="file">wrangler.toml</span>             <span class="comment"># Cloudflare deployment configuration</span>
+└── <span class="file">package.json</span>              <span class="comment"># Monorepo root (ui workspace)</span>
+    </div>
+
+    <h3>Key File Sizes (indicative of complexity)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>File</th><th>Approx. Lines</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>src/pipeline.ts</code></td><td>~2,400</td><td>All business logic — normalization through dossier generation</td></tr>
+          <tr><td><code>ui/src/pages/BatchDetail.tsx</code></td><td>~1,650</td><td>Most complex UI page — intake, candidates, reconciliation</td></tr>
+          <tr><td><code>ui/src/pages/BookDetail.tsx</code></td><td>~1,200</td><td>Book workflow — tracks, processing, samples</td></tr>
+          <tr><td><code>container/server.mjs</code></td><td>~900</td><td>Audio encoding + multipart upload</td></tr>
+          <tr><td><code>ui/src/pages/Batches.tsx</code></td><td>~870</td><td>Batch list + Drive preview</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 14. Constraints -->
+  <section id="concerns">
+    <h2><span class="num">14</span> Known Constraints &amp; Technical Debt</h2>
+
+    <div class="concerns">
+      <div class="concern high">
+        <div class="c-title">🔴 Single-region D1 database</div>
+        <div class="c-desc">D1 is single-replica SQLite. No automatic failover. Limited concurrent write throughput. If Samawy scales to high batch volume this will become a bottleneck and a reliability risk.</div>
+      </div>
+      <div class="concern high">
+        <div class="c-title">🔴 No staging environment</div>
+        <div class="c-desc">All deployment and validation happens directly in production. There is no formal staging pipeline, feature flags, or canary mechanism.</div>
+      </div>
+      <div class="concern high">
+        <div class="c-title">🔴 Dossier workflow: zero retries</div>
+        <div class="c-desc">DossierWorkflow is configured with <code>retries: { limit: 0 }</code>. Any transient failure (network blip, AI timeout) requires a full manual reset and re-trigger. Partial dossier state is not resumable.</div>
+      </div>
+      <div class="concern med">
+        <div class="c-title">🟡 Container concurrency cap</div>
+        <div class="c-desc">Hard limit of 12 concurrent container instances. Under high load, processing jobs queue and operators see no visible indication of queue depth.</div>
+      </div>
+      <div class="concern med">
+        <div class="c-title">🟡 Seller is batch-level only</div>
+        <div class="c-desc">Seller assignment is per-batch. Assigning a different seller to individual books within a batch is architecturally planned but not yet implemented — requires a DB migration and UI changes.</div>
+      </div>
+      <div class="concern med">
+        <div class="c-title">🟡 ClickUp coupling is tight</div>
+        <div class="c-desc">ClickUp sync is wired directly into the dossier workflow. Adding a second downstream system (e.g. Notion, Jira) would require code changes rather than configuration. No event-sourcing or webhook pattern.</div>
+      </div>
+      <div class="concern med">
+        <div class="c-title">🟡 Intake queue opacity</div>
+        <div class="c-desc">The checkpoint loop pattern works but is invisible to operators. There is no monitoring of queue depth, checkpoint iteration count, or estimated completion time for large Drive folders.</div>
+      </div>
+      <div class="concern low">
+        <div class="c-title">🟢 AI metadata parsing variance</div>
+        <div class="c-desc">Claude is used for spreadsheet column detection with no fine-tuning or feedback loop. Accuracy on unusual publisher spreadsheet formats varies and requires operator manual re-mapping.</div>
+      </div>
+      <div class="concern low">
+        <div class="c-title">🟢 Email delivery limits undocumented</div>
+        <div class="c-desc">Cloudflare Email Routing rate limits are not documented internally. High-volume batch completions could trigger throttling with no alerting.</div>
+      </div>
+      <div class="concern low">
+        <div class="c-title">🟢 Pipeline.ts monolith</div>
+        <div class="c-desc">At ~2,400 lines, <code>pipeline.ts</code> handles normalization, metadata parsing, candidate generation, reconciliation, dossier generation, and ClickUp sync. High cognitive load for new engineers.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 15. Focus Areas -->
+  <section id="focus">
+    <h2><span class="num">15</span> Recommended Consultant Focus Areas</h2>
+
+    <div class="alert alert-amber">
+      <strong>Priority 1 — Reliability:</strong> Address the zero-retry dossier workflow and lack of staging environment before scaling batch volume. A single transient failure in dossier generation currently requires operator intervention every time.
+    </div>
+    <div class="alert alert-amber">
+      <strong>Priority 2 — Scalability ceiling:</strong> Assess whether D1 single-replica and the 12-container cap will hold at target volume. Consider Hyperdrive for DB access patterns and evaluate whether the container limit is actually hit in practice (monitoring missing).
+    </div>
+    <div class="alert alert-blue">
+      <strong>Priority 3 — Feature gaps:</strong> Per-book seller assignment is commercially important and architecturally close (requires DB column + UI only). Intake progress visibility (queue depth, checkpoint count) would meaningfully reduce operator confusion on large batches.
+    </div>
+    <div class="alert alert-blue">
+      <strong>Priority 4 — Maintainability:</strong> Consider splitting <code>pipeline.ts</code> into domain modules (intake, metadata, candidates, dossier, clickup). Evaluate whether ClickUp sync should be decoupled via events to support future downstream systems without code changes.
+    </div>
+
+    <h3>Questions for the Business</h3>
+    <ul>
+      <li>What is the target batch volume per week? (D1 and container capacity planning depends on this)</li>
+      <li>Are there plans for additional downstream catalog systems beyond ClickUp?</li>
+      <li>What is the acceptable recovery time objective if the Worker goes down?</li>
+      <li>Is the Samawy catalog proxy always available, or should the system handle catalog outages gracefully?</li>
+      <li>Are there plans to expand beyond Arabic-language content? (RTL assumptions are pervasive in the email and UI templates)</li>
+    </ul>
+  </section>
+
+</main>
+</div>
+
+<footer>
+  Audiobooks App — Consultant Handoff &nbsp;·&nbsp; Reflects production codebase post PR #4 merge, June 19 2026 &nbsp;·&nbsp; Confidential — Samawy Internal
+</footer>
+
+<script>
+  // Highlight active nav link on scroll
+  const sections = document.querySelectorAll('section[id]');
+  const links = document.querySelectorAll('nav a[href^="#"]');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`nav a[href="#${e.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => observer.observe(s));
+
+  // Smooth scroll
+  links.forEach(link => {
+    link.addEventListener('click', e => {
+      e.preventDefault();
+      document.querySelector(link.getAttribute('href')).scrollIntoView({ behavior: 'smooth' });
+    });
+  });
+</script>
+
+</body>
+</html>

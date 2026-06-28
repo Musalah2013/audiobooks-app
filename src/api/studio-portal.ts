@@ -4,7 +4,7 @@ import type { Env } from '../types';
 import { Repository } from '../db';
 import { verifyStudioSessionCookie } from './studio-auth';
 import { createUploadUrl } from '../pipeline';
-import { signInternalArtifactUrl } from '../utils';
+import { signInternalArtifactUrl, signMultipartUrl } from '../utils';
 import { sendEmail, notifyOperatorsEmail } from '../email';
 import { keySegments, nowIso } from '../utils';
 
@@ -16,8 +16,8 @@ async function requireStudioSession(c: Context<{ Bindings: Env }>, slug: string)
   return session;
 }
 
-function driveUploadToApi(d: { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string }) {
-  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at };
+function driveUploadToApi(d: { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null }) {
+  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed' | 'pushed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id };
 }
 
 studioPortal.get('/:slug', async (c) => {
@@ -27,6 +27,7 @@ studioPortal.get('/:slug', async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudioBySlug(slug);
   if (!studio || !studio.is_active) return c.json({ error: 'Not found' }, 404);
+  await repo.failStalePendingDeliveries().catch(() => undefined);
   const [assets, productionFiles, samples, driveUploads] = await Promise.all([
     repo.listStudioAssets(studio.id),
     repo.listStudioProductionFiles(studio.id),
@@ -38,12 +39,22 @@ studioPortal.get('/:slug', async (c) => {
   for (const f of productionFiles) {
     bookNameMap.set(f.id, f.name);
   }
+  // Resolve assigned catalog titles so the studio can target a delivery at one.
+  const assignedIds = [...new Set(productionFiles.map((f) => f.audiobook_id).filter((x): x is string => !!x))];
+  const titleById = new Map<string, string>();
+  await Promise.all(assignedIds.map(async (aid) => {
+    const book = await repo.getAudiobook(aid);
+    if (book) titleById.set(aid, book.title);
+  }));
+  const approvedFileIds = new Set(samples.filter((s) => s.status === 'approved' && s.book_id).map((s) => s.book_id!));
   return c.json({
-    studio: { id: studio.id, name: studio.name, slug: studio.slug, contactEmail: studio.contact_email, driveFolderId: studio.drive_folder_id, logoObjectKey: studio.logo_object_key, isActive: !!studio.is_active, createdAt: studio.created_at, createdBy: studio.created_by },
+    studio: { id: studio.id, name: studio.name, slug: studio.slug, contactEmail: studio.contact_email, logoObjectKey: studio.logo_object_key, isActive: !!studio.is_active, createdAt: studio.created_at, createdBy: studio.created_by, hourlyRateUsd: studio.hourly_rate_usd },
     assets: assets.map((a) => ({ id: a.id, studioId: a.studio_id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at })),
-    productionFiles: productionFiles.map((f) => ({ id: f.id, studioId: f.studio_id, name: f.name, objectKey: f.object_key, contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at })),
+    productionFiles: productionFiles.map((f) => ({ id: f.id, studioId: f.studio_id, name: f.name, objectKey: f.object_key, contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at, audiobookId: f.audiobook_id, audiobookTitle: f.audiobook_id ? (titleById.get(f.audiobook_id) ?? null) : null, narrator: f.narrator, expectedNetHours: f.expected_net_hours, estimatedFinishHours: f.estimated_finish_hours, hasApprovedSample: approvedFileIds.has(f.id) })),
     samples: samples.map((s) => ({ id: s.id, studioId: s.studio_id, bookId: s.book_id ?? null, bookName: s.book_id ? (bookNameMap.get(s.book_id) ?? null) : null, name: s.name, objectKey: s.object_key, contentType: s.content_type, sizeBytes: s.size_bytes, status: s.status, reviewedBy: s.reviewed_by, reviewNote: s.review_note, reviewedAt: s.reviewed_at, createdAt: s.created_at })),
     driveUploads: driveUploads.map(driveUploadToApi),
+    // Titles this studio may deliver finished audio for (assigned by an operator).
+    assignedTitles: assignedIds.map((aid) => ({ audiobookId: aid, title: titleById.get(aid) ?? aid })).filter((t) => titleById.has(t.audiobookId)),
   });
 });
 
@@ -73,14 +84,82 @@ studioPortal.post('/:slug/drive-upload-url', async (c) => {
   const slug = c.req.param('slug');
   const session = await requireStudioSession(c, slug);
   if (!session) return c.json({ error: 'Unauthorized' }, 401);
-  const { fileName, contentType, sizeBytes } = z.object({ fileName: z.string(), contentType: z.string(), sizeBytes: z.number().optional() }).parse(await c.req.json());
+  const { fileName, contentType, sizeBytes, audiobookId, netFinalHours, notes } = z.object({
+    fileName: z.string(), contentType: z.string(), sizeBytes: z.number().optional(),
+    audiobookId: z.string().nullable().optional(),
+    netFinalHours: z.number().nonnegative().nullable().optional(),
+    notes: z.string().nullable().optional(),
+  }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudioBySlug(slug);
   if (!studio) return c.json({ error: 'Not found' }, 404);
-  const key = keySegments('studios', studio.id, 'drive-uploads', `${Date.now()}-${fileName}`);
+  // If targeting a title, it must be one assigned to this studio.
+  if (audiobookId) {
+    const assigned = await repo.listStudioProductionFiles(studio.id);
+    if (!assigned.some((f) => f.audiobook_id === audiobookId)) {
+      return c.json({ error: 'That title is not assigned to your studio.' }, 403);
+    }
+  }
+  const key = keySegments('studios', studio.id, 'deliveries', `${Date.now()}-${fileName}`);
   const upload = await createUploadUrl(c.env, key, contentType);
-  const uploadId = await repo.createDriveUpload({ studioId: studio.id, name: fileName, objectKey: key });
+  const uploadId = await repo.createDriveUpload({ studioId: studio.id, name: fileName, objectKey: key, audiobookId: audiobookId ?? null, netFinalHours: netFinalHours ?? null, notes: notes ?? null });
   return c.json({ ...upload, objectKey: key, uploadId });
+});
+
+// Start a resumable multipart delivery for large files (chunks stream through
+// the worker, avoiding the single-PUT / worker memory limits).
+studioPortal.post('/:slug/delivery-multipart-start', async (c) => {
+  const slug = c.req.param('slug');
+  const session = await requireStudioSession(c, slug);
+  if (!session) return c.json({ error: 'Unauthorized' }, 401);
+  const { fileName, contentType, audiobookId, netFinalHours, notes } = z.object({
+    fileName: z.string(), contentType: z.string(),
+    audiobookId: z.string().nullable().optional(),
+    netFinalHours: z.number().nonnegative().nullable().optional(),
+    notes: z.string().nullable().optional(),
+  }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudioBySlug(slug);
+  if (!studio) return c.json({ error: 'Not found' }, 404);
+  if (audiobookId) {
+    const assigned = await repo.listStudioProductionFiles(studio.id);
+    if (!assigned.some((f) => f.audiobook_id === audiobookId)) {
+      return c.json({ error: 'That title is not assigned to your studio.' }, 403);
+    }
+  }
+  const key = keySegments('studios', studio.id, 'deliveries', `${Date.now()}-${fileName}`);
+  const uploadId = await repo.createDriveUpload({ studioId: studio.id, name: fileName, objectKey: key, audiobookId: audiobookId ?? null, netFinalHours: netFinalHours ?? null, notes: notes ?? null });
+  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
+  const multipartStartUrl = await signMultipartUrl({
+    baseUrl, path: '/api/internal/multipart-start', key, method: 'POST',
+    secret: c.env.INTERNAL_API_SECRET, expiresAt: Date.now() + 6 * 60 * 60 * 1000,
+  });
+  return c.json({ uploadId, objectKey: key, multipartStartUrl, contentType });
+});
+
+// Studio submits the production plan for an assigned file (after sample approval).
+studioPortal.post('/:slug/production-files/:fileId/plan', async (c) => {
+  const slug = c.req.param('slug');
+  const session = await requireStudioSession(c, slug);
+  if (!session) return c.json({ error: 'Unauthorized' }, 401);
+  const { narrator, expectedNetHours, estimatedFinishHours } = z.object({
+    narrator: z.string().nullable().optional(),
+    expectedNetHours: z.number().nonnegative().nullable().optional(),
+    estimatedFinishHours: z.number().nonnegative().nullable().optional(),
+  }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
+  if (!file || file.studio_id !== session.studioId) return c.json({ error: 'Not found' }, 404);
+  if (!file.audiobook_id) return c.json({ error: 'This file is not assigned to a title yet.' }, 400);
+  const samples = await repo.listStudioSamples(session.studioId);
+  const approved = samples.some((s) => s.book_id === file.id && s.status === 'approved');
+  if (!approved) return c.json({ error: 'A sample must be approved before submitting the production plan.' }, 400);
+  await repo.setStudioProductionFilePlan(file.id, {
+    narrator: narrator ?? null,
+    expectedNetHours: expectedNetHours ?? null,
+    estimatedFinishHours: estimatedFinishHours ?? null,
+  });
+  return c.json({ ok: true });
 });
 
 studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
@@ -91,31 +170,35 @@ studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
   const repo = new Repository(c.env.DB);
   const upload = await repo.getDriveUpload(uploadId);
   if (!upload || upload.studio_id !== session.studioId) return c.json({ error: 'Not found' }, 404);
-  await repo.updateDriveUpload(uploadId, { status: 'pending' });
-  // Enqueue Drive sync if binding available
-  if (c.env.STUDIO_DRIVE_SYNC_QUEUE) {
-    await c.env.STUDIO_DRIVE_SYNC_QUEUE.send({ driveUploadId: uploadId });
-  }
-  // Notify operators
   const studio = await repo.getStudioBySlug(slug);
-  if (studio) {
-    const operators = await repo.listOperatorUsers();
-    const activeOps = operators.filter((op) => op.isActive);
-    const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
-    await Promise.allSettled(activeOps.map((op) =>
-      sendEmail({
-        to: op.email,
-        subject: `استوديو ${studio.name} رفع ملفاً جديداً`,
-        html: notifyOperatorsEmail(
-          `ملف جديد من ${studio.name}`,
-          `رفع الاستوديو ملف جديد بعنوان "<strong>${upload.name}</strong>". سيتم مزامنته مع Google Drive قريباً.`,
-          `${baseUrl}/studios/${studio.id}`,
-          'إدارة الاستوديو'
-        ),
-        emailBinding: c.env.EMAIL,
-      })
-    ));
+  if (!studio) return c.json({ error: 'Not found' }, 404);
+
+  const object = await c.env.ASSET_BUCKET.head(upload.object_key);
+  if (!object) {
+    await repo.updateDriveUpload(uploadId, { status: 'failed', error: 'Uploaded object not found in storage.' });
+    return c.json({ error: 'Uploaded object not found in storage.' }, 404);
   }
+
+  // Just record the delivery — an operator decides whether to push it into the
+  // audiobooks system (or delete it) from the studio management page.
+  await repo.updateDriveUpload(uploadId, { status: 'completed' });
+  await repo.audit('studio', studio.id, 'delivery.received', 'studio_portal', { uploadId, objectKey: upload.object_key, audiobookId: upload.audiobook_id });
+
+  const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
+  const operators = (await repo.listOperatorUsers()).filter((op) => op.isActive);
+  await Promise.allSettled(operators.map((op) =>
+    sendEmail({
+      to: op.email,
+      subject: `تسليم جديد من ${studio.name}`,
+      html: notifyOperatorsEmail(
+        `تسليم جديد من ${studio.name}`,
+        `رفع استوديو ${studio.name} ملفاً بعنوان "<strong>${upload.name}</strong>". راجِعه ثم ادفعه إلى النظام من صفحة إدارة الاستوديو.`,
+        `${baseUrl}/studios/${studio.id}`,
+        'مراجعة التسليم',
+      ),
+      emailBinding: c.env.EMAIL,
+    }),
+  ));
   return c.json({ ok: true });
 });
 

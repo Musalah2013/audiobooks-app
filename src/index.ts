@@ -5,8 +5,7 @@ import { Repository } from "./db";
 import { IntakeCheckpointError, normalizeDriveIntake, normalizeUploadedBatch, parseBatchMetadata, writeIntakeReport } from "./pipeline";
 import { DossierWorkflow, ProcessingWorkflow, runProcessingPipeline } from "./workflows";
 import { AudioProcessorContainer } from "./container";
-import { nowIso, extractDriveFolderId } from "./utils";
-import { sendEmail, driveUploadCompleteEmail } from "./email";
+import { nowIso } from "./utils";
 
 // API modules
 import dashboard from "./api/dashboard";
@@ -25,7 +24,6 @@ import acquisitionAuth from "./api/acquisition-auth";
 import studios from "./api/studios";
 import studioPortal from "./api/studio-portal";
 import acquisitionPortal from "./api/acquisition-portal";
-import { uploadFileToDrive } from "./integrations";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -92,50 +90,6 @@ app.get("*", async (c) => c.env.ASSETS.fetch(c.req.raw));
 const queueHandler = async (batch: MessageBatch<unknown>, env: Env) => {
   const repo = new Repository(env.DB);
   for (const message of batch.messages) {
-    // Drive sync messages from the studio-drive-sync-prod queue
-    const rawPayload = message.body as Record<string, unknown>;
-    if (rawPayload && typeof rawPayload === "object" && "driveUploadId" in rawPayload) {
-      const driveUploadId = rawPayload.driveUploadId as string;
-      try {
-        const upload = await repo.getDriveUpload(driveUploadId);
-        if (!upload) { message.ack(); continue; }
-        const studio = await repo.getStudio(upload.studio_id);
-        if (!studio?.drive_folder_id?.trim()) {
-          await repo.updateDriveUpload(driveUploadId, { status: "failed", error: "Studio has no Drive folder configured." });
-          message.ack(); continue;
-        }
-        await repo.updateDriveUpload(driveUploadId, { status: "uploading" });
-        const r2Object = await env.ASSET_BUCKET.get(upload.object_key);
-        if (!r2Object) {
-          await repo.updateDriveUpload(driveUploadId, { status: "failed", error: "R2 object not found." });
-          message.ack(); continue;
-        }
-        const fileData = await r2Object.arrayBuffer();
-        const mimeType = r2Object.httpMetadata?.contentType ?? "application/octet-stream";
-        const folderId = extractDriveFolderId(studio.drive_folder_id) ?? studio.drive_folder_id;
-        console.log(`[drive-sync] Uploading ${upload.name} to Drive folder ${folderId} for studio ${studio.name}`);
-        const driveFile = await uploadFileToDrive(env, folderId, upload.name, fileData, mimeType);
-        console.log(`[drive-sync] Upload succeeded: ${driveFile.id}`);
-        await repo.updateDriveUpload(driveUploadId, { status: "completed", driveFileId: driveFile.id });
-        if (env.EMAIL && studio.contact_email) {
-          await sendEmail({
-            to: studio.contact_email,
-            toName: studio.name,
-            subject: `تم رفع الملف "${upload.name}" إلى Google Drive`,
-            html: driveUploadCompleteEmail(upload.name, studio.name, driveFile.id),
-            emailBinding: env.EMAIL,
-          }).catch(() => {});
-        }
-        message.ack();
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.error(`[drive-sync] Upload failed for ${driveUploadId}:`, msg);
-        await repo.updateDriveUpload(driveUploadId, { status: "failed", error: msg }).catch(() => {});
-        message.ack();
-      }
-      continue;
-    }
-
     const payload = message.body as QueueMessage;
     try {
       if (payload.type === "drive-intake") {

@@ -40,15 +40,6 @@ max_batch_timeout = 5
 # redeliveries for large Drive folders to complete across multiple attempts.
 max_retries = 20
 
-[[queues.producers]]
-binding = "STUDIO_DRIVE_SYNC_QUEUE"
-queue = "studio-drive-sync-prod"
-
-[[queues.consumers]]
-queue = "studio-drive-sync-prod"
-max_batch_size = 1
-max_retries = 3
-
 [[workflows]]
 name = "processing-workflow"
 binding = "PROCESSING_WORKFLOW"

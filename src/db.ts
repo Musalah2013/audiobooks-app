@@ -21,11 +21,19 @@ import { jsonParse, nowIso } from "./utils";
 type Row = Record<string, unknown>;
 
 // ─── Studio row types ────────────────────────────────────────────────────────
-type StudioRow = { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string };
+type StudioRow = { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string; hourly_rate_usd: number | null };
+type StudioContactRow = { id: string; studio_id: string; email: string; name: string | null; created_at: string };
+type StudioLegacyProductionRow = { id: string; studio_id: string; book_title: string; isbn: string | null; narrator: string | null; net_hours: number | null; notes: string | null; created_at: string };
+type StudioAggregate = {
+  contacts: number; productionFiles: number; assignedFiles: number;
+  samplesTotal: number; samplesPending: number; samplesApproved: number; samplesRefused: number;
+  deliveries: number; deliveriesCompleted: number; netFinalHours: number;
+  legacyProductions: number; legacyNetHours: number;
+};
 type StudioAssetRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
-type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
+type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null };
 type StudioSampleRow = { id: string; studio_id: string; book_id: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string };
-type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string };
+type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; net_final_hours: number | null; notes: string | null };
 type AcquisitionUserRow = { id: string; email: string; name: string; is_active: number; created_at: string; created_by: string };
 
 function bindObject(stmt: D1PreparedStatement, values: unknown[]) {
@@ -45,6 +53,7 @@ export interface IngestionBatchRecord {
   sourceManifest: SourceManifestItem[];
   normalization: { groups?: NormalizedGroup[]; metadataRows?: MetadataRow[]; [key: string]: unknown };
   reportObjectKey: string | null;
+  studioId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -113,6 +122,8 @@ export interface AudiobookRecord {
   storageCleanupStatus: StorageCleanupStatus;
   storageCleanupError: string | null;
   processingStatus: ProcessingStatus;
+  /** True for books imported from the pre-existing live system (no processing/sync). */
+  isLegacy: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -159,6 +170,7 @@ function mapBatch(row: Row): IngestionBatchRecord {
     sourceManifest: jsonParse(row.source_manifest_json as string, []),
     normalization: jsonParse(row.normalization_json as string, {}),
     reportObjectKey: row.report_object_key ? String(row.report_object_key) : null,
+    studioId: row.studio_id ? String(row.studio_id) : null,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -231,6 +243,7 @@ function mapAudiobook(row: Row): AudiobookRecord {
     storageCleanupStatus: (row.storage_cleanup_status as StorageCleanupStatus | null) ?? "pending",
     storageCleanupError: row.storage_cleanup_error ? String(row.storage_cleanup_error) : null,
     processingStatus: row.processing_status as ProcessingStatus,
+    isLegacy: !!row.is_legacy,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -274,15 +287,16 @@ export class Repository {
     sourceType: SourceType;
     driveLink?: string | null;
     uploadObjectKey?: string | null;
+    studioId?: string | null;
   }) {
     const now = nowIso();
     await bindObject(
       this.db.prepare(
         `INSERT INTO ingestion_batch
-        (id, source_type, drive_link, upload_object_key, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'ingested', ?, ?)`,
+        (id, source_type, drive_link, upload_object_key, studio_id, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'ingested', ?, ?)`,
       ),
-      [input.id, input.sourceType, input.driveLink ?? null, input.uploadObjectKey ?? null, now, now],
+      [input.id, input.sourceType, input.driveLink ?? null, input.uploadObjectKey ?? null, input.studioId ?? null, now, now],
     ).run();
     return this.getBatch(input.id);
   }
@@ -414,8 +428,8 @@ export class Repository {
          mp3_specs_summary, source_drive_link, importance_points, classification_decision, metadata_snapshot_json, storage_base_path,
          cover_status, cover_object_key, dossier_status, dossier_workbook_key, dossier_audio_zip_key, clickup_task_id, clickup_task_url,
          clickup_sync_status, clickup_sync_error, clickup_synced_at, sample_track_id, sample_start_seconds, sample_end_seconds,
-         sample_object_key, sample_generated_at, storage_cleanup_status, storage_cleanup_error, processing_status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         sample_object_key, sample_generated_at, storage_cleanup_status, storage_cleanup_error, processing_status, is_legacy, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ),
       [
         record.id,
@@ -461,6 +475,7 @@ export class Repository {
         record.storageCleanupStatus,
         record.storageCleanupError,
         record.processingStatus,
+        record.isLegacy ? 1 : 0,
         now,
         now,
       ],
@@ -953,11 +968,75 @@ export class Repository {
 
   // ─── Studios ────────────────────────────────────────────────────────────────
 
-  async createStudio(input: { id: string; name: string; slug: string; contactEmail: string; driveFolderId?: string; createdBy: string }) {
+  async createStudio(input: { id: string; name: string; slug: string; contactEmail: string; createdBy: string }) {
     await this.db.prepare(
-      `INSERT INTO studio (id, name, slug, contact_email, drive_folder_id, is_active, created_by) VALUES (?, ?, ?, ?, ?, 1, ?)`
-    ).bind(input.id, input.name, input.slug, input.contactEmail, input.driveFolderId ?? null, input.createdBy).run();
+      `INSERT INTO studio (id, name, slug, contact_email, is_active, created_by) VALUES (?, ?, ?, ?, 1, ?)`
+    ).bind(input.id, input.name, input.slug, input.contactEmail, input.createdBy).run();
+    // The primary contact is also a manageable studio user.
+    await this.addStudioContact(input.id, input.contactEmail).catch(() => undefined);
     return this.getStudio(input.id);
+  }
+
+  // ─── Studio contacts (login users) ──────────────────────────────────────────
+  async listStudioContacts(studioId: string) {
+    const { results } = await this.db
+      .prepare(`SELECT * FROM studio_contact WHERE studio_id = ? ORDER BY created_at ASC`)
+      .bind(studioId).all<StudioContactRow>();
+    return results;
+  }
+
+  async addStudioContact(studioId: string, email: string, name?: string | null) {
+    const id = crypto.randomUUID();
+    await this.db
+      .prepare(`INSERT OR IGNORE INTO studio_contact (id, studio_id, email, name) VALUES (?, ?, ?, ?)`)
+      .bind(id, studioId, email.trim().toLowerCase(), name ?? null).run();
+    return id;
+  }
+
+  async deleteStudioContact(studioId: string, contactId: string) {
+    await this.db.prepare(`DELETE FROM studio_contact WHERE id = ? AND studio_id = ?`).bind(contactId, studioId).run();
+  }
+
+  // ─── Legacy productions ─────────────────────────────────────────────────────
+  async createLegacyProduction(input: { studioId: string; bookTitle: string; isbn?: string | null; narrator?: string | null; netHours?: number | null; notes?: string | null }) {
+    const id = crypto.randomUUID();
+    await this.db
+      .prepare(`INSERT INTO studio_legacy_production (id, studio_id, book_title, isbn, narrator, net_hours, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .bind(id, input.studioId, input.bookTitle, input.isbn ?? null, input.narrator ?? null, input.netHours ?? null, input.notes ?? null).run();
+    return id;
+  }
+
+  async listLegacyProductions(studioId: string) {
+    const { results } = await this.db
+      .prepare(`SELECT * FROM studio_legacy_production WHERE studio_id = ? ORDER BY created_at DESC`)
+      .bind(studioId).all<StudioLegacyProductionRow>();
+    return results;
+  }
+
+  async updateLegacyProduction(studioId: string, id: string, patch: { bookTitle?: string; isbn?: string | null; narrator?: string | null; netHours?: number | null; notes?: string | null }) {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    if (patch.bookTitle !== undefined) { fields.push('book_title = ?'); values.push(patch.bookTitle); }
+    if ('isbn' in patch) { fields.push('isbn = ?'); values.push(patch.isbn ?? null); }
+    if ('narrator' in patch) { fields.push('narrator = ?'); values.push(patch.narrator ?? null); }
+    if ('netHours' in patch) { fields.push('net_hours = ?'); values.push(patch.netHours ?? null); }
+    if ('notes' in patch) { fields.push('notes = ?'); values.push(patch.notes ?? null); }
+    if (!fields.length) return;
+    values.push(id, studioId);
+    await this.db.prepare(`UPDATE studio_legacy_production SET ${fields.join(', ')} WHERE id = ? AND studio_id = ?`).bind(...values).run();
+  }
+
+  async deleteLegacyProduction(studioId: string, id: string) {
+    await this.db.prepare(`DELETE FROM studio_legacy_production WHERE id = ? AND studio_id = ?`).bind(id, studioId).run();
+  }
+
+  /** True when the email may access the given studio's portal (any contact, or the legacy primary). */
+  async isStudioContactEmail(studioId: string, email: string) {
+    const norm = email.trim().toLowerCase();
+    const row = await this.db
+      .prepare(`SELECT 1 AS ok FROM studio_contact WHERE studio_id = ? AND lower(email) = ? LIMIT 1`)
+      .bind(studioId, norm).first<{ ok: number }>();
+    return !!row;
   }
 
   async getStudio(id: string) {
@@ -973,13 +1052,41 @@ export class Repository {
     return results;
   }
 
-  async updateStudio(id: string, patch: Partial<{ name: string; slug: string; contactEmail: string; driveFolderId: string | null; logoObjectKey: string | null; isActive: number }>) {
+  /** Per-studio aggregate stats for the studios dashboard, keyed by studio id. */
+  async getStudioAggregates(): Promise<Map<string, StudioAggregate>> {
+    const map = new Map<string, StudioAggregate>();
+    const ensure = (id: string) => {
+      let v = map.get(id);
+      if (!v) { v = { contacts: 0, productionFiles: 0, assignedFiles: 0, samplesTotal: 0, samplesPending: 0, samplesApproved: 0, samplesRefused: 0, deliveries: 0, deliveriesCompleted: 0, netFinalHours: 0, legacyProductions: 0, legacyNetHours: 0 }; map.set(id, v); }
+      return v;
+    };
+    const [contacts, files, samples, deliveries, legacy] = await Promise.all([
+      this.db.prepare(`SELECT studio_id, COUNT(*) AS c FROM studio_contact GROUP BY studio_id`).all<{ studio_id: string; c: number }>(),
+      this.db.prepare(`SELECT studio_id, COUNT(*) AS total, SUM(CASE WHEN audiobook_id IS NOT NULL THEN 1 ELSE 0 END) AS assigned FROM studio_production_file GROUP BY studio_id`).all<{ studio_id: string; total: number; assigned: number }>(),
+      this.db.prepare(`SELECT studio_id, status, COUNT(*) AS c FROM studio_sample GROUP BY studio_id, status`).all<{ studio_id: string; status: string; c: number }>(),
+      this.db.prepare(`SELECT studio_id, COUNT(*) AS total, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed, COALESCE(SUM(net_final_hours),0) AS net_hours FROM studio_drive_upload GROUP BY studio_id`).all<{ studio_id: string; total: number; completed: number; net_hours: number }>(),
+      this.db.prepare(`SELECT studio_id, COUNT(*) AS total, COALESCE(SUM(net_hours),0) AS net_hours FROM studio_legacy_production GROUP BY studio_id`).all<{ studio_id: string; total: number; net_hours: number }>(),
+    ]);
+    for (const r of contacts.results) ensure(r.studio_id).contacts = Number(r.c);
+    for (const r of files.results) { const v = ensure(r.studio_id); v.productionFiles = Number(r.total); v.assignedFiles = Number(r.assigned); }
+    for (const r of samples.results) {
+      const v = ensure(r.studio_id); const c = Number(r.c); v.samplesTotal += c;
+      if (r.status === 'pending') v.samplesPending += c;
+      else if (r.status === 'approved') v.samplesApproved += c;
+      else if (r.status === 'refused') v.samplesRefused += c;
+    }
+    for (const r of deliveries.results) { const v = ensure(r.studio_id); v.deliveries = Number(r.total); v.deliveriesCompleted = Number(r.completed); v.netFinalHours = Number(r.net_hours); }
+    for (const r of legacy.results) { const v = ensure(r.studio_id); v.legacyProductions = Number(r.total); v.legacyNetHours = Number(r.net_hours); }
+    return map;
+  }
+
+  async updateStudio(id: string, patch: Partial<{ name: string; slug: string; contactEmail: string; logoObjectKey: string | null; isActive: number; hourlyRateUsd: number | null }>) {
     const fields: string[] = [];
     const values: unknown[] = [];
     if (patch.name !== undefined) { fields.push("name = ?"); values.push(patch.name); }
     if (patch.slug !== undefined) { fields.push("slug = ?"); values.push(patch.slug); }
     if (patch.contactEmail !== undefined) { fields.push("contact_email = ?"); values.push(patch.contactEmail); }
-    if ("driveFolderId" in patch) { fields.push("drive_folder_id = ?"); values.push(patch.driveFolderId ?? null); }
+    if ("hourlyRateUsd" in patch) { fields.push("hourly_rate_usd = ?"); values.push(patch.hourlyRateUsd ?? null); }
     if ("logoObjectKey" in patch) { fields.push("logo_object_key = ?"); values.push(patch.logoObjectKey ?? null); }
     if (patch.isActive !== undefined) { fields.push("is_active = ?"); values.push(patch.isActive); }
     if (!fields.length) return;
@@ -1040,6 +1147,60 @@ export class Repository {
     return this.db.prepare(`DELETE FROM studio_production_file WHERE id = ? RETURNING object_key`).bind(id).first<{ object_key: string }>();
   }
 
+  async getStudioProductionFile(id: string) {
+    return this.db.prepare(`SELECT * FROM studio_production_file WHERE id = ?`).bind(id).first<StudioProductionFileRow>();
+  }
+
+  /** Assign (or clear, when audiobookId is null) the catalog title a production file narrates. */
+  async setStudioProductionFileAudiobook(id: string, audiobookId: string | null) {
+    await this.db.prepare(`UPDATE studio_production_file SET audiobook_id = ? WHERE id = ?`).bind(audiobookId, id).run();
+  }
+
+  /** Studio-supplied production plan (filled after sample approval). */
+  async setStudioProductionFilePlan(id: string, plan: { narrator: string | null; expectedNetHours: number | null; estimatedFinishHours: number | null }) {
+    await this.db
+      .prepare(`UPDATE studio_production_file SET narrator = ?, expected_net_hours = ?, estimated_finish_hours = ? WHERE id = ?`)
+      .bind(plan.narrator, plan.expectedNetHours, plan.estimatedFinishHours, id).run();
+  }
+
+  /** Production files (across all studios) assigned to a given catalog title. */
+  async listStudioProductionFilesByAudiobook(audiobookId: string) {
+    const { results } = await this.db
+      .prepare(`SELECT * FROM studio_production_file WHERE audiobook_id = ? ORDER BY created_at DESC`)
+      .bind(audiobookId)
+      .all<StudioProductionFileRow>();
+    return results;
+  }
+
+  /**
+   * Bulk studio-linkage signals per audiobook, for deriving unified production
+   * stage across the whole catalog without N+1 queries.
+   */
+  async getProductionLinkageByAudiobook(): Promise<Map<string, { assigned: boolean; sampleState: "none" | "pending" | "approved" | "refused"; delivered: boolean }>> {
+    const map = new Map<string, { assigned: boolean; sampleState: "none" | "pending" | "approved" | "refused"; delivered: boolean }>();
+    const ensure = (id: string) => {
+      let v = map.get(id);
+      if (!v) { v = { assigned: false, sampleState: "none", delivered: false }; map.set(id, v); }
+      return v;
+    };
+    const [assigned, deliveries, samples] = await Promise.all([
+      this.db.prepare(`SELECT DISTINCT audiobook_id FROM studio_production_file WHERE audiobook_id IS NOT NULL`).all<{ audiobook_id: string }>(),
+      this.db.prepare(`SELECT DISTINCT audiobook_id FROM studio_drive_upload WHERE audiobook_id IS NOT NULL AND status IN ('completed', 'pushed')`).all<{ audiobook_id: string }>(),
+      this.db.prepare(`SELECT pf.audiobook_id AS audiobook_id, s.status AS status FROM studio_sample s JOIN studio_production_file pf ON s.book_id = pf.id WHERE pf.audiobook_id IS NOT NULL`).all<{ audiobook_id: string; status: string }>(),
+    ]);
+    for (const r of assigned.results) ensure(r.audiobook_id).assigned = true;
+    for (const r of deliveries.results) ensure(r.audiobook_id).delivered = true;
+    // Sample precedence: approved > pending > refused.
+    for (const r of samples.results) {
+      const v = ensure(r.audiobook_id);
+      if (v.sampleState === "approved") continue;
+      if (r.status === "approved") v.sampleState = "approved";
+      else if (r.status === "pending") v.sampleState = "pending";
+      else if (v.sampleState === "none" && r.status === "refused") v.sampleState = "refused";
+    }
+    return map;
+  }
+
   async createStudioSample(input: { studioId: string; bookId?: string | null; name: string; objectKey: string; contentType: string; sizeBytes: number }) {
     const id = crypto.randomUUID();
     await this.db.prepare(
@@ -1063,11 +1224,11 @@ export class Repository {
     return this.db.prepare(`SELECT * FROM studio_sample WHERE id = ?`).bind(id).first<StudioSampleRow>();
   }
 
-  async createDriveUpload(input: { studioId: string; name: string; objectKey: string }) {
+  async createDriveUpload(input: { studioId: string; name: string; objectKey: string; audiobookId?: string | null; netFinalHours?: number | null; notes?: string | null }) {
     const id = crypto.randomUUID();
     await this.db.prepare(
-      `INSERT INTO studio_drive_upload (id, studio_id, name, object_key) VALUES (?, ?, ?, ?)`
-    ).bind(id, input.studioId, input.name, input.objectKey).run();
+      `INSERT INTO studio_drive_upload (id, studio_id, name, object_key, audiobook_id, net_final_hours, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, input.studioId, input.name, input.objectKey, input.audiobookId ?? null, input.netFinalHours ?? null, input.notes ?? null).run();
     return id;
   }
 
@@ -1084,6 +1245,32 @@ export class Repository {
   async listDriveUploads(studioId: string) {
     const { results } = await this.db.prepare(`SELECT * FROM studio_drive_upload WHERE studio_id = ? ORDER BY created_at DESC`).bind(studioId).all<StudioDriveUploadRow>();
     return results;
+  }
+
+  async deleteDriveUpload(id: string) {
+    await this.db.prepare(`DELETE FROM studio_drive_upload WHERE id = ?`).bind(id).run();
+  }
+
+  async setDriveUploadAudiobook(id: string, audiobookId: string | null) {
+    await this.db.prepare(`UPDATE studio_drive_upload SET audiobook_id = ? WHERE id = ?`).bind(audiobookId, id).run();
+  }
+
+  /** Mark deliveries abandoned mid-upload (never completed) as failed.
+   *  12h is well past the 6h multipart URL expiry, so no in-progress upload is hit. */
+  async failStalePendingDeliveries() {
+    await this.db
+      .prepare(`UPDATE studio_drive_upload SET status = 'failed', error = 'Upload did not complete in time.' WHERE status = 'pending' AND created_at < datetime('now', '-12 hours')`)
+      .run();
+  }
+
+  /** Link a set of a studio's drive uploads to the intake batch that will process them. */
+  async linkDriveUploadsToBatch(uploadIds: string[], batchId: string) {
+    if (uploadIds.length === 0) return;
+    const placeholders = uploadIds.map(() => "?").join(", ");
+    await this.db
+      .prepare(`UPDATE studio_drive_upload SET batch_id = ? WHERE id IN (${placeholders})`)
+      .bind(batchId, ...uploadIds)
+      .run();
   }
 
   // ─── Acquisition users ───────────────────────────────────────────────────────

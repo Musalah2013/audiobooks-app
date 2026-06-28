@@ -5,45 +5,322 @@ import { Repository } from '../db';
 import { requirePermission, actorEmail } from './auth';
 import { createUploadUrl } from '../pipeline';
 import { sendEmail, magicLinkEmail, notifyOperatorsEmail, sampleReviewedEmail } from '../email';
-import { keySegments, nowIso, signInternalArtifactUrl, extractDriveFolderId } from '../utils';
+import { keySegments, nowIso, signInternalArtifactUrl, buildCatalogStorageBasePath } from '../utils';
 
 const studios = new Hono<{ Bindings: Env }>();
 
-function studioToApi(s: { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string }) {
-  return { id: s.id, name: s.name, slug: s.slug, contactEmail: s.contact_email, driveFolderId: s.drive_folder_id, logoObjectKey: s.logo_object_key, isActive: !!s.is_active, createdAt: s.created_at, createdBy: s.created_by };
+function studioToApi(s: { id: string; name: string; slug: string; contact_email: string; logo_object_key: string | null; is_active: number; created_at: string; created_by: string; hourly_rate_usd: number | null }) {
+  return { id: s.id, name: s.name, slug: s.slug, contactEmail: s.contact_email, logoObjectKey: s.logo_object_key, isActive: !!s.is_active, createdAt: s.created_at, createdBy: s.created_by, hourlyRateUsd: s.hourly_rate_usd };
+}
+
+function contactToApi(c: { id: string; studio_id: string; email: string; name: string | null; created_at: string }) {
+  return { id: c.id, studioId: c.studio_id, email: c.email, name: c.name, createdAt: c.created_at };
 }
 
 function assetToApi(a: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string }) {
   return { id: a.id, studioId: a.studio_id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at };
 }
 
-function sampleToApi(s: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string }) {
-  return { id: s.id, studioId: s.studio_id, name: s.name, objectKey: s.object_key, contentType: s.content_type, sizeBytes: s.size_bytes, status: s.status as 'pending' | 'approved' | 'refused', reviewedBy: s.reviewed_by, reviewNote: s.review_note, reviewedAt: s.reviewed_at, createdAt: s.created_at };
+function productionFileToApi(
+  f: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null },
+  audiobookTitle: string | null = null,
+  hasApprovedSample = false,
+) {
+  return {
+    id: f.id, studioId: f.studio_id, name: f.name, objectKey: f.object_key,
+    contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at,
+    audiobookId: f.audiobook_id, audiobookTitle,
+    narrator: f.narrator, expectedNetHours: f.expected_net_hours, estimatedFinishHours: f.estimated_finish_hours,
+    hasApprovedSample,
+  };
+}
+
+function driveUploadToApi(d: { id: string; studio_id: string; name: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; net_final_hours: number | null; notes: string | null }) {
+  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed' | 'pushed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id, netFinalHours: d.net_final_hours, notes: d.notes };
+}
+
+function sampleToApi(s: { id: string; studio_id: string; book_id?: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string }, bookName: string | null = null) {
+  return { id: s.id, studioId: s.studio_id, bookId: s.book_id ?? null, bookName, name: s.name, objectKey: s.object_key, contentType: s.content_type, sizeBytes: s.size_bytes, status: s.status as 'pending' | 'approved' | 'refused', reviewedBy: s.reviewed_by, reviewNote: s.review_note, reviewedAt: s.reviewed_at, createdAt: s.created_at };
 }
 
 // ─── Studios CRUD ─────────────────────────────────────────────────────────────
 
 studios.get('/', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const list = await repo.listStudios();
-  return c.json({ studios: list.map(studioToApi) });
+  const [list, agg] = await Promise.all([repo.listStudios(), repo.getStudioAggregates()]);
+  const empty = { contacts: 0, productionFiles: 0, assignedFiles: 0, samplesTotal: 0, samplesPending: 0, samplesApproved: 0, samplesRefused: 0, deliveries: 0, deliveriesCompleted: 0, netFinalHours: 0, legacyProductions: 0, legacyNetHours: 0 };
+  const studiosWithStats = list.map((s) => {
+    const a = agg.get(s.id) ?? empty;
+    const rate = s.hourly_rate_usd;
+    const totalNetHours = a.netFinalHours + a.legacyNetHours;
+    const cost = rate != null ? rate * totalNetHours : null;
+    return { ...studioToApi(s), stats: { ...a, netFinalHours: totalNetHours, costUsd: cost } };
+  });
+  const summary = {
+    totalStudios: list.length,
+    activeStudios: list.filter((s) => s.is_active).length,
+    totalUsers: studiosWithStats.reduce((n, s) => n + s.stats.contacts, 0),
+    totalProductionFiles: studiosWithStats.reduce((n, s) => n + s.stats.productionFiles, 0),
+    totalAssigned: studiosWithStats.reduce((n, s) => n + s.stats.assignedFiles, 0),
+    samplesPending: studiosWithStats.reduce((n, s) => n + s.stats.samplesPending, 0),
+    samplesApproved: studiosWithStats.reduce((n, s) => n + s.stats.samplesApproved, 0),
+    samplesRefused: studiosWithStats.reduce((n, s) => n + s.stats.samplesRefused, 0),
+    totalDeliveries: studiosWithStats.reduce((n, s) => n + s.stats.deliveries, 0),
+    totalLegacyProductions: studiosWithStats.reduce((n, s) => n + s.stats.legacyProductions, 0),
+    totalNetHours: studiosWithStats.reduce((n, s) => n + s.stats.netFinalHours, 0),
+    totalCostUsd: studiosWithStats.reduce((n, s) => n + (s.stats.costUsd ?? 0), 0),
+  };
+  return c.json({ studios: studiosWithStats, summary });
+});
+
+// ─── Legacy full import ───────────────────────────────────────────────────────
+// One-time import of pre-existing studios with their users, rate, and the books
+// they already produced (net hours → billing history). Idempotent by slug.
+const legacyStudioSchema = z.object({
+  // When studioId is set, productions attach to that existing studio.
+  studioId: z.string().optional(),
+  name: z.string().min(1),
+  slug: z.string().regex(/^[a-z0-9-]+$/).optional(),
+  contactEmail: z.string().email().optional(),
+  emails: z.array(z.string().email()).optional(),
+  hourlyRateUsd: z.number().nonnegative().nullable().optional(),
+  active: z.boolean().optional(),
+  productions: z.array(z.object({
+    bookTitle: z.string().min(1),
+    isbn: z.string().nullish(),
+    narrator: z.string().nullish(),
+    netHours: z.number().nonnegative().nullish(),
+    notes: z.string().nullish(),
+  })).optional(),
+});
+
+studios.post('/legacy-import', requirePermission('users'), async (c) => {
+  const body = z.object({ studios: z.array(legacyStudioSchema).min(1).max(2000) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  let studiosCreated = 0, studiosUpdated = 0, productionsCreated = 0;
+  for (const row of body.studios) {
+    let studio = row.studioId ? await repo.getStudio(row.studioId) : null;
+    if (row.studioId) {
+      // Attaching to an existing studio.
+      if (!studio) continue;
+      studiosUpdated += 1;
+    } else {
+      const slug = (row.slug ?? row.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).slice(0, 80) || `studio-${crypto.randomUUID().slice(0, 8)}`;
+      studio = await repo.getStudioBySlug(slug);
+      if (!studio) {
+        if (!row.contactEmail) continue; // new studios need a contact email
+        await repo.createStudio({ id: crypto.randomUUID(), name: row.name, slug, contactEmail: row.contactEmail, createdBy: actorEmail(c.req.raw) });
+        studio = await repo.getStudioBySlug(slug);
+        studiosCreated += 1;
+      } else {
+        studiosUpdated += 1;
+      }
+    }
+    if (!studio) continue;
+    // Rate / active updates
+    const patch: Partial<{ hourlyRateUsd: number | null; isActive: number }> = {};
+    if ('hourlyRateUsd' in row) patch.hourlyRateUsd = row.hourlyRateUsd ?? null;
+    if (row.active !== undefined) patch.isActive = row.active ? 1 : 0;
+    if (Object.keys(patch).length) await repo.updateStudio(studio.id, patch);
+    // Contacts (primary + extras)
+    if (row.contactEmail) await repo.addStudioContact(studio.id, row.contactEmail).catch(() => undefined);
+    for (const e of row.emails ?? []) await repo.addStudioContact(studio.id, e).catch(() => undefined);
+    // Legacy productions
+    for (const p of row.productions ?? []) {
+      await repo.createLegacyProduction({ studioId: studio.id, bookTitle: p.bookTitle, isbn: p.isbn ?? null, narrator: p.narrator ?? null, netHours: p.netHours ?? null, notes: p.notes ?? null });
+      productionsCreated += 1;
+    }
+    await repo.audit('studio', studio.id, 'legacy.imported', actorEmail(c.req.raw), { productions: row.productions?.length ?? 0 });
+  }
+  return c.json({ ok: true, studiosCreated, studiosUpdated, productionsCreated });
+});
+
+// Edit / delete an imported legacy production
+studios.patch('/:id/legacy-productions/:prodId', requirePermission('users'), async (c) => {
+  const body = z.object({
+    bookTitle: z.string().min(1).optional(),
+    isbn: z.string().nullable().optional(),
+    narrator: z.string().nullable().optional(),
+    netHours: z.number().nonnegative().nullable().optional(),
+    notes: z.string().nullable().optional(),
+  }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  await repo.updateLegacyProduction(c.req.param('id')!, c.req.param('prodId')!, body);
+  return c.json({ ok: true });
+});
+
+studios.delete('/:id/legacy-productions/:prodId', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  await repo.deleteLegacyProduction(c.req.param('id')!, c.req.param('prodId')!);
+  return c.json({ ok: true });
 });
 
 studios.get('/:id', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(c.req.param('id')!);
   if (!studio) return c.json({ error: 'Not found' }, 404);
-  const [assets, productionFiles, samples] = await Promise.all([
+  await repo.failStalePendingDeliveries().catch(() => undefined);
+  const [assets, productionFiles, samples, driveUploads, contacts, legacyProductions] = await Promise.all([
     repo.listStudioAssets(studio.id),
     repo.listStudioProductionFiles(studio.id),
     repo.listStudioSamples(studio.id),
+    repo.listDriveUploads(studio.id),
+    repo.listStudioContacts(studio.id),
+    repo.listLegacyProductions(studio.id),
   ]);
+  // Resolve assigned catalog titles for production files (one lookup per distinct id).
+  const assignedIds = [...new Set(productionFiles.map((f) => f.audiobook_id).filter((id): id is string => !!id))];
+  const titleById = new Map<string, string>();
+  await Promise.all(assignedIds.map(async (id) => {
+    const book = await repo.getAudiobook(id);
+    if (book) titleById.set(id, book.title);
+  }));
+  const approvedFileIds = new Set(samples.filter((s) => s.status === 'approved' && s.book_id).map((s) => s.book_id!));
+  const fileNameById = new Map(productionFiles.map((f) => [f.id, f.name]));
   return c.json({
     studio: studioToApi(studio),
+    contacts: contacts.map(contactToApi),
     assets: assets.map(assetToApi),
-    productionFiles: productionFiles.map(assetToApi),
-    samples: samples.map(sampleToApi),
+    productionFiles: productionFiles.map((f) => productionFileToApi(f, f.audiobook_id ? titleById.get(f.audiobook_id) ?? null : null, approvedFileIds.has(f.id))),
+    samples: samples.map((s) => sampleToApi(s, s.book_id ? fileNameById.get(s.book_id) ?? null : null)),
+    driveUploads: driveUploads.map(driveUploadToApi),
+    legacyProductions: legacyProductions.map((p) => ({ id: p.id, studioId: p.studio_id, bookTitle: p.book_title, isbn: p.isbn, narrator: p.narrator, netHours: p.net_hours, notes: p.notes, createdAt: p.created_at })),
   });
+});
+
+// ─── Deliveries (operator review) ─────────────────────────────────────────────
+
+// Push a delivered file into the audiobooks system. Assigned deliveries attach
+// to their catalog title (metadata inherited). Unassigned deliveries are a
+// type-2 (one-ZIP) input with no metadata, so the operator supplies it here —
+// we create the catalog record from that metadata, attach the ZIP, and go
+// straight to track prep + processing (no Drive discovery, no reconciliation).
+const deliveryMetadataSchema = z.object({
+  sellerId: z.number(),
+  sellerName: z.string().min(1),
+  title: z.string().min(1),
+  subtitle: z.string().nullish(),
+  author: z.string().nullish(),
+  narrator: z.string().nullish(),
+  isbn: z.string().nullish(),
+  genre: z.string().nullish(),
+  blurb: z.string().nullish(),
+  pubYear: z.string().nullish(),
+  sellingType: z.enum(['subscription', 'a_la_carte']).nullish(),
+  price: z.number().nullish(),
+});
+
+studios.post('/:id/deliveries/:uploadId/push', requirePermission('intake'), async (c) => {
+  const studioId = c.req.param('id')!;
+  const uploadId = c.req.param('uploadId')!;
+  const body = await c.req.json().catch(() => ({}));
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudio(studioId);
+  const upload = await repo.getDriveUpload(uploadId);
+  if (!studio || !upload || upload.studio_id !== studioId) return c.json({ error: 'Delivery not found' }, 404);
+  if (upload.status !== 'completed') return c.json({ error: 'Only completed deliveries can be pushed.' }, 400);
+  const object = await c.env.ASSET_BUCKET.head(upload.object_key);
+  if (!object) return c.json({ error: 'Delivered file is no longer in storage.' }, 404);
+  const fileName = upload.object_key.split('/').pop() ?? upload.name;
+  const sourceItem = { key: upload.object_key, name: fileName, mimeType: object.httpMetadata?.contentType ?? 'application/octet-stream', sizeBytes: object.size, parentPath: '' };
+
+  // ── Assigned → attach to the existing catalog title (metadata inherited). ──
+  if (upload.audiobook_id) {
+    const book = await repo.getAudiobook(upload.audiobook_id);
+    const candidate = book?.candidateId ? await repo.getCandidate(book.candidateId) : null;
+    if (!book || !candidate) return c.json({ error: 'Assigned title is no longer available.' }, 409);
+    const newSourceGroup = {
+      ...(candidate.sourceGroup ?? {}),
+      items: [sourceItem],
+      coverCandidates: candidate.sourceGroup?.coverCandidates ?? [],
+    };
+    await repo.updateCandidateSourceGroup(candidate.id, newSourceGroup.groupKey ?? null, newSourceGroup as Parameters<typeof repo.updateCandidateSourceGroup>[2]);
+    await repo.replaceTracks(book.id, []);
+    await repo.updateAudiobook(book.id, {
+      processingStatus: 'pending', dossierStatus: 'pending',
+      dossierWorkbookKey: null, dossierAudioZipKey: null,
+      sampleTrackId: null, sampleStartSeconds: null, sampleEndSeconds: null, sampleObjectKey: null, sampleGeneratedAt: null,
+    });
+    await repo.updateDriveUpload(uploadId, { status: 'pushed' });
+    await repo.audit('audiobook_record', book.id, 'delivery.pushed', actorEmail(c.req.raw), { studioId, uploadId });
+    return c.json({ ok: true, mode: 'assigned', audiobookId: book.id });
+  }
+
+  // ── Unassigned → operator-supplied metadata creates a new catalog record. ──
+  const meta = deliveryMetadataSchema.parse(body.metadata ?? body);
+  const isbn = meta.isbn?.trim() || null;
+  const batch = await repo.createBatch({ id: crypto.randomUUID(), sourceType: 'upload', uploadObjectKey: upload.object_key, studioId });
+  if (!batch) return c.json({ error: 'Failed to create batch.' }, 500);
+  await repo.updateBatch(batch.id, { status: 'records_created', sellerId: meta.sellerId, sellerName: meta.sellerName, intakeMode: 'studio_delivery' });
+
+  const candidateId = crypto.randomUUID();
+  const sourceGroup = {
+    groupKey: 'delivery', displayName: meta.title, inferredTitle: meta.title,
+    items: [sourceItem], coverCandidates: [], confidence: 1, reasons: ['studio_delivery'],
+  };
+  await repo.replaceCandidates(batch.id, [{
+    id: candidateId, batchId: batch.id, metadataRowIndex: null,
+    title: meta.title, author: meta.author ?? null, subtitle: meta.subtitle ?? null, isbn, narrator: meta.narrator ?? null,
+    sourceGroupKey: 'delivery', sourceGroup, samawyCandidates: [],
+    classificationDecision: 'approved_new', decisionReason: 'studio_delivery', status: 'reviewed', metadataOverride: null,
+  }]);
+
+  const bookId = crypto.randomUUID();
+  await repo.createAudiobook({
+    id: bookId, batchId: batch.id, candidateId,
+    publisherId: meta.sellerId, publisherName: meta.sellerName,
+    title: meta.title, subtitle: meta.subtitle ?? null, genre: meta.genre ?? null, blurb: meta.blurb ?? null,
+    author: meta.author ?? null, narrator: meta.narrator ?? null, isbn,
+    pubYear: meta.pubYear ?? null, sellingType: meta.sellingType ?? null, price: meta.price ?? null,
+    trackCount: 0, totalLengthSeconds: 0, totalOriginalSizeBytes: object.size, totalFinalSizeBytes: 0,
+    mp3SpecsSummary: {}, sourceDriveLink: null, importancePoints: 0,
+    classificationDecision: 'new',
+    metadataSnapshot: { ...meta, source: 'studio_delivery' },
+    storageBasePath: buildCatalogStorageBasePath({ publisherId: meta.sellerId, publisherName: meta.sellerName, isbn, title: meta.title }),
+    coverStatus: 'missing', coverObjectKey: null,
+    dossierStatus: 'pending', dossierWorkbookKey: null, dossierAudioZipKey: null,
+    clickupTaskId: null, clickupTaskUrl: null, clickupSyncStatus: 'never_synced', clickupSyncError: null, clickupSyncedAt: null,
+    sampleTrackId: null, sampleStartSeconds: null, sampleEndSeconds: null, sampleObjectKey: null, sampleGeneratedAt: null,
+    storageCleanupStatus: 'pending', storageCleanupError: null,
+    processingStatus: 'pending', isLegacy: false,
+  });
+  await repo.setDriveUploadAudiobook(uploadId, bookId);
+  await repo.updateDriveUpload(uploadId, { status: 'pushed' });
+  await repo.audit('audiobook_record', bookId, 'delivery.pushed_new', actorEmail(c.req.raw), { studioId, uploadId, batchId: batch.id });
+  return c.json({ ok: true, mode: 'created', audiobookId: bookId });
+});
+
+studios.delete('/:id/deliveries/:uploadId', requirePermission('users'), async (c) => {
+  const studioId = c.req.param('id')!;
+  const uploadId = c.req.param('uploadId')!;
+  const repo = new Repository(c.env.DB);
+  const upload = await repo.getDriveUpload(uploadId);
+  if (!upload || upload.studio_id !== studioId) return c.json({ error: 'Delivery not found' }, 404);
+  if (upload.object_key) await c.env.ASSET_BUCKET.delete(upload.object_key).catch(() => undefined);
+  await repo.deleteDriveUpload(uploadId);
+  await repo.audit('studio', studioId, 'delivery.deleted', actorEmail(c.req.raw), { uploadId });
+  return c.json({ ok: true });
+});
+
+// ─── Studio contacts (login users) ────────────────────────────────────────────
+studios.post('/:id/contacts', requirePermission('users'), async (c) => {
+  const { email, name } = z.object({ email: z.string().email(), name: z.string().optional() }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudio(c.req.param('id')!);
+  if (!studio) return c.json({ error: 'Studio not found' }, 404);
+  await repo.addStudioContact(studio.id, email, name ?? null);
+  const contacts = await repo.listStudioContacts(studio.id);
+  return c.json({ ok: true, contacts: contacts.map(contactToApi) });
+});
+
+studios.delete('/:id/contacts/:contactId', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const studioId = c.req.param('id')!;
+  const contacts = await repo.listStudioContacts(studioId);
+  if (contacts.length <= 1) return c.json({ error: 'A studio must keep at least one contact.' }, 400);
+  await repo.deleteStudioContact(studioId, c.req.param('contactId')!);
+  const next = await repo.listStudioContacts(studioId);
+  return c.json({ ok: true, contacts: next.map(contactToApi) });
 });
 
 studios.post('/', requirePermission('users'), async (c) => {
@@ -51,10 +328,9 @@ studios.post('/', requirePermission('users'), async (c) => {
     name: z.string().min(1),
     slug: z.string().min(1).regex(/^[a-z0-9-]+$/),
     contactEmail: z.string().email(),
-    driveFolderId: z.string().optional(),
   }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
-  const studio = await repo.createStudio({ id: crypto.randomUUID(), name: body.name, slug: body.slug, contactEmail: body.contactEmail, driveFolderId: extractDriveFolderId(body.driveFolderId) ?? undefined, createdBy: actorEmail(c.req.raw) });
+  const studio = await repo.createStudio({ id: crypto.randomUUID(), name: body.name, slug: body.slug, contactEmail: body.contactEmail, createdBy: actorEmail(c.req.raw) });
   return c.json({ ok: true, studio: studio ? studioToApi(studio) : null }, 201);
 });
 
@@ -63,16 +339,16 @@ studios.patch('/:id', requirePermission('users'), async (c) => {
     name: z.string().min(1).optional(),
     slug: z.string().regex(/^[a-z0-9-]+$/).optional(),
     contactEmail: z.string().email().optional(),
-    driveFolderId: z.string().nullable().optional(),
     isActive: z.boolean().optional(),
+    hourlyRateUsd: z.number().nonnegative().nullable().optional(),
   }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   await repo.updateStudio(c.req.param('id')!, {
     name: body.name,
     slug: body.slug,
     contactEmail: body.contactEmail,
-    driveFolderId: extractDriveFolderId(body.driveFolderId) ?? undefined,
     isActive: body.isActive !== undefined ? (body.isActive ? 1 : 0) : undefined,
+    ...('hourlyRateUsd' in body ? { hourlyRateUsd: body.hourlyRateUsd ?? null } : {}),
   });
   const studio = await repo.getStudio(c.req.param('id')!);
   return c.json({ ok: true, studio: studio ? studioToApi(studio) : null });
@@ -93,14 +369,14 @@ studios.post('/:id/magic-link', requirePermission('users'), async (c) => {
   const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   await repo.createStudioMagicLink(studio.id, token, expiresAt);
-  const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
+  const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
 
   // Build signed studio logo URL if available
   let studioLogoUrl: string | undefined;
   if (studio.logo_object_key) {
     const logoExpiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
-    const logoBaseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
+    const logoBaseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
     studioLogoUrl = await signInternalArtifactUrl({
       baseUrl: logoBaseUrl,
       path: `/api/files/${studio.logo_object_key}`,
@@ -166,7 +442,7 @@ studios.post('/:id/production-file-upload-url', requirePermission('users'), asyn
   const upload = await createUploadUrl(c.env, key, contentType);
   const fileId = await repo.createStudioProductionFile({ studioId, name: fileName, objectKey: key, contentType, sizeBytes: sizeBytes ?? 0, uploadedBy: actorEmail(c.req.raw) });
   // Notify studio
-  const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
+  const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
     subject: 'ملف إنتاج جديد متاح في بوابتك',
@@ -188,12 +464,36 @@ studios.delete('/:id/production-files/:fileId', requirePermission('users'), asyn
   return c.json({ ok: true });
 });
 
+// Assign (or clear) the catalog title a production file narrates.
+studios.patch('/:id/production-files/:fileId/assign', requirePermission('users'), async (c) => {
+  const { audiobookId } = z.object({ audiobookId: z.string().nullable() }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
+  if (!file || file.studio_id !== c.req.param('id')) return c.json({ error: 'Production file not found' }, 404);
+  let audiobookTitle: string | null = null;
+  if (audiobookId) {
+    const book = await repo.getAudiobook(audiobookId);
+    if (!book) return c.json({ error: 'Audiobook not found' }, 404);
+    audiobookTitle = book.title;
+  }
+  await repo.setStudioProductionFileAudiobook(file.id, audiobookId);
+  await repo.audit('studio', file.studio_id, audiobookId ? 'production_file.assigned' : 'production_file.unassigned', actorEmail(c.req.raw), {
+    productionFileId: file.id,
+    audiobookId,
+  });
+  return c.json({ ok: true, productionFile: productionFileToApi({ ...file, audiobook_id: audiobookId }, audiobookTitle) });
+});
+
 // ─── Samples ──────────────────────────────────────────────────────────────────
 
 studios.get('/:id/samples', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const samples = await repo.listStudioSamples(c.req.param('id')!);
-  return c.json({ samples: samples.map(sampleToApi) });
+  const [samples, files] = await Promise.all([
+    repo.listStudioSamples(c.req.param('id')!),
+    repo.listStudioProductionFiles(c.req.param('id')!),
+  ]);
+  const fileNameById = new Map(files.map((f) => [f.id, f.name]));
+  return c.json({ samples: samples.map((s) => sampleToApi(s, s.book_id ? fileNameById.get(s.book_id) ?? null : null)) });
 });
 
 studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async (c) => {
@@ -205,7 +505,7 @@ studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async 
   const sample = await repo.getStudioSample(sampleId);
   if (!studio || !sample) return c.json({ error: 'Not found' }, 404);
   await repo.reviewStudioSample(sampleId, status, actorEmail(c.req.raw), note ?? null);
-  const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
+  const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const statusAr = status === 'approved' ? 'موافقة' : 'رفض';
   await sendEmail({
     to: studio.contact_email, toName: studio.name,

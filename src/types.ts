@@ -220,7 +220,6 @@ export interface Env {
   ASSET_BUCKET: R2Bucket;
   ASSETS: Fetcher;
   INGEST_QUEUE: Queue<QueueMessage>;
-  STUDIO_DRIVE_SYNC_QUEUE?: Queue<{ driveUploadId: string }>;
   PROCESSING_WORKFLOW: Workflow;
   DOSSIER_WORKFLOW: Workflow;
   AUDIO_PROCESSOR_CONTAINER: DurableObjectNamespace<AudioProcessorContainer>;

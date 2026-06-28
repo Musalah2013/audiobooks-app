@@ -109,7 +109,7 @@ export default function Users() {
       refetchMe();
       refetchUsers();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : 'Bootstrap failed', 'error');
+      addToast(err instanceof Error ? err : 'Bootstrap failed', 'error');
     } finally {
       setBootstrapping(false);
     }
@@ -129,7 +129,7 @@ export default function Users() {
       setNewPerms(['intake', 'metadata', 'matching', 'processing', 'dossier']);
       refetchUsers();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل إضافة المستخدم' : 'Failed to add user'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل إضافة المستخدم' : 'Failed to add user'), 'error');
     } finally {
       setAdding(false);
     }
@@ -145,7 +145,7 @@ export default function Users() {
       setEditPerms((prev) => { const next = { ...prev }; delete next[email]; return next; });
       refetchUsers();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل حفظ الصلاحيات' : 'Failed to save permissions'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل حفظ الصلاحيات' : 'Failed to save permissions'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -160,7 +160,7 @@ export default function Users() {
       setPwdTarget(null);
       setPwdInput('');
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل تعيين كلمة المرور' : 'Failed to set password'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل تعيين كلمة المرور' : 'Failed to set password'), 'error');
     } finally {
       setPwdSaving(false);
     }
@@ -174,7 +174,7 @@ export default function Users() {
       setConfirmDeleteUser(null);
       refetchUsers();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل حذف المستخدم' : 'Failed to delete user'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل حذف المستخدم' : 'Failed to delete user'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -187,7 +187,7 @@ export default function Users() {
       addToast(`${email} ${isActive ? (isArabic ? 'تم تفعيله' : 'activated') : (isArabic ? 'تم تعطيله' : 'deactivated')}.`, 'success');
       refetchUsers();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل تحديث المستخدم' : 'Failed to update user'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل تحديث المستخدم' : 'Failed to update user'), 'error');
     } finally {
       setActionLoading(null);
     }

@@ -135,6 +135,68 @@ export interface BookListItem {
   author: string | null;
   narrator: string | null;
   totalOriginalSizeBytes: number;
+  /** Unified position across the studio→catalog→processing→dossier→ClickUp chain. */
+  productionStage: ProductionStage;
+  /** True for books imported from the pre-existing live system. */
+  isLegacy?: boolean;
+}
+
+// ─── Unified production status ──────────────────────────────────────────────
+// One status that spans both the studio graph (assignment, samples, delivery)
+// and the core pipeline (processing, dossier, ClickUp sync).
+
+export type ProductionStage =
+  | "catalog"        // in catalog, no studio assigned
+  | "assigned"       // assigned to a studio, no sample yet
+  | "sample_review"  // studio submitted a sample, awaiting operator review
+  | "narrating"      // sample approved, studio narrating
+  | "delivered"      // finished audio delivered, awaiting processing
+  | "processing"     // audio processing running
+  | "processed"      // processing succeeded, dossier not yet ready
+  | "dossier_ready"  // dossier built, not yet synced
+  | "synced"         // synced to ClickUp — done
+  | "legacy"         // imported from the pre-existing live system
+  | "failed";        // processing or dossier failed
+
+export const PRODUCTION_STAGE_ORDER: ProductionStage[] = [
+  "catalog", "assigned", "sample_review", "narrating", "delivered",
+  "processing", "processed", "dossier_ready", "synced",
+];
+
+export const PRODUCTION_STAGE_LABELS: Record<ProductionStage, { en: string; ar: string }> = {
+  catalog:       { en: "In catalog",     ar: "في الفهرس" },
+  assigned:      { en: "Assigned",       ar: "مُسنَد" },
+  sample_review: { en: "Sample review",  ar: "مراجعة عينة" },
+  narrating:     { en: "Narrating",      ar: "قيد التسجيل" },
+  delivered:     { en: "Delivered",      ar: "تم التسليم" },
+  processing:    { en: "Processing",     ar: "قيد المعالجة" },
+  processed:     { en: "Processed",      ar: "تمت المعالجة" },
+  dossier_ready: { en: "Dossier ready",  ar: "الملف جاهز" },
+  synced:        { en: "Synced",         ar: "تمت المزامنة" },
+  legacy:        { en: "Legacy",         ar: "قديم" },
+  failed:        { en: "Failed",         ar: "فشل" },
+};
+
+export function deriveProductionStage(input: {
+  processingStatus: string;
+  dossierStatus: string;
+  clickupSyncStatus: string;
+  assigned: boolean;
+  sampleState: "none" | "pending" | "approved" | "refused";
+  delivered: boolean;
+  isLegacy?: boolean;
+}): ProductionStage {
+  if (input.isLegacy) return "legacy";
+  if (input.processingStatus === "failed" || input.dossierStatus === "failed") return "failed";
+  if (input.clickupSyncStatus === "synced") return "synced";
+  if (input.dossierStatus === "ready") return "dossier_ready";
+  if (input.processingStatus === "succeeded") return "processed";
+  if (input.processingStatus === "running" || input.processingStatus === "queued") return "processing";
+  if (input.delivered) return "delivered";
+  if (input.assigned && input.sampleState === "approved") return "narrating";
+  if (input.assigned && input.sampleState === "pending") return "sample_review";
+  if (input.assigned) return "assigned";
+  return "catalog";
 }
 
 export interface BooksResponse {
@@ -211,6 +273,17 @@ export interface BookDetailResponse {
   } | null;
   processingEvents: AuditEvent[];
   dossierEvents: AuditEvent[];
+  /** Studios narrating this title (via assigned production files). */
+  narration?: NarrationLink[];
+  /** Unified production stage across the studio + pipeline chain. */
+  productionStage?: ProductionStage | null;
+}
+
+export interface NarrationLink {
+  studioId: string;
+  studioName: string | null;
+  productionFileId: string;
+  productionFileName: string;
 }
 
 export interface BatchListItem {
@@ -294,6 +367,8 @@ export interface BatchDetailResponse {
     sellerId: number | null;
     reportObjectKey: string | null;
     metadataSheetObjectKey: string | null;
+    studioId?: string | null;
+    studioName?: string | null;
     sourceManifest: SourceManifestItem[];
     normalization: {
       intakeError?: string;
@@ -345,18 +420,111 @@ export interface ClickUpSettingsResponse {
   defaults: ClickUpConfig;
 }
 
+// ─── AI model configuration ─────────────────────────────────────────────────
+
+export type AiModelTier = "economy" | "balanced" | "premium";
+
+export interface AiModelOption {
+  id: string;
+  label: string;
+  description: string;
+  contextWindow: number;
+  inputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+  tier: AiModelTier;
+}
+
+export interface AiModelConfig {
+  /** Model used for workbook column detection (metadata parsing). */
+  workbookModelId: string;
+}
+
+export interface AiSettingsResponse {
+  config: AiModelConfig;
+  defaults: AiModelConfig;
+  /** Available Cloudflare Workers AI models with published pricing. */
+  catalog: AiModelOption[];
+  pricing: {
+    verifiedAt: string;
+    sourceUrl: string;
+  };
+  /** False when the AI binding is not available in this environment. */
+  aiBindingAvailable: boolean;
+}
+
 // ─── Studio portal ────────────────────────────────────────────────────────────
+
+export interface StudioContact {
+  id: string;
+  studioId: string;
+  email: string;
+  name: string | null;
+  createdAt: string;
+}
 
 export interface Studio {
   id: string;
   name: string;
   slug: string;
   contactEmail: string;
-  driveFolderId: string | null;
   logoObjectKey: string | null;
   isActive: boolean;
   createdAt: string;
   createdBy: string;
+  /** Admin-set rate paid per net final hour of finished audio, in USD. */
+  hourlyRateUsd?: number | null;
+}
+
+export interface StudioStats {
+  contacts: number;
+  productionFiles: number;
+  assignedFiles: number;
+  samplesTotal: number;
+  samplesPending: number;
+  samplesApproved: number;
+  samplesRefused: number;
+  deliveries: number;
+  deliveriesCompleted: number;
+  /** Net hours across live deliveries + legacy productions. */
+  netFinalHours: number;
+  legacyProductions: number;
+  legacyNetHours: number;
+  costUsd: number | null;
+}
+
+export interface StudioLegacyProduction {
+  id: string;
+  studioId: string;
+  bookTitle: string;
+  isbn: string | null;
+  narrator: string | null;
+  netHours: number | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface StudioWithStats extends Studio {
+  stats: StudioStats;
+}
+
+export interface StudiosSummary {
+  totalStudios: number;
+  activeStudios: number;
+  totalUsers: number;
+  totalProductionFiles: number;
+  totalAssigned: number;
+  samplesPending: number;
+  samplesApproved: number;
+  samplesRefused: number;
+  totalDeliveries: number;
+  totalLegacyProductions: number;
+  totalNetHours: number;
+  totalCostUsd: number;
+}
+
+export interface StudiosResponse {
+  studios: StudioWithStats[];
+  summary: StudiosSummary;
 }
 
 export interface StudioAsset {
@@ -379,6 +547,16 @@ export interface StudioProductionFile {
   sizeBytes: number;
   uploadedBy: string;
   createdAt: string;
+  /** Catalog audiobook this production file is assigned to narrate (null = unassigned). */
+  audiobookId: string | null;
+  /** Title of the assigned catalog audiobook, when assigned. */
+  audiobookTitle: string | null;
+  /** Studio production plan (filled after a sample is approved). */
+  narrator?: string | null;
+  expectedNetHours?: number | null;
+  estimatedFinishHours?: number | null;
+  /** Whether this file has an approved narration sample (gates the plan form). */
+  hasApprovedSample?: boolean;
 }
 
 export interface StudioSample {
@@ -401,10 +579,23 @@ export interface StudioDriveUpload {
   id: string;
   studioId: string;
   name: string;
-  status: "pending" | "uploading" | "completed" | "failed";
+  status: "pending" | "uploading" | "completed" | "failed" | "pushed";
   driveFileId: string | null;
   error: string | null;
   createdAt: string;
+  /** Intake batch this delivery was bridged into (null = not yet sent to intake). */
+  batchId: string | null;
+  /** Catalog title this delivery was assigned to (null = unassigned delivery). */
+  audiobookId: string | null;
+  /** Net hours of finished audio reported by the studio at upload. */
+  netFinalHours?: number | null;
+  /** Free-text notes the studio attached to the delivery. */
+  notes?: string | null;
+}
+
+export interface AssignedTitle {
+  audiobookId: string;
+  title: string;
 }
 
 export interface StudioPortalResponse {
@@ -413,6 +604,8 @@ export interface StudioPortalResponse {
   productionFiles: StudioProductionFile[];
   samples: StudioSample[];
   driveUploads: StudioDriveUpload[];
+  /** Titles an operator assigned to this studio; valid delivery targets. */
+  assignedTitles: AssignedTitle[];
 }
 
 export interface AcquisitionUser {

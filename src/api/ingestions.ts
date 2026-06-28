@@ -442,7 +442,13 @@ ingestions.get('/:id', async (c) => {
     repo.listCandidates(c.req.param("id")),
     repo.listAuditEvents("ingestion_batch", c.req.param("id")),
   ]);
-  return c.json({ batch, candidates, events });
+  // Attach originating studio name when this batch was bridged from a studio delivery.
+  let studioName: string | null = null;
+  if (batch?.studioId) {
+    const studio = await repo.getStudio(batch.studioId);
+    studioName = studio?.name ?? null;
+  }
+  return c.json({ batch: batch ? { ...batch, studioName } : null, candidates, events });
 });
 
 ingestions.get('/:id/stream', async (c) => {
@@ -478,7 +484,7 @@ ingestions.get('/:id/stream', async (c) => {
           const [batch, candidates, events] = await Promise.all([
             repo.getBatch(batchId),
             repo.listCandidates(batchId),
-            repo.listAuditEvents("ingestion_batch", batchId),
+            repo.listAuditEvents("ingestion_batch", batchId, 200),
           ]);
           const payload = JSON.stringify({ batch, candidates, events });
           if (payload !== lastPayload) {
@@ -488,11 +494,10 @@ ingestions.get('/:id/stream', async (c) => {
             controller.enqueue(encoder.encode(`event: ping\ndata: {"ok":true}\n\n`));
           }
 
-          if (!batch || !["intake_queued", "normalizing"].includes(batch.status)) {
-            await sleep(1000);
-          } else {
-            await sleep(350);
-          }
+          // Scale polling interval with candidate count to avoid flooding D1 on big batches.
+          const isActive = batch && ["intake_queued", "normalizing"].includes(batch.status);
+          const pollMs = !isActive ? 2000 : candidates.length > 100 ? 1000 : 350;
+          await sleep(pollMs);
         }
         if (!closed) close();
       } catch (error) {

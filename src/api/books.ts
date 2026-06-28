@@ -7,9 +7,135 @@ import { buildTrackDrafts, createUploadUrl, generateAudiobookWorkbookBuffer, gen
 import { buildProcessingPayload } from '../processing-contract';
 import type { Env, TrackDraft } from '../types';
 import { buildCatalogStorageBasePath, keySegments, signInternalArtifactUrl } from '../utils';
-import { requirePermission } from './auth';
+import { deriveProductionStage } from '../api-contracts';
+import { requirePermission, actorEmail } from './auth';
 
 const books = new Hono<{ Bindings: Env }>();
+
+// Catalog list with unified production stage per title.
+books.get('/', async (c) => {
+  const repo = new Repository(c.env.DB);
+  const [records, linkage] = await Promise.all([
+    repo.listAudiobooks(10_000),
+    repo.getProductionLinkageByAudiobook(),
+  ]);
+  const list = records.map((b) => {
+    const link = linkage.get(b.id) ?? { assigned: false, sampleState: 'none' as const, delivered: false };
+    return {
+      id: b.id,
+      title: b.title,
+      publisherName: b.publisherName,
+      processingStatus: b.processingStatus,
+      dossierStatus: b.dossierStatus,
+      clickupTaskUrl: b.clickupTaskUrl,
+      clickupSyncStatus: b.clickupSyncStatus,
+      storageBasePath: b.storageBasePath,
+      isbn: b.isbn,
+      author: b.author,
+      narrator: b.narrator,
+      totalOriginalSizeBytes: b.totalOriginalSizeBytes,
+      isLegacy: b.isLegacy,
+      productionStage: deriveProductionStage({
+        processingStatus: b.processingStatus,
+        dossierStatus: b.dossierStatus,
+        clickupSyncStatus: b.clickupSyncStatus,
+        assigned: link.assigned,
+        sampleState: link.sampleState,
+        delivered: link.delivered,
+        isLegacy: b.isLegacy,
+      }),
+    };
+  });
+  return c.json({ books: list });
+});
+
+// One-time bulk import of legacy books already produced & live in the audiobooks
+// system. Creates terminal records (no processing, no ClickUp sync) under a
+// dedicated legacy batch, marked is_legacy.
+const legacyBookSchema = z.object({
+  title: z.string().min(1),
+  subtitle: z.string().nullish(),
+  author: z.string().nullish(),
+  narrator: z.string().nullish(),
+  isbn: z.string().nullish(),
+  genre: z.string().nullish(),
+  blurb: z.string().nullish(),
+  pubYear: z.string().nullish(),
+  sellingType: z.string().nullish(),
+  price: z.number().nullish(),
+  trackCount: z.number().nullish(),
+  totalHours: z.number().nullish(),
+});
+
+books.post('/legacy-import', requirePermission('users'), async (c) => {
+  const body = z.object({
+    sellerId: z.number(),
+    sellerName: z.string().min(1),
+    books: z.array(legacyBookSchema).min(1).max(5000),
+  }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+
+  // A container batch to group this import (already "complete").
+  const batch = await repo.createBatch({ id: crypto.randomUUID(), sourceType: 'upload' });
+  if (!batch) return c.json({ error: 'Failed to create import batch' }, 500);
+  await repo.updateBatch(batch.id, { status: 'records_created', sellerId: body.sellerId, sellerName: body.sellerName, intakeMode: 'legacy_import' });
+  await repo.audit('ingestion_batch', batch.id, 'legacy.import.started', actorEmail(c.req.raw), { sellerId: body.sellerId, count: body.books.length });
+
+  const now = new Date().toISOString();
+  let created = 0;
+  for (const row of body.books) {
+    const isbn = row.isbn?.trim() || null;
+    await repo.createAudiobook({
+      id: crypto.randomUUID(),
+      batchId: batch.id,
+      candidateId: crypto.randomUUID(),
+      publisherId: body.sellerId,
+      publisherName: body.sellerName,
+      title: row.title.trim(),
+      subtitle: row.subtitle?.trim() || null,
+      genre: row.genre?.trim() || null,
+      blurb: row.blurb?.trim() || null,
+      author: row.author?.trim() || null,
+      narrator: row.narrator?.trim() || null,
+      isbn,
+      pubYear: row.pubYear?.trim() || null,
+      sellingType: row.sellingType?.trim() || null,
+      price: row.price ?? null,
+      trackCount: row.trackCount ?? 0,
+      totalLengthSeconds: row.totalHours != null ? Math.round(row.totalHours * 3600) : 0,
+      totalOriginalSizeBytes: 0,
+      totalFinalSizeBytes: 0,
+      mp3SpecsSummary: {},
+      sourceDriveLink: null,
+      importancePoints: 0,
+      classificationDecision: 'existing',
+      metadataSnapshot: { ...row, importedAt: now, source: 'legacy_import' },
+      storageBasePath: buildCatalogStorageBasePath({ publisherId: body.sellerId, publisherName: body.sellerName, isbn, title: row.title }),
+      coverStatus: 'missing',
+      coverObjectKey: null,
+      dossierStatus: 'ready',
+      dossierWorkbookKey: null,
+      dossierAudioZipKey: null,
+      clickupTaskId: null,
+      clickupTaskUrl: null,
+      clickupSyncStatus: 'synced', // already live in the audiobooks system — nothing to sync
+      clickupSyncError: null,
+      clickupSyncedAt: now,
+      sampleTrackId: null,
+      sampleStartSeconds: null,
+      sampleEndSeconds: null,
+      sampleObjectKey: null,
+      sampleGeneratedAt: null,
+      storageCleanupStatus: 'completed',
+      storageCleanupError: null,
+      processingStatus: 'succeeded',
+      isLegacy: true,
+    });
+    created += 1;
+  }
+  await repo.audit('ingestion_batch', batch.id, 'legacy.import.completed', actorEmail(c.req.raw), { created });
+  return c.json({ ok: true, batchId: batch.id, created });
+});
 
 function maybeAudioName(name: string) {
   return /\.(mp3|m4a|m4b|wav|flac|aac|ogg)$/i.test(name);
@@ -92,11 +218,38 @@ books.get('/:id', async (c) => {
     repo.listProcessingRuns(c.req.param("id")),
   ]);
   const processingRun = processingRuns[0] ?? null;
-  const [processingEvents, dossierEvents] = await Promise.all([
+  const [processingEvents, dossierEvents, productionFiles] = await Promise.all([
     processingRun ? repo.listAuditEvents("processing_run", processingRun.id) : Promise.resolve([]),
     repo.listAuditEvents("audiobook_record", c.req.param("id")),
+    book ? repo.listStudioProductionFilesByAudiobook(c.req.param("id")) : Promise.resolve([]),
   ]);
-  return c.json({ book, tracks, processingRun, processingEvents, dossierEvents });
+  // Resolve studio names for any studio narrating this title.
+  const studioIds = [...new Set(productionFiles.map((f) => f.studio_id))];
+  const studioNameById = new Map<string, string>();
+  await Promise.all(studioIds.map(async (sid) => {
+    const s = await repo.getStudio(sid);
+    if (s) studioNameById.set(sid, s.name);
+  }));
+  const narration = productionFiles.map((f) => ({
+    studioId: f.studio_id,
+    studioName: studioNameById.get(f.studio_id) ?? null,
+    productionFileId: f.id,
+    productionFileName: f.name,
+  }));
+  let productionStage: ReturnType<typeof deriveProductionStage> | null = null;
+  if (book) {
+    const link = (await repo.getProductionLinkageByAudiobook()).get(book.id) ?? { assigned: false, sampleState: 'none' as const, delivered: false };
+    productionStage = deriveProductionStage({
+      processingStatus: book.processingStatus,
+      dossierStatus: book.dossierStatus,
+      clickupSyncStatus: book.clickupSyncStatus,
+      assigned: link.assigned,
+      sampleState: link.sampleState,
+      delivered: link.delivered,
+      isLegacy: book.isLegacy,
+    });
+  }
+  return c.json({ book, tracks, processingRun, processingEvents, dossierEvents, narration, productionStage });
 });
 
 books.post('/:id/prepare-tracks', async (c) => {
@@ -107,7 +260,7 @@ books.post('/:id/prepare-tracks', async (c) => {
   if (!batch || batch.status !== "records_created") {
     return c.json({ error: "Tracks can only be prepared after the batch records are created." }, 400);
   }
-  const candidate = (await repo.listCandidates(book.batchId)).find((entry) => entry.id === book.candidateId);
+  const candidate = book.candidateId ? await repo.getCandidate(book.candidateId) : null;
   if (!batch || !candidate) return c.json({ error: "Missing batch/candidate context" }, 404);
   const requestUrl = new URL(c.req.url);
   const apiBaseUrl = c.env.APP_BASE_URL ?? `${requestUrl.protocol}//${requestUrl.host}`;
@@ -183,7 +336,7 @@ books.post('/:id/start-processing', async (c) => {
   const book = await repo.getAudiobook(c.req.param("id"));
   if (!book) return c.json({ error: "Book not found" }, 404);
   const batch = await repo.getBatch(book.batchId);
-  const candidate = (await repo.listCandidates(book.batchId)).find((entry) => entry.id === book.candidateId);
+  const candidate = book.candidateId ? await repo.getCandidate(book.candidateId) : null;
   const tracks = await repo.listTracks(book.id);
   if (!batch || !candidate) return c.json({ error: "Missing book context" }, 404);
   if (!tracks.every((track) => track.approvalStatus === "approved")) {
@@ -341,6 +494,9 @@ books.post('/:id/clickup-sync', async (c) => {
   const repo = new Repository(c.env.DB);
   const book = await repo.getAudiobook(c.req.param("id"));
   if (!book) return c.json({ error: "Book not found" }, 404);
+  if (book.isLegacy) {
+    return c.json({ error: "Legacy imported books are already live in the audiobooks system and are not synced." }, 400);
+  }
   if (book.processingStatus !== "succeeded" || book.dossierStatus !== "ready") {
     return c.json({ error: "ClickUp sync is only allowed after processing succeeds and the dossier is ready." }, 400);
   }
@@ -408,7 +564,7 @@ books.post('/:id/finalize-reupload', async (c) => {
   const object = await c.env.ASSET_BUCKET.head(objectKey);
   if (!object) return c.json({ error: "Uploaded file not found in storage." }, 404);
 
-  const candidate = (await repo.listCandidates(book.batchId)).find((c) => c.id === book.candidateId);
+  const candidate = book.candidateId ? await repo.getCandidate(book.candidateId) : null;
   if (!candidate) return c.json({ error: "Candidate not found." }, 404);
 
   const fileName = objectKey.split("/").pop() ?? "book.zip";

@@ -175,7 +175,7 @@ export default function Batches() {
       setSelected((prev) => { const n = new Set(prev); n.delete(id); return n; });
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
     } finally {
       setDeleting(false);
       setConfirmDelete(null);
@@ -191,7 +191,7 @@ export default function Batches() {
       setSelected(new Set());
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
     } finally {
       setDeleting(false);
       setConfirmDelete(null);
@@ -282,7 +282,7 @@ export default function Batches() {
       setDriveUploadPercent(0);
       navigate(`/batches/${result.batch.id}`);
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل بدء استقبال Drive' : 'Failed to start Drive intake'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل بدء استقبال Drive' : 'Failed to start Drive intake'), 'error');
       setDriveProgress('');
       setDriveUploadPercent(0);
     } finally {
@@ -363,7 +363,7 @@ export default function Batches() {
       setDirectUploadPercent(0);
       navigate(`/batches/${result.batch.id}`);
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل إنشاء دفعة الاستقبال المباشر' : 'Failed to create direct ingestion batch'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل إنشاء دفعة الاستقبال المباشر' : 'Failed to create direct ingestion batch'), 'error');
       setUploadProgress('');
       setDirectUploadPercent(0);
     } finally {

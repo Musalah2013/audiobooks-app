@@ -14,6 +14,7 @@ import {
 } from "./integrations";
 import { buildClickUpCustomFields, buildClickUpDescription } from "./clickup-fields";
 import { mergeClickUpConfig } from "./clickup-config";
+import { mergeAiConfig } from "./ai-config";
 import type {
   ArtifactDescriptor,
   CandidateDecision,
@@ -435,7 +436,7 @@ function aiColumnMappingToInternal(
   return emptyColumns;
 }
 
-async function detectWorkbookStructureWithAi(env: Env, rawRows: RawWorkbookRow[]): Promise<HeaderDetectionResult> {
+async function detectWorkbookStructureWithAi(env: Env, rawRows: RawWorkbookRow[], modelId: string): Promise<HeaderDetectionResult> {
   if (!env.AI) {
     return fallbackHeaderDetection(rawRows);
   }
@@ -454,7 +455,7 @@ async function detectWorkbookStructureWithAi(env: Env, rawRows: RawWorkbookRow[]
   }));
 
   try {
-    const result = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fast", {
+    const result = await env.AI.run(modelId as Parameters<Ai["run"]>[0], {
       messages: [
         {
           role: "system",
@@ -1371,7 +1372,9 @@ export async function parseBatchMetadata(env: Env, repo: Repository, batchId: st
   }
   const payload = await response.json() as { rawRows?: RawWorkbookRow[] };
   const rawRows = Array.isArray(payload.rawRows) ? payload.rawRows : [];
-  const headerDetection = await detectWorkbookStructureWithAi(env, rawRows);
+  const aiSetting = await repo.getSetting("ai_models");
+  const aiModelId = mergeAiConfig(aiSetting ? JSON.parse(aiSetting) : null).workbookModelId;
+  const headerDetection = await detectWorkbookStructureWithAi(env, rawRows, aiModelId);
   const normalized = await normalizeWorkbookRowsWithAi(env, rawRows, headerDetection);
 
   await repo.updateBatch(batchId, {
@@ -1535,6 +1538,7 @@ export async function materializeApprovedBooks(repo: Repository, batchId: string
       storageCleanupStatus: "pending",
       storageCleanupError: null,
       processingStatus: "pending",
+      isLegacy: false,
     });
   }
 
@@ -1880,7 +1884,7 @@ export async function syncAudiobookToClickUp(env: Env, repo: Repository, audiobo
   if (!audiobook || !audiobook.dossierWorkbookKey || !audiobook.dossierAudioZipKey) {
     throw new Error("Dossier must be ready before ClickUp sync.");
   }
-  const appBaseUrl = env.APP_BASE_URL ?? "https://samawy-ops.com";
+  const appBaseUrl = env.APP_BASE_URL ?? "https://audiobooks.samawy-ops.com";
 
   // Load config and token from DB, fall back to defaults/env
   const [storedConfig, dbToken] = await Promise.all([
@@ -1892,7 +1896,7 @@ export async function syncAudiobookToClickUp(env: Env, repo: Repository, audiobo
 
   await repo.updateAudiobook(audiobook.id, { clickupSyncStatus: "syncing", clickupSyncError: null });
 
-  const linkExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
+  // No expiresAt — dossier files are retained permanently, links should never expire
   const [workbookUrl, audioZipUrl] = await Promise.all([
     signInternalArtifactUrl({
       baseUrl: appBaseUrl,
@@ -1900,7 +1904,6 @@ export async function syncAudiobookToClickUp(env: Env, repo: Repository, audiobo
       key: audiobook.dossierWorkbookKey,
       method: "GET",
       secret: env.INTERNAL_API_SECRET,
-      expiresAt: linkExpiry,
     }),
     signInternalArtifactUrl({
       baseUrl: appBaseUrl,
@@ -1908,7 +1911,6 @@ export async function syncAudiobookToClickUp(env: Env, repo: Repository, audiobo
       key: audiobook.dossierAudioZipKey,
       method: "GET",
       secret: env.INTERNAL_API_SECRET,
-      expiresAt: linkExpiry,
     }),
   ]);
   const extra = {
@@ -1991,7 +1993,7 @@ export async function generateInteractiveSample(env: Env, repo: Repository, audi
   if (input.endSeconds <= input.startSeconds) {
     throw new Error("Sample end time must be after the start time.");
   }
-  const requestBaseUrl = env.APP_BASE_URL ?? "https://samawy-ops.com";
+  const requestBaseUrl = env.APP_BASE_URL ?? "https://audiobooks.samawy-ops.com";
   const expiresAt = Date.now() + 60 * 60 * 1000;
   const sampleObjectKey = keySegments(audiobook.storageBasePath, "artifacts", "sample", "sample.mp3");
   const payload: SampleGenerationPayload & { downloadUrl: string } = {

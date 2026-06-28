@@ -8,6 +8,9 @@ import {
 import { API_BASE, apiRequest, downloadFile, useApi } from '../hooks/useApi';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
+import { InlineError } from '../components/InlineError';
+import { AudioPlayer } from '../components/AudioPlayer';
+import { ProductionStageBadge } from '../components/ProductionStageBadge';
 import type { BookDetailResponse, BookDetail } from '@api';
 
 function formatDuration(seconds: number | null | undefined) {
@@ -76,7 +79,7 @@ function bookToMetaForm(book: BookDetailResponse['book']): MetaForm {
 
 export default function BookDetail() {
   const { id } = useParams<{ id: string }>();
-  const { data, loading, error, refetch } = useApi<BookDetailResponse>(`/api/books/${id}`);
+  const { data, loading, error, errorDetail, refetch } = useApi<BookDetailResponse>(`/api/books/${id}`);
   const { data: meData } = useApi<{ user: { permissions: string[] } }>('/api/auth/me');
   const isAdmin = meData?.user.permissions.includes('users') ?? false;
   const { addToast } = useToast();
@@ -148,7 +151,7 @@ export default function BookDetail() {
   async function runAction(key: string, fn: () => Promise<void>) {
     setActionLoading(key);
     try { await fn(); refetch(); }
-    catch (err) { addToast(err instanceof Error ? err.message : (isArabic ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred'), 'error'); }
+    catch (err) { addToast(err instanceof Error ? err : (isArabic ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred'), 'error'); }
     finally { setActionLoading(null); }
   }
 
@@ -173,7 +176,7 @@ export default function BookDetail() {
         await downloadFile(objectKey);
       }
     }
-    catch (err) { addToast(err instanceof Error ? err.message : (isArabic ? 'فشل تنزيل الملف' : 'Failed to download file'), 'error'); }
+    catch (err) { addToast(err instanceof Error ? err : (isArabic ? 'فشل تنزيل الملف' : 'Failed to download file'), 'error'); }
     finally { setDownloadLoading(null); }
   }
 
@@ -217,7 +220,7 @@ export default function BookDetail() {
       addToast(isArabic ? 'تم رفع الغلاف.' : 'Cover uploaded.', 'success');
       refetch();
     } catch (err) {
-      addToast(err instanceof Error ? err.message : (isArabic ? 'فشل رفع الغلاف' : 'Failed to upload cover'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل رفع الغلاف' : 'Failed to upload cover'), 'error');
     } finally {
       setActionLoading(null);
     }
@@ -226,14 +229,7 @@ export default function BookDetail() {
   if (loading) return <div className="card text-center text-sm text-[color:var(--fg-2)]">{isArabic ? 'جاري تحميل العنوان…' : 'Loading book…'}</div>;
 
   if (error) {
-    return (
-      <div className="card border-red-200 bg-red-50 text-red-700">
-        <div className="flex items-center gap-2">
-          <AlertCircle className="h-5 w-5" />
-          {isArabic ? `فشل تحميل العنوان: ${error}` : `Failed to load book: ${error}`}
-        </div>
-      </div>
-    );
+    return <InlineError message={isArabic ? `فشل تحميل العنوان: ${error}` : `Failed to load book: ${error}`} detail={errorDetail ?? undefined} />;
   }
 
   const book = data?.book;
@@ -337,7 +333,10 @@ export default function BookDetail() {
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold tracking-[0.18em] uppercase text-sky-700">{book?.publisherName}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-xs font-semibold tracking-[0.18em] uppercase text-sky-700">{book?.publisherName}</p>
+              {data?.productionStage && <ProductionStageBadge stage={data.productionStage} isArabic={isArabic} />}
+            </div>
             <h1 className="mt-1 text-2xl font-black text-[color:var(--samawy-ink)] leading-tight">{book?.title}</h1>
             {book?.subtitle && <p className="mt-0.5 text-sm text-[color:var(--fg-2)]">{book.subtitle}</p>}
             {(book?.author || book?.narrator) && (
@@ -349,6 +348,24 @@ export default function BookDetail() {
             )}
           </div>
         </div>
+
+        {/* Narration / studio assignment */}
+        {(data?.narration?.length ?? 0) > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2">
+            <Mic2 className="h-4 w-4 text-violet-500 shrink-0" />
+            <span className="text-xs font-semibold text-violet-700">{isArabic ? 'استوديوهات الإنتاج:' : 'Narrating studios:'}</span>
+            {data!.narration!.map((n) => (
+              <Link
+                key={n.productionFileId}
+                to={`/studios/${n.studioId}`}
+                className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-violet-200 hover:bg-violet-100"
+                title={n.productionFileName}
+              >
+                {n.studioName ?? n.studioId}
+              </Link>
+            ))}
+          </div>
+        )}
 
         {/* Pipeline steps */}
         <div className="flex items-center gap-0">
@@ -816,7 +833,7 @@ export default function BookDetail() {
             {book?.sampleObjectKey && (
               <div className="space-y-3 rounded-[14px] bg-slate-950 p-4">
                 <p className="text-xs text-slate-400">{isArabic ? 'العينة الحالية' : 'Current sample'}</p>
-                <audio controls className="w-full" src={`${API_BASE}/api/files/${book.sampleObjectKey}?preview=1`} />
+                <AudioPlayer src={`${API_BASE}/api/files/${book.sampleObjectKey}?preview=1`} />
                 <button
                   type="button"
                   className="flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors"
@@ -837,7 +854,7 @@ export default function BookDetail() {
               <>
                 <div className="rounded-[14px] bg-slate-950 p-4">
                   <p className="text-xs text-slate-400 mb-3 truncate">{selectedTrack.finalTitle ?? selectedTrack.originalFilename}</p>
-                  <audio controls className="w-full" src={`${API_BASE}/api/files/${selectedTrack.finalObjectKey}?preview=1`} />
+                  <AudioPlayer src={`${API_BASE}/api/files/${selectedTrack.finalObjectKey}?preview=1`} />
                 </div>
                 <p className="text-xs text-[color:var(--fg-2)]">
                   {isArabic

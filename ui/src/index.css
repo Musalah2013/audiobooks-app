@@ -113,6 +113,24 @@
     border-color: rgba(11, 128, 255, 0.1);
   }
 
+  /* Mobile top bar (hamburger) — shown only below lg */
+  .mobile-bar {
+    @apply sticky top-0 z-30 flex items-center justify-between gap-3 px-4 py-3 border-b lg:hidden;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    border-color: rgba(11, 128, 255, 0.1);
+  }
+
+  .mobile-bar-icon-btn {
+    @apply inline-flex items-center justify-center rounded-xl p-2 text-[color:var(--samawy-ink)];
+    border: 1px solid rgba(1, 11, 38, 0.1);
+    background: rgba(255, 255, 255, 0.8);
+  }
+
+  .sidebar-backdrop {
+    @apply fixed inset-0 z-40 bg-black/40 lg:hidden;
+  }
+
   .sidebar-header {
     @apply flex flex-col gap-3 p-5 border-b;
     border-color: rgba(11, 128, 255, 0.08);
@@ -169,16 +187,16 @@
     border-color: rgba(11, 128, 255, 0.08);
   }
 
-  /* Topbar */
+  /* Topbar (desktop banner) */
   .topbar {
-    @apply sticky top-0 z-30 flex items-center justify-end px-6 py-3 border-b border-white/30;
+    @apply sticky top-0 z-30 hidden lg:flex items-center justify-end px-6 py-3 border-b border-white/30;
     background: rgba(247, 248, 250, 0.88);
     backdrop-filter: blur(12px);
   }
 
   /* Main content area */
   .main-content {
-    @apply flex-1 px-6 py-6 overflow-y-auto;
+    @apply flex-1 px-4 py-5 overflow-y-auto md:px-6 md:py-6;
   }
 
   .step-pill {
@@ -222,8 +240,28 @@
   }
 
   .table-shell {
-    @apply overflow-hidden rounded-[28px] border;
+    @apply overflow-x-auto rounded-[28px] border;
     border-color: rgba(1, 11, 38, 0.08);
     background: rgba(255, 255, 255, 0.92);
+  }
+}
+
+/* ── Mobile: sidebar becomes an off-canvas drawer ── */
+@media (max-width: 1023px) {
+  .sidebar {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    height: 100vh;
+    transform: translateX(100%);
+    transition: transform 0.22s ease;
+    box-shadow: -12px 0 32px rgba(1, 11, 38, 0.12);
+  }
+  [dir="ltr"] .sidebar {
+    transform: translateX(-100%);
+    box-shadow: 12px 0 32px rgba(1, 11, 38, 0.12);
+  }
+  .shell.nav-open .sidebar {
+    transform: translateX(0);
   }
 }

@@ -141,19 +141,3 @@ export function sampleReviewedEmail(sampleName: string, status: 'approved' | 're
   `);
 }
 
-export function driveUploadCompleteEmail(fileName: string, studioName: string, driveFileId: string | null): string {
-  const driveLink = driveFileId ? `https://drive.google.com/file/d/${driveFileId}` : null;
-  return emailWrapper(`
-    <!-- Logo -->
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
-      <tr><td align="center">
-        <img src="${SAMAWY_LOGO_URL}" alt="سماوي" width="120" style="display:block;">
-      </td></tr>
-    </table>
-    <p style="margin:0 0 16px;font-size:18px;font-weight:bold;color:#1a202c;">✅ اكتملت المزامنة مع Google Drive</p>
-    <p style="margin:0 0 12px;font-size:14px;color:#4a5568;line-height:22px;">
-      تم رفع ملف <strong>"${fileName}"</strong> من استوديو <strong>${studioName}</strong> بنجاح إلى Google Drive.
-    </p>
-    ${driveLink ? buttonRow(driveLink, 'فتح الملف في Drive') : ''}
-  `);
-}

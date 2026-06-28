@@ -6,6 +6,29 @@ export function apiFileUrl(objectKey: string): string {
   return `${API_BASE}/api/files/${objectKey}`;
 }
 
+// Structured error thrown by all API helpers — carries a short user-facing
+// message and optional detail text (server "details" / "guidance" fields).
+export class ApiError extends Error {
+  detail: string | undefined;
+  status: number | undefined;
+  constructor(message: string, detail?: string, status?: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.detail = detail;
+    this.status = status;
+  }
+}
+
+function parseApiError(body: { error?: string; details?: string; guidance?: string }, fallback: string): ApiError {
+  const message = body.error || fallback;
+  const detail = body.guidance
+    ? `Guidance: ${body.guidance}`
+    : body.details
+      ? `Details: ${body.details}`
+      : undefined;
+  return new ApiError(message, detail);
+}
+
 export async function downloadFile(objectKey: string, fallbackName?: string) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15_000);
@@ -25,7 +48,7 @@ export async function downloadFile(objectKey: string, fallbackName?: string) {
       const text = await response.text().catch(() => '');
       if (text) message = text;
     }
-    throw new Error(message);
+    throw new ApiError(message, undefined, response.status);
   }
 
   const blob = await response.blob();
@@ -52,6 +75,7 @@ export function useApi<T>(endpoint: string, options?: FetchOptions) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const hasLoaded = useRef(false);
 
@@ -76,27 +100,31 @@ export function useApi<T>(endpoint: string, options?: FetchOptions) {
         });
 
         if (!response.ok) {
-          let message = `HTTP ${response.status}`;
+          let apiErr: ApiError;
           try {
-          const err = await response.json() as { error?: string; details?: string; guidance?: string };
-          if (err.guidance) {
-            message = `${err.error || message}\n\nGuidance: ${err.guidance}`;
-          } else {
-            message = err.details ? `${err.error}\n\nDetails: ${err.details}` : (err.error || message);
-          }
+            const body = await response.json() as { error?: string; details?: string; guidance?: string };
+            apiErr = parseApiError(body, `HTTP ${response.status}`);
+            apiErr.status = response.status;
           } catch {
             const text = await response.text().catch(() => '');
-            if (text) message = text;
+            apiErr = new ApiError(text || `HTTP ${response.status}`, undefined, response.status);
           }
-          throw new Error(message);
+          throw apiErr;
         }
 
         const result = await response.json() as T;
         hasLoaded.current = true;
         setData(result);
         setError(null);
+        setErrorDetail(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error');
+        if (err instanceof ApiError) {
+          setError(err.message);
+          setErrorDetail(err.detail ?? null);
+        } else {
+          setError(err instanceof Error ? err.message : 'Unknown error');
+          setErrorDetail(null);
+        }
       } finally {
         setLoading(false);
       }
@@ -106,7 +134,7 @@ export function useApi<T>(endpoint: string, options?: FetchOptions) {
     return () => controller.abort();
   }, [endpoint, refreshKey]);
 
-  return { data, loading, error, refetch };
+  return { data, loading, error, errorDetail, refetch };
 }
 
 export async function apiRequest<T>(endpoint: string, options?: FetchOptions): Promise<T> {
@@ -127,19 +155,16 @@ export async function apiRequest<T>(endpoint: string, options?: FetchOptions): P
   clearTimeout(timeoutId);
 
   if (!response.ok) {
-    let message = `HTTP ${response.status}`;
+    let apiErr: ApiError;
     try {
-      const err = await response.json() as { error?: string; details?: string; guidance?: string };
-      if (err.guidance) {
-        message = `${err.error || message}\n\nGuidance: ${err.guidance}`;
-      } else {
-        message = err.details ? `${err.error}\n\nDetails: ${err.details}` : (err.error || message);
-      }
+      const body = await response.json() as { error?: string; details?: string; guidance?: string };
+      apiErr = parseApiError(body, `HTTP ${response.status}`);
+      apiErr.status = response.status;
     } catch {
       const text = await response.text().catch(() => '');
-      if (text) message = text;
+      apiErr = new ApiError(text || `HTTP ${response.status}`, undefined, response.status);
     }
-    throw new Error(message);
+    throw apiErr;
   }
 
   return response.json();

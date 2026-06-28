@@ -25,7 +25,7 @@ acquisitionPortal.get('/', async (c) => {
         repo.listDriveUploads(s.id),
       ]);
       return {
-        studio: { id: s.id, name: s.name, slug: s.slug, contactEmail: s.contact_email, driveFolderId: s.drive_folder_id, logoObjectKey: s.logo_object_key, isActive: !!s.is_active, createdAt: s.created_at, createdBy: s.created_by },
+        studio: { id: s.id, name: s.name, slug: s.slug, contactEmail: s.contact_email, logoObjectKey: s.logo_object_key, isActive: !!s.is_active, createdAt: s.created_at, createdBy: s.created_by },
         productionFiles: productionFiles.map((f) => ({ id: f.id, studioId: f.studio_id, name: f.name, objectKey: f.object_key, contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at })),
         driveUploads: driveUploads.map((d) => ({ id: d.id, studioId: d.studio_id, name: d.name, status: d.status, driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at })),
       };

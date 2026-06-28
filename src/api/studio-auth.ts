@@ -54,20 +54,22 @@ studioAuth.post('/request', async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudioBySlug(slug);
   if (!studio || !studio.is_active) return c.json({ ok: true }); // silent — don't reveal existence
-  if (studio.contact_email.toLowerCase() !== email.toLowerCase()) return c.json({ ok: true }); // silent
+  // Email must be one of the studio's registered contacts (users).
+  const isContact = await repo.isStudioContactEmail(studio.id, email);
+  if (!isContact && studio.contact_email.toLowerCase() !== email.toLowerCase()) return c.json({ ok: true }); // silent
 
   const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   await repo.createStudioMagicLink(studio.id, token, expiresAt);
 
-  const baseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
+  const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
 
   // Build signed studio logo URL if available
   let studioLogoUrl: string | undefined;
   if (studio.logo_object_key) {
     const logoExpiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
-    const logoBaseUrl = c.env.APP_BASE_URL?.replace('samawy-ops.com', 'audiobooks.samawy-ops.com') ?? `https://audiobooks.samawy-ops.com`;
+    const logoBaseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
     studioLogoUrl = await signInternalArtifactUrl({
       baseUrl: logoBaseUrl,
       path: `/api/files/${studio.logo_object_key}`,
@@ -79,7 +81,7 @@ studioAuth.post('/request', async (c) => {
   }
 
   await sendEmail({
-    to: studio.contact_email,
+    to: email, // send the link to the contact who requested it
     toName: studio.name,
     subject: 'رابط الدخول إلى بوابة سماوي',
     html: magicLinkEmail(link, studio.name, studioLogoUrl),
