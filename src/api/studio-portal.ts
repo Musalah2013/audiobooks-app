@@ -5,7 +5,7 @@ import { Repository } from '../db';
 import { verifyStudioSessionCookie } from './studio-auth';
 import { createUploadUrl } from '../pipeline';
 import { signInternalArtifactUrl, signMultipartUrl } from '../utils';
-import { sendEmail, notifyOperatorsEmail } from '../email';
+import { sendEmail, notifyEmail } from '../email';
 import { keySegments, nowIso } from '../utils';
 
 const studioPortal = new Hono<{ Bindings: Env }>();
@@ -226,12 +226,12 @@ studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
     sendEmail({
       to: op.email,
       subject: `تسليم جديد من ${studio.name}`,
-      html: notifyOperatorsEmail(
-        `تسليم جديد من ${studio.name}`,
-        `رفع استوديو ${studio.name} ملفاً بعنوان "<strong>${upload.name}</strong>". راجِعه ثم ادفعه إلى النظام من صفحة إدارة الاستوديو.`,
-        `${baseUrl}/studios/${studio.id}`,
-        'مراجعة التسليم',
-      ),
+      html: notifyEmail({
+        eyebrow: 'إشعار للمشغّلين', heading: `تسليم جديد من ${studio.name}`,
+        body: `رفع استوديو ${studio.name} ملفاً بعنوان "<strong>${upload.name}</strong>". راجِعه ثم ادفعه إلى النظام من صفحة إدارة الاستوديو.`,
+        ctaLabel: 'مراجعة التسليم', link: `${baseUrl}/studios/${studio.id}`,
+        info: { type: 'ZIP', name: upload.name, meta: studio.name },
+      }),
       emailBinding: c.env.EMAIL,
     }),
   ));
@@ -256,12 +256,12 @@ studioPortal.post('/:slug/sample-upload-url', async (c) => {
     sendEmail({
       to: op.email,
       subject: `عينة جديدة من ${studio.name}`,
-      html: notifyOperatorsEmail(
-        `عينة جديدة: ${fileName}`,
-        `رفع استوديو ${studio.name} عينة جديدة بعنوان "<strong>${fileName}</strong>" تنتظر مراجعتك.`,
-        `${baseUrl}/studios/${studio.id}`,
-        'مراجعة العينات'
-      ),
+      html: notifyEmail({
+        eyebrow: 'إشعار للمشغّلين', heading: `عينة جديدة: ${fileName}`,
+        body: `رفع استوديو ${studio.name} عينة جديدة بعنوان "<strong>${fileName}</strong>" تنتظر مراجعتك.`,
+        ctaLabel: 'مراجعة العينات', link: `${baseUrl}/studios/${studio.id}`,
+        info: { type: 'MP3', name: fileName, meta: studio.name },
+      }),
       emailBinding: c.env.EMAIL,
     })
   ));

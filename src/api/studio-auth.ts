@@ -3,7 +3,7 @@ import type { Env } from '../types';
 import { Repository } from '../db';
 import { sendEmail, magicLinkEmail } from '../email';
 import { hmacSign } from '../password';
-import { signInternalArtifactUrl, nowIso } from '../utils';
+import { nowIso } from '../utils';
 import { RateLimiter, magicLinkRateLimiter } from '../rate-limit';
 
 const STUDIO_SESSION_COOKIE = '_studiosession';
@@ -65,26 +65,15 @@ studioAuth.post('/request', async (c) => {
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
 
-  // Build signed studio logo URL if available
-  let studioLogoUrl: string | undefined;
-  if (studio.logo_object_key) {
-    const logoExpiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
-    const logoBaseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
-    studioLogoUrl = await signInternalArtifactUrl({
-      baseUrl: logoBaseUrl,
-      path: `/api/files/${studio.logo_object_key}`,
-      key: studio.logo_object_key,
-      method: 'GET',
-      secret: c.env.INTERNAL_API_SECRET,
-      expiresAt: logoExpiresAt,
-    });
-  }
-
   await sendEmail({
     to: email, // send the link to the contact who requested it
     toName: studio.name,
     subject: 'رابط الدخول إلى بوابة سماوي',
-    html: magicLinkEmail(link, studio.name, studioLogoUrl),
+    html: magicLinkEmail({
+      link, greetingName: studio.name,
+      portalLabel: 'بوابة سماوي للاستوديوهات', ctaLabel: 'الدخول إلى البوابة',
+      studio: { initial: studio.name.trim().charAt(0) || 'S', name: studio.name, sub: 'استوديو شريك' },
+    }),
     emailBinding: c.env.EMAIL,
   });
   return c.json({ ok: true });

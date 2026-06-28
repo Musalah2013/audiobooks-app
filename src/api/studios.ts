@@ -4,8 +4,8 @@ import type { Env } from '../types';
 import { Repository } from '../db';
 import { requirePermission, actorEmail } from './auth';
 import { createUploadUrl } from '../pipeline';
-import { sendEmail, magicLinkEmail, notifyOperatorsEmail, sampleReviewedEmail } from '../email';
-import { keySegments, nowIso, signInternalArtifactUrl, buildCatalogStorageBasePath } from '../utils';
+import { sendEmail, magicLinkEmail, notifyEmail, sampleReviewedEmail } from '../email';
+import { keySegments, nowIso, buildCatalogStorageBasePath } from '../utils';
 
 const studios = new Hono<{ Bindings: Env }>();
 
@@ -197,7 +197,7 @@ studios.post('/acquisition-users/:id/magic-link', requirePermission('users'), as
   await repo.createAcquisitionMagicLink(user.id, token, expiresAt);
   const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
   const link = `${baseUrl}/api/acquisition-auth/verify?token=${token}`;
-  await sendEmail({ to: user.email, toName: user.name, subject: 'رابط الدخول — بوابة الاقتناء', html: magicLinkEmail(link, user.name), emailBinding: c.env.EMAIL });
+  await sendEmail({ to: user.email, toName: user.name, subject: 'رابط الدخول — بوابة الاقتناء', html: magicLinkEmail({ link, greetingName: user.name, portalLabel: 'بوابة الاقتناء', ctaLabel: 'الدخول إلى البوابة' }), emailBinding: c.env.EMAIL });
   return c.json({ ok: true });
 });
 
@@ -420,22 +420,16 @@ studios.post('/:id/magic-link', requirePermission('users'), async (c) => {
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
 
-  // Build signed studio logo URL if available
-  let studioLogoUrl: string | undefined;
-  if (studio.logo_object_key) {
-    const logoExpiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
-    const logoBaseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
-    studioLogoUrl = await signInternalArtifactUrl({
-      baseUrl: logoBaseUrl,
-      path: `/api/files/${studio.logo_object_key}`,
-      key: studio.logo_object_key,
-      method: 'GET',
-      secret: c.env.INTERNAL_API_SECRET,
-      expiresAt: logoExpiresAt,
-    });
-  }
-
-  await sendEmail({ to: studio.contact_email, toName: studio.name, subject: 'رابط الدخول إلى بوابة سماوي', html: magicLinkEmail(link, studio.name, studioLogoUrl), emailBinding: c.env.EMAIL });
+  await sendEmail({
+    to: studio.contact_email, toName: studio.name,
+    subject: 'رابط الدخول إلى بوابة سماوي',
+    html: magicLinkEmail({
+      link, greetingName: studio.name,
+      portalLabel: 'بوابة سماوي للاستوديوهات', ctaLabel: 'الدخول إلى البوابة',
+      studio: { initial: studio.name.trim().charAt(0) || 'S', name: studio.name, sub: 'استوديو شريك' },
+    }),
+    emailBinding: c.env.EMAIL,
+  });
   return c.json({ ok: true });
 });
 
@@ -507,7 +501,12 @@ studios.post('/:id/production-files/complete', requirePermission('users'), async
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
     subject: 'ملف إنتاج جديد متاح في بوابتك',
-    html: notifyOperatorsEmail('ملف إنتاج جديد', `تم رفع ملف جديد بعنوان "<strong>${body.fileName}</strong>" إلى بوابة ${studio.name}.`, `${baseUrl}/studio/${studio.slug}`, 'الدخول إلى البوابة'),
+    html: notifyEmail({
+      eyebrow: 'بوابة الاستوديو', heading: 'ملف إنتاج جديد',
+      body: `تم رفع ملف جديد بعنوان "<strong>${body.fileName}</strong>" إلى بوابة ${studio.name}.`,
+      ctaLabel: 'الدخول إلى البوابة', link: `${baseUrl}/studio/${studio.slug}`,
+      info: { type: 'DOC', name: body.fileName, meta: studio.name },
+    }),
     emailBinding: c.env.EMAIL,
   }).catch(() => undefined);
   return c.json({ ok: true, fileId });
@@ -578,7 +577,11 @@ studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async 
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
     subject: `تحديث حالة العينة — ${statusAr}`,
-    html: sampleReviewedEmail(sample.name, status, note ?? null, studio.name),
+    html: sampleReviewedEmail({
+      sampleName: sample.name, studioName: studio.name, status,
+      reviewNote: note ?? (status === 'approved' ? 'لا توجد ملاحظات.' : '—'),
+      ctaLabel: 'الدخول إلى البوابة', link: `${baseUrl}/studio/${studio.slug}`,
+    }),
     emailBinding: c.env.EMAIL,
   });
   return c.json({ ok: true });

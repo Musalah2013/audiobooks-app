@@ -64,7 +64,7 @@ acquisitionAuth.post('/request', async (c) => {
     to: user.email,
     toName: user.name,
     subject: 'رابط الدخول — بوابة الاقتناء',
-    html: magicLinkEmail(link, user.name),
+    html: magicLinkEmail({ link, greetingName: user.name, portalLabel: 'بوابة الاقتناء', ctaLabel: 'الدخول إلى البوابة' }),
     emailBinding: c.env.EMAIL,
   });
   return c.json({ ok: true });

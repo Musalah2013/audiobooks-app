@@ -4,7 +4,7 @@ import type { Env } from '../types';
 import { Repository } from '../db';
 import { verifyAcquisitionSessionCookie } from './acquisition-auth';
 import { createUploadUrl } from '../pipeline';
-import { sendEmail, notifyOperatorsEmail } from '../email';
+import { sendEmail, notifyEmail } from '../email';
 import { keySegments } from '../utils';
 import { searchSamawySellers, fetchSamawyGenres } from '../integrations';
 
@@ -90,12 +90,12 @@ acquisitionPortal.post('/studios/:studioId/production-files/complete', async (c)
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
     subject: 'ملف إنتاج جديد متاح في بوابتك',
-    html: notifyOperatorsEmail(
-      'ملف إنتاج جديد',
-      `تم رفع ملف جديد بعنوان "<strong>${name}</strong>" إلى بوابة ${studio.name}.`,
-      `${baseUrl}/studio/${studio.slug}`,
-      'الدخول إلى البوابة'
-    ),
+    html: notifyEmail({
+      eyebrow: 'بوابة الاستوديو', heading: 'ملف إنتاج جديد',
+      body: `تم رفع ملف جديد بعنوان "<strong>${name}</strong>" إلى بوابة ${studio.name}.`,
+      ctaLabel: 'الدخول إلى البوابة', link: `${baseUrl}/studio/${studio.slug}`,
+      info: { type: 'DOC', name, meta: studio.name },
+    }),
     emailBinding: c.env.EMAIL,
   }).catch(() => undefined);
   return c.json({ ok: true, fileId });
