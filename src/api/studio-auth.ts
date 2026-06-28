@@ -3,7 +3,7 @@ import type { Env } from '../types';
 import { Repository } from '../db';
 import { sendEmail, magicLinkEmail } from '../email';
 import { hmacSign } from '../password';
-import { nowIso } from '../utils';
+import { nowIso, signedStudioLogoUrl } from '../utils';
 import { RateLimiter, magicLinkRateLimiter } from '../rate-limit';
 
 const STUDIO_SESSION_COOKIE = '_studiosession';
@@ -64,6 +64,7 @@ studioAuth.post('/request', async (c) => {
 
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
+  const logoUrl = await signedStudioLogoUrl(c.env, baseUrl, studio.logo_object_key);
 
   await sendEmail({
     to: email, // send the link to the contact who requested it
@@ -72,7 +73,7 @@ studioAuth.post('/request', async (c) => {
     html: magicLinkEmail({
       link, greetingName: studio.name,
       portalLabel: 'بوابة سماوي للاستوديوهات', ctaLabel: 'الدخول إلى البوابة',
-      studio: { initial: studio.name.trim().charAt(0) || 'S', name: studio.name, sub: 'استوديو شريك' },
+      studio: { initial: studio.name.trim().charAt(0) || 'S', name: studio.name, sub: 'استوديو شريك', logoUrl },
     }),
     emailBinding: c.env.EMAIL,
   });

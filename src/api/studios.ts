@@ -5,7 +5,7 @@ import { Repository } from '../db';
 import { requirePermission, actorEmail } from './auth';
 import { createUploadUrl } from '../pipeline';
 import { sendEmail, magicLinkEmail, notifyEmail, sampleReviewedEmail } from '../email';
-import { keySegments, nowIso, buildCatalogStorageBasePath } from '../utils';
+import { keySegments, nowIso, buildCatalogStorageBasePath, signedStudioLogoUrl } from '../utils';
 
 const studios = new Hono<{ Bindings: Env }>();
 
@@ -419,6 +419,7 @@ studios.post('/:id/magic-link', requirePermission('users'), async (c) => {
   await repo.createStudioMagicLink(studio.id, token, expiresAt);
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
+  const logoUrl = await signedStudioLogoUrl(c.env, baseUrl, studio.logo_object_key);
 
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
@@ -426,7 +427,7 @@ studios.post('/:id/magic-link', requirePermission('users'), async (c) => {
     html: magicLinkEmail({
       link, greetingName: studio.name,
       portalLabel: 'بوابة سماوي للاستوديوهات', ctaLabel: 'الدخول إلى البوابة',
-      studio: { initial: studio.name.trim().charAt(0) || 'S', name: studio.name, sub: 'استوديو شريك' },
+      studio: { initial: studio.name.trim().charAt(0) || 'S', name: studio.name, sub: 'استوديو شريك', logoUrl },
     }),
     emailBinding: c.env.EMAIL,
   });

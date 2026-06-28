@@ -77,16 +77,19 @@ function simpleHeader(): string {
   return `<tr><td align="center" style="background:${INK};padding:26px 32px;"><img src="${LOGO_DARK_URL}" alt="Samawy" width="120" style="display:block;border:0;outline:none;text-decoration:none;margin:0 auto;"></td></tr>`;
 }
 
-/** Navy header with the Samawy logo + a studio chip (logo + name). */
-function studioHeader(studio: { initial: string; name: string; sub: string }, lang: Lang): string {
+/** Navy header with the Samawy logo + a studio chip (uploaded logo, or initial fallback). */
+function studioHeader(studio: { initial: string; name: string; sub: string; logoUrl?: string }, lang: Lang): string {
   const align = isAr(lang) ? 'right' : 'left';
   const font = fontFor(lang);
+  const chip = studio.logoUrl
+    ? `<td align="center" valign="middle" width="44" height="44" style="width:44px;height:44px;background:#13224C;border-radius:11px;"><img src="${studio.logoUrl}" alt="${studio.name}" width="44" height="44" style="display:block;width:44px;height:44px;border-radius:11px;object-fit:cover;border:0;outline:none;text-decoration:none;"></td>`
+    : `<td align="center" valign="middle" width="44" height="44" style="width:44px;height:44px;background:#13224C;border-radius:11px;color:#9DCFFF;font-size:17px;font-weight:700;font-family:${font};">${studio.initial}</td>`;
   return `<tr><td align="center" style="background:${INK};padding:26px 32px;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;"><tr>
       <td valign="middle" style="padding:0 14px;"><img src="${LOGO_DARK_URL}" alt="Samawy" width="120" style="display:block;border:0;outline:none;text-decoration:none;"></td>
       <td valign="middle" style="padding:0 14px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-          <td align="center" valign="middle" width="44" height="44" style="width:44px;height:44px;background:#13224C;border-radius:11px;color:#9DCFFF;font-size:17px;font-weight:700;font-family:${font};">${studio.initial}</td>
+          ${chip}
           <td valign="middle" style="padding:0 10px;text-align:${align};">
             <span style="display:block;color:#ffffff;font-size:13px;font-weight:600;font-family:${font};line-height:17px;">${studio.name}</span>
             <span style="display:block;color:#5FAFFF;font-size:11px;font-family:${font};margin-top:1px;">${studio.sub}</span>
@@ -204,7 +207,7 @@ export function magicLinkEmail(opts: {
   portalLabel: string;         // e.g. "بوابة سماوي للاستوديوهات"
   ctaLabel: string;            // e.g. "الدخول إلى البوابة" / "Open the Portal"
   eyebrow?: string;
-  studio?: { initial: string; name: string; sub: string };
+  studio?: { initial: string; name: string; sub: string; logoUrl?: string };
 }): string {
   const lang = opts.lang ?? 'ar';
   const headerRow = opts.studio ? studioHeader(opts.studio, lang) : simpleHeader();

@@ -179,6 +179,24 @@ export async function signInternalArtifactUrl(input: {
   return url.toString();
 }
 
+/** Build a signed, email-safe absolute URL for a studio's uploaded logo (served
+ *  via /api/files), or undefined when the studio has no logo. Valid for 7 days. */
+export async function signedStudioLogoUrl(
+  env: { INTERNAL_API_SECRET: string },
+  baseUrl: string,
+  logoObjectKey: string | null | undefined,
+): Promise<string | undefined> {
+  if (!logoObjectKey) return undefined;
+  return signInternalArtifactUrl({
+    baseUrl,
+    path: `/api/files/${logoObjectKey}`,
+    key: logoObjectKey,
+    method: "GET",
+    secret: env.INTERNAL_API_SECRET,
+    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+  });
+}
+
 export async function signMultipartUrl(input: {
   baseUrl: string;
   path: string;
