@@ -111,9 +111,10 @@ internal.post('/multipart-start', async (c) => {
   if (!verification.ok || !verification.key) return c.json({ error: "Unauthorized" }, 401);
   const numParts = Number(new URL(c.req.url).searchParams.get("numParts") ?? "0");
   if (!Number.isFinite(numParts) || numParts < 1) return c.json({ error: "numParts required" }, 400);
+  const contentType = new URL(c.req.url).searchParams.get("contentType") || "application/zip";
 
   const upload = await c.env.ASSET_BUCKET.createMultipartUpload(verification.key, {
-    httpMetadata: { contentType: "application/zip" },
+    httpMetadata: { contentType },
   });
   const expiresAt = Date.now() + 4 * 60 * 60 * 1000;
   const baseUrl = c.env.APP_BASE_URL ?? `${new URL(c.req.url).protocol}//${new URL(c.req.url).host}`;

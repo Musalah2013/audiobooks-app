@@ -309,19 +309,80 @@ export default function StudioPortal() {
     } finally { setSavingPlan(null); }
   }
 
+  // PUT one chunk, returning the JSON response, with progress + retries.
+  function xhrPutPart(url: string, chunk: Blob, onProgress: (loaded: number) => void): Promise<{ etag: string; partNumber: number }> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', url);
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded); };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) { try { resolve(JSON.parse(xhr.responseText)); } catch { reject(new Error('Bad part response')); } }
+        else reject(new Error(`Part upload failed: ${xhr.status}`));
+      };
+      xhr.onerror = () => reject(new Error('Network error'));
+      xhr.send(chunk);
+    });
+  }
+
+  // Resumable, chunked upload for large delivery files.
+  async function uploadDeliveryMultipart(file: File): Promise<string> {
+    const PART_SIZE = 25 * 1024 * 1024; // 25 MB — well under the Worker limit
+    const numParts = Math.max(1, Math.ceil(file.size / PART_SIZE));
+    const start = await apiRequest<{ uploadId: string; multipartStartUrl: string; contentType: string }>(`/api/studio-portal/${slug}/delivery-multipart-start`, {
+      method: 'POST',
+      body: {
+        fileName: file.name, contentType: file.type || 'application/octet-stream',
+        audiobookId: deliveryTitleId || null,
+        netFinalHours: deliveryNetHours.trim() === '' ? null : Number(deliveryNetHours),
+        notes: deliveryNotes.trim() || null,
+      },
+    });
+    const startRes = await fetch(`${start.multipartStartUrl}&numParts=${numParts}&contentType=${encodeURIComponent(file.type || 'application/octet-stream')}`, { method: 'POST', credentials: 'include' });
+    if (!startRes.ok) throw new Error(`Multipart start failed: ${startRes.status}`);
+    const { partUrls, completeUrl } = await startRes.json() as { partUrls: string[]; completeUrl: string };
+
+    const parts: { partNumber: number; etag: string }[] = [];
+    for (let i = 0; i < numParts; i++) {
+      const offset = i * PART_SIZE;
+      const chunk = file.slice(offset, Math.min(offset + PART_SIZE, file.size));
+      let lastErr: unknown;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const res = await xhrPutPart(partUrls[i], chunk, (loaded) => {
+            setUploadProgress(Math.round(((offset + loaded) / file.size) * 100));
+          });
+          parts.push({ partNumber: res.partNumber, etag: res.etag });
+          lastErr = null;
+          break;
+        } catch (e) { lastErr = e; await new Promise((r) => setTimeout(r, 1000 * attempt)); }
+      }
+      if (lastErr) throw lastErr;
+    }
+    const completeRes = await fetch(completeUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ parts }) });
+    if (!completeRes.ok) throw new Error(`Multipart complete failed: ${completeRes.status}`);
+    return start.uploadId;
+  }
+
   async function handleDriveUpload(file: File) {
     setUploading(true); setUploadProgress(0);
+    const LARGE = 80 * 1024 * 1024; // 80 MB → switch to multipart
     try {
-      const { uploadUrl, uploadId } = await apiRequest<{ uploadUrl: string; uploadId: string }>(`/api/studio-portal/${slug}/drive-upload-url`, {
-        method: 'POST',
-        body: {
-          fileName: file.name, contentType: file.type, sizeBytes: file.size,
-          audiobookId: deliveryTitleId || null,
-          netFinalHours: deliveryNetHours.trim() === '' ? null : Number(deliveryNetHours),
-          notes: deliveryNotes.trim() || null,
-        },
-      });
-      await xhrPut(uploadUrl, file);
+      let uploadId: string;
+      if (file.size > LARGE) {
+        uploadId = await uploadDeliveryMultipart(file);
+      } else {
+        const res = await apiRequest<{ uploadUrl: string; uploadId: string }>(`/api/studio-portal/${slug}/drive-upload-url`, {
+          method: 'POST',
+          body: {
+            fileName: file.name, contentType: file.type, sizeBytes: file.size,
+            audiobookId: deliveryTitleId || null,
+            netFinalHours: deliveryNetHours.trim() === '' ? null : Number(deliveryNetHours),
+            notes: deliveryNotes.trim() || null,
+          },
+        });
+        await xhrPut(res.uploadUrl, file);
+        uploadId = res.uploadId;
+      }
       await apiRequest(`/api/studio-portal/${slug}/drive-uploads/${uploadId}/complete`, { method: 'POST' });
       setDeliveryNetHours(''); setDeliveryNotes('');
       showNotice(deliveryTitleId ? t('تم تسليم الصوت النهائي للعنوان المحدد بنجاح.', 'Final audio delivered for the selected title.') : t('تم رفع الملف بنجاح وسيراجعه الفريق.', 'File uploaded — the team will review it.'));

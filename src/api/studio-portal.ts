@@ -4,7 +4,7 @@ import type { Env } from '../types';
 import { Repository } from '../db';
 import { verifyStudioSessionCookie } from './studio-auth';
 import { createUploadUrl } from '../pipeline';
-import { signInternalArtifactUrl } from '../utils';
+import { signInternalArtifactUrl, signMultipartUrl } from '../utils';
 import { sendEmail, notifyOperatorsEmail } from '../email';
 import { keySegments, nowIso } from '../utils';
 
@@ -103,6 +103,37 @@ studioPortal.post('/:slug/drive-upload-url', async (c) => {
   const upload = await createUploadUrl(c.env, key, contentType);
   const uploadId = await repo.createDriveUpload({ studioId: studio.id, name: fileName, objectKey: key, audiobookId: audiobookId ?? null, netFinalHours: netFinalHours ?? null, notes: notes ?? null });
   return c.json({ ...upload, objectKey: key, uploadId });
+});
+
+// Start a resumable multipart delivery for large files (chunks stream through
+// the worker, avoiding the single-PUT / worker memory limits).
+studioPortal.post('/:slug/delivery-multipart-start', async (c) => {
+  const slug = c.req.param('slug');
+  const session = await requireStudioSession(c, slug);
+  if (!session) return c.json({ error: 'Unauthorized' }, 401);
+  const { fileName, contentType, audiobookId, netFinalHours, notes } = z.object({
+    fileName: z.string(), contentType: z.string(),
+    audiobookId: z.string().nullable().optional(),
+    netFinalHours: z.number().nonnegative().nullable().optional(),
+    notes: z.string().nullable().optional(),
+  }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudioBySlug(slug);
+  if (!studio) return c.json({ error: 'Not found' }, 404);
+  if (audiobookId) {
+    const assigned = await repo.listStudioProductionFiles(studio.id);
+    if (!assigned.some((f) => f.audiobook_id === audiobookId)) {
+      return c.json({ error: 'That title is not assigned to your studio.' }, 403);
+    }
+  }
+  const key = keySegments('studios', studio.id, 'deliveries', `${Date.now()}-${fileName}`);
+  const uploadId = await repo.createDriveUpload({ studioId: studio.id, name: fileName, objectKey: key, audiobookId: audiobookId ?? null, netFinalHours: netFinalHours ?? null, notes: notes ?? null });
+  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
+  const multipartStartUrl = await signMultipartUrl({
+    baseUrl, path: '/api/internal/multipart-start', key, method: 'POST',
+    secret: c.env.INTERNAL_API_SECRET, expiresAt: Date.now() + 6 * 60 * 60 * 1000,
+  });
+  return c.json({ uploadId, objectKey: key, multipartStartUrl, contentType });
 });
 
 // Studio submits the production plan for an assigned file (after sample approval).
