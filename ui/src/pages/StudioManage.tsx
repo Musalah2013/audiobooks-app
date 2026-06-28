@@ -726,9 +726,19 @@ export default function StudioManage() {
                         )}
                       </>
                     ) : (
-                      <span className={`badge-${u.status === 'failed' ? 'red' : 'yellow'}`}>
-                        {u.status === 'failed' ? (isArabic ? 'فشل' : 'Failed') : (isArabic ? 'قيد الرفع' : 'Uploading')}
-                      </span>
+                      <>
+                        <span className={`badge-${u.status === 'failed' ? 'red' : 'yellow'}`}>
+                          {u.status === 'failed' ? (isArabic ? 'فشل' : 'Failed') : (isArabic ? 'قيد الرفع' : 'Uploading')}
+                        </span>
+                        {confirmDeleteDelivery === u.id ? (
+                          <span className="flex items-center gap-1">
+                            <button type="button" className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white" onClick={() => deleteDelivery(u.id)}>{isArabic ? 'تأكيد' : 'Confirm'}</button>
+                            <button type="button" className="text-[10px] text-slate-500" onClick={() => setConfirmDeleteDelivery(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
+                          </span>
+                        ) : (
+                          <button type="button" className="text-red-400 hover:text-red-600" onClick={() => setConfirmDeleteDelivery(u.id)} title={isArabic ? 'حذف' : 'Delete'}><Trash2 className="h-3.5 w-3.5" /></button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
