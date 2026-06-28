@@ -308,6 +308,49 @@ export async function searchSamawySellers(env: Env, query: string): Promise<Sama
     .map((row) => ({ id: row.id, name: row.name }));
 }
 
+/**
+ * Genres from the Samawy DB proxy for the metadata dropdowns. The proxy follows
+ * the same REST shape as /publishers and /booksets, so we probe the conventional
+ * paths and parse flexibly (array of strings, or rows with name/title/genre).
+ * Returns a deduped, sorted list; empty when the proxy is unconfigured/unreachable.
+ */
+export async function fetchSamawyGenres(env: Env): Promise<Array<{ id: number | string | null; name: string }>> {
+  if (!env.SAMAWY_DB_PROXY_BASE_URL) return [];
+  const headers = {
+    "CF-Access-Client-Id": env.SAMAWY_DB_PROXY_CLIENT_ID ?? "",
+    "CF-Access-Client-Secret": env.SAMAWY_DB_PROXY_CLIENT_SECRET ?? "",
+  };
+  const candidatePaths = ["/genres", "/genre", "/categories", "/book-genres", "/booksets/genres"];
+  for (const path of candidatePaths) {
+    try {
+      const res = await fetch(`${env.SAMAWY_DB_PROXY_BASE_URL}${path}?limit=1000&offset=0`, { headers });
+      if (!res.ok) continue;
+      const data = (await res.json()) as unknown;
+      const rows: unknown[] = Array.isArray(data)
+        ? data
+        : ((data as Record<string, unknown>)?.genres as unknown[])
+          ?? ((data as Record<string, unknown>)?.results as unknown[])
+          ?? ((data as Record<string, unknown>)?.data as unknown[])
+          ?? [];
+      const seen = new Set<string>();
+      const mapped = rows
+        .map((r) => {
+          if (typeof r === "string") return { id: null as number | string | null, name: r };
+          const o = r as Record<string, unknown>;
+          const name = (o.name ?? o.title ?? o.genre ?? o.label ?? o.value) as string | undefined;
+          return name ? { id: (o.id as number | string | null) ?? null, name: String(name) } : null;
+        })
+        .filter((g): g is { id: number | string | null; name: string } => !!g && g.name.trim().length > 0)
+        .filter((g) => { const k = g.name.trim().toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
+        .sort((a, b) => a.name.localeCompare(b.name));
+      if (mapped.length) return mapped;
+    } catch {
+      // try the next candidate path
+    }
+  }
+  return [];
+}
+
 export async function lookupSamawyCandidates(
   env: Env,
   sellerId: number,

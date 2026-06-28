@@ -27,6 +27,7 @@ studioPortal.get('/:slug', async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudioBySlug(slug);
   if (!studio || !studio.is_active) return c.json({ error: 'Not found' }, 404);
+  await repo.failStalePendingDeliveries().catch(() => undefined);
   const [assets, productionFiles, samples, driveUploads] = await Promise.all([
     repo.listStudioAssets(studio.id),
     repo.listStudioProductionFiles(studio.id),

@@ -1255,6 +1255,14 @@ export class Repository {
     await this.db.prepare(`UPDATE studio_drive_upload SET audiobook_id = ? WHERE id = ?`).bind(audiobookId, id).run();
   }
 
+  /** Mark deliveries abandoned mid-upload (never completed) as failed.
+   *  12h is well past the 6h multipart URL expiry, so no in-progress upload is hit. */
+  async failStalePendingDeliveries() {
+    await this.db
+      .prepare(`UPDATE studio_drive_upload SET status = 'failed', error = 'Upload did not complete in time.' WHERE status = 'pending' AND created_at < datetime('now', '-12 hours')`)
+      .run();
+  }
+
   /** Link a set of a studio's drive uploads to the intake batch that will process them. */
   async linkDriveUploadsToBatch(uploadIds: string[], batchId: string) {
     if (uploadIds.length === 0) return;

@@ -45,6 +45,7 @@ export default function StudioManage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<string | null>(null);
   const { data: booksData } = useApi<BooksResponse>('/api/books');
+  const { data: genresData } = useApi<{ genres: { id: string | number | null; name: string }[] }>('/api/sellers/genres');
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   const [newContactEmail, setNewContactEmail] = useState('');
@@ -772,7 +773,14 @@ export default function StudioManage() {
                       <input className="input text-xs" placeholder={isArabic ? 'المؤلف' : 'Author'} value={metaDraft.author} onChange={(e) => setMetaDraft((d) => ({ ...d, author: e.target.value }))} />
                       <input className="input text-xs" placeholder={isArabic ? 'الراوي' : 'Narrator'} value={metaDraft.narrator} onChange={(e) => setMetaDraft((d) => ({ ...d, narrator: e.target.value }))} />
                       <input className="input text-xs font-mono" placeholder="ISBN" value={metaDraft.isbn} onChange={(e) => setMetaDraft((d) => ({ ...d, isbn: e.target.value }))} />
-                      <input className="input text-xs" placeholder={isArabic ? 'النوع' : 'Genre'} value={metaDraft.genre} onChange={(e) => setMetaDraft((d) => ({ ...d, genre: e.target.value }))} />
+                      {genresData?.genres?.length ? (
+                        <select className="input text-xs" value={metaDraft.genre} onChange={(e) => setMetaDraft((d) => ({ ...d, genre: e.target.value }))}>
+                          <option value="">{isArabic ? 'النوع' : 'Genre'}</option>
+                          {genresData.genres.map((g) => <option key={`${g.id ?? g.name}`} value={g.name}>{g.name}</option>)}
+                        </select>
+                      ) : (
+                        <input className="input text-xs" placeholder={isArabic ? 'النوع' : 'Genre'} value={metaDraft.genre} onChange={(e) => setMetaDraft((d) => ({ ...d, genre: e.target.value }))} />
+                      )}
                       <input className="input text-xs" placeholder={isArabic ? 'سنة النشر' : 'Pub year'} value={metaDraft.pubYear} onChange={(e) => setMetaDraft((d) => ({ ...d, pubYear: e.target.value }))} />
                       <select className="input text-xs" value={metaDraft.sellingType} onChange={(e) => setMetaDraft((d) => ({ ...d, sellingType: e.target.value }))}>
                         <option value="">{isArabic ? 'نوع البيع' : 'Selling type'}</option>

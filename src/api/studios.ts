@@ -159,6 +159,7 @@ studios.get('/:id', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(c.req.param('id')!);
   if (!studio) return c.json({ error: 'Not found' }, 404);
+  await repo.failStalePendingDeliveries().catch(() => undefined);
   const [assets, productionFiles, samples, driveUploads, contacts, legacyProductions] = await Promise.all([
     repo.listStudioAssets(studio.id),
     repo.listStudioProductionFiles(studio.id),
