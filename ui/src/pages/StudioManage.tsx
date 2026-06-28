@@ -279,8 +279,11 @@ export default function StudioManage() {
       setBulk({ done: i, total: list.length, name: file.name });
       setUploadProgress(0);
       try {
-        const { uploadUrl } = await apiRequest<{ uploadUrl: string }>(`/api/studios/${id}/${endpoint}`, { method: 'POST', body: { fileName: file.name, contentType: file.type, sizeBytes: file.size } });
+        const { uploadUrl, objectKey } = await apiRequest<{ uploadUrl: string; objectKey: string }>(`/api/studios/${id}/${endpoint}`, { method: 'POST', body: { fileName: file.name, contentType: file.type, sizeBytes: file.size } });
         await xhrPut(uploadUrl, file);
+        if (kind === 'production') {
+          await apiRequest(`/api/studios/${id}/production-files/complete`, { method: 'POST', body: { objectKey, fileName: file.name, contentType: file.type || 'application/pdf', sizeBytes: file.size } });
+        }
         ok += 1;
       } catch {
         failedNames.push(file.name);
@@ -535,8 +538,17 @@ export default function StudioManage() {
                   <div className="flex items-center gap-2.5 min-w-0">
                     <FileText className="h-4 w-4 text-red-400 shrink-0" />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{f.name}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium truncate">{f.name}</p>
+                        {f.productionStatus && (
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${f.productionStatus === 'delivered' ? 'bg-emerald-50 text-emerald-700' : f.productionStatus === 'in_production' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                            {f.productionStatus === 'delivered' ? (isArabic ? 'تم التسليم' : 'Delivered') : f.productionStatus === 'in_production' ? (isArabic ? 'قيد الإنتاج' : 'In Production') : (isArabic ? 'قائمة الانتظار' : 'Backlog')}
+                          </span>
+                        )}
+                      </div>
+                      {f.bookAuthor && <p className="text-xs text-[color:var(--fg-2)] truncate">{isArabic ? 'المؤلف:' : 'Author:'} {f.bookAuthor}</p>}
                       <p className="text-xs text-[color:var(--fg-2)]">{formatBytes(f.sizeBytes)} · {f.uploadedBy} · {new Date(f.createdAt).toLocaleDateString()}</p>
+                      {f.acqNotes && <p className="text-xs text-[color:var(--fg-2)] mt-0.5 italic">{f.acqNotes}</p>}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">

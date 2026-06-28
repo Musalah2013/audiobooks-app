@@ -538,6 +538,25 @@ export interface StudioAsset {
   createdAt: string;
 }
 
+export type ProductionStatus = 'backlog' | 'in_production' | 'delivered';
+
+/** Rich catalog metadata captured up-front by the acquisition member, mirroring
+ *  the operator's delivery-push form so it can be reused at push time. */
+export interface AcqBookMetadata {
+  sellerId?: number | null;
+  sellerName?: string | null;
+  title?: string | null;
+  subtitle?: string | null;
+  author?: string | null;
+  narrator?: string | null;
+  isbn?: string | null;
+  genre?: string | null;
+  blurb?: string | null;
+  pubYear?: string | null;
+  sellingType?: 'subscription' | 'a_la_carte' | null;
+  price?: number | null;
+}
+
 export interface StudioProductionFile {
   id: string;
   studioId: string;
@@ -555,6 +574,13 @@ export interface StudioProductionFile {
   narrator?: string | null;
   expectedNetHours?: number | null;
   estimatedFinishHours?: number | null;
+  /** Acquisition-supplied metadata describing the book assignment. */
+  bookAuthor?: string | null;
+  acqNotes?: string | null;
+  /** Full delivery-style catalog metadata captured by the acquisition member. */
+  acqMetadata?: AcqBookMetadata | null;
+  /** Studio-driven production status for this book. */
+  productionStatus?: ProductionStatus;
   /** Whether this file has an approved narration sample (gates the plan form). */
   hasApprovedSample?: boolean;
 }
@@ -591,6 +617,8 @@ export interface StudioDriveUpload {
   netFinalHours?: number | null;
   /** Free-text notes the studio attached to the delivery. */
   notes?: string | null;
+  /** Production file (book) this delivery fulfils, when delivered from a book row. */
+  productionFileId?: string | null;
 }
 
 export interface AssignedTitle {

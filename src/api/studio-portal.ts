@@ -5,7 +5,7 @@ import { Repository } from '../db';
 import { verifyStudioSessionCookie } from './studio-auth';
 import { createUploadUrl } from '../pipeline';
 import { signInternalArtifactUrl, signMultipartUrl } from '../utils';
-import { sendEmail, notifyOperatorsEmail } from '../email';
+import { sendEmail, notifyEmail } from '../email';
 import { keySegments, nowIso } from '../utils';
 
 const studioPortal = new Hono<{ Bindings: Env }>();
@@ -16,8 +16,12 @@ async function requireStudioSession(c: Context<{ Bindings: Env }>, slug: string)
   return session;
 }
 
-function driveUploadToApi(d: { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null }) {
-  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed' | 'pushed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id };
+function safeJson(raw: string) {
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+function driveUploadToApi(d: { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; production_file_id?: string | null }) {
+  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed' | 'pushed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id, productionFileId: d.production_file_id ?? null };
 }
 
 studioPortal.get('/:slug', async (c) => {
@@ -50,7 +54,7 @@ studioPortal.get('/:slug', async (c) => {
   return c.json({
     studio: { id: studio.id, name: studio.name, slug: studio.slug, contactEmail: studio.contact_email, logoObjectKey: studio.logo_object_key, isActive: !!studio.is_active, createdAt: studio.created_at, createdBy: studio.created_by, hourlyRateUsd: studio.hourly_rate_usd },
     assets: assets.map((a) => ({ id: a.id, studioId: a.studio_id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at })),
-    productionFiles: productionFiles.map((f) => ({ id: f.id, studioId: f.studio_id, name: f.name, objectKey: f.object_key, contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at, audiobookId: f.audiobook_id, audiobookTitle: f.audiobook_id ? (titleById.get(f.audiobook_id) ?? null) : null, narrator: f.narrator, expectedNetHours: f.expected_net_hours, estimatedFinishHours: f.estimated_finish_hours, hasApprovedSample: approvedFileIds.has(f.id) })),
+    productionFiles: productionFiles.map((f) => ({ id: f.id, studioId: f.studio_id, name: f.name, objectKey: f.object_key, contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at, audiobookId: f.audiobook_id, audiobookTitle: f.audiobook_id ? (titleById.get(f.audiobook_id) ?? null) : null, narrator: f.narrator, expectedNetHours: f.expected_net_hours, estimatedFinishHours: f.estimated_finish_hours, productionStatus: (f.production_status ?? 'backlog'), acqMetadata: f.acq_metadata ? safeJson(f.acq_metadata) : null, hasApprovedSample: approvedFileIds.has(f.id) })),
     samples: samples.map((s) => ({ id: s.id, studioId: s.studio_id, bookId: s.book_id ?? null, bookName: s.book_id ? (bookNameMap.get(s.book_id) ?? null) : null, name: s.name, objectKey: s.object_key, contentType: s.content_type, sizeBytes: s.size_bytes, status: s.status, reviewedBy: s.reviewed_by, reviewNote: s.review_note, reviewedAt: s.reviewed_at, createdAt: s.created_at })),
     driveUploads: driveUploads.map(driveUploadToApi),
     // Titles this studio may deliver finished audio for (assigned by an operator).
@@ -84,11 +88,12 @@ studioPortal.post('/:slug/drive-upload-url', async (c) => {
   const slug = c.req.param('slug');
   const session = await requireStudioSession(c, slug);
   if (!session) return c.json({ error: 'Unauthorized' }, 401);
-  const { fileName, contentType, sizeBytes, audiobookId, netFinalHours, notes } = z.object({
+  const { fileName, contentType, sizeBytes, audiobookId, netFinalHours, notes, productionFileId } = z.object({
     fileName: z.string(), contentType: z.string(), sizeBytes: z.number().optional(),
     audiobookId: z.string().nullable().optional(),
     netFinalHours: z.number().nonnegative().nullable().optional(),
     notes: z.string().nullable().optional(),
+    productionFileId: z.string().nullable().optional(),
   }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudioBySlug(slug);
@@ -100,9 +105,13 @@ studioPortal.post('/:slug/drive-upload-url', async (c) => {
       return c.json({ error: 'That title is not assigned to your studio.' }, 403);
     }
   }
+  if (productionFileId) {
+    const pf = await repo.getStudioProductionFile(productionFileId);
+    if (!pf || pf.studio_id !== studio.id) return c.json({ error: 'That book is not part of your studio.' }, 403);
+  }
   const key = keySegments('studios', studio.id, 'deliveries', `${Date.now()}-${fileName}`);
   const upload = await createUploadUrl(c.env, key, contentType);
-  const uploadId = await repo.createDriveUpload({ studioId: studio.id, name: fileName, objectKey: key, audiobookId: audiobookId ?? null, netFinalHours: netFinalHours ?? null, notes: notes ?? null });
+  const uploadId = await repo.createDriveUpload({ studioId: studio.id, name: fileName, objectKey: key, audiobookId: audiobookId ?? null, netFinalHours: netFinalHours ?? null, notes: notes ?? null, productionFileId: productionFileId ?? null });
   return c.json({ ...upload, objectKey: key, uploadId });
 });
 
@@ -112,11 +121,12 @@ studioPortal.post('/:slug/delivery-multipart-start', async (c) => {
   const slug = c.req.param('slug');
   const session = await requireStudioSession(c, slug);
   if (!session) return c.json({ error: 'Unauthorized' }, 401);
-  const { fileName, contentType, audiobookId, netFinalHours, notes } = z.object({
+  const { fileName, contentType, audiobookId, netFinalHours, notes, productionFileId } = z.object({
     fileName: z.string(), contentType: z.string(),
     audiobookId: z.string().nullable().optional(),
     netFinalHours: z.number().nonnegative().nullable().optional(),
     notes: z.string().nullable().optional(),
+    productionFileId: z.string().nullable().optional(),
   }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudioBySlug(slug);
@@ -127,8 +137,12 @@ studioPortal.post('/:slug/delivery-multipart-start', async (c) => {
       return c.json({ error: 'That title is not assigned to your studio.' }, 403);
     }
   }
+  if (productionFileId) {
+    const pf = await repo.getStudioProductionFile(productionFileId);
+    if (!pf || pf.studio_id !== studio.id) return c.json({ error: 'That book is not part of your studio.' }, 403);
+  }
   const key = keySegments('studios', studio.id, 'deliveries', `${Date.now()}-${fileName}`);
-  const uploadId = await repo.createDriveUpload({ studioId: studio.id, name: fileName, objectKey: key, audiobookId: audiobookId ?? null, netFinalHours: netFinalHours ?? null, notes: notes ?? null });
+  const uploadId = await repo.createDriveUpload({ studioId: studio.id, name: fileName, objectKey: key, audiobookId: audiobookId ?? null, netFinalHours: netFinalHours ?? null, notes: notes ?? null, productionFileId: productionFileId ?? null });
   const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
   const multipartStartUrl = await signMultipartUrl({
     baseUrl, path: '/api/internal/multipart-start', key, method: 'POST',
@@ -162,6 +176,23 @@ studioPortal.post('/:slug/production-files/:fileId/plan', async (c) => {
   return c.json({ ok: true });
 });
 
+// Studio moves a book between Backlog and In Production. "Delivered" is set only
+// by uploading a delivery from the book row (handled on delivery completion).
+studioPortal.post('/:slug/production-files/:fileId/status', async (c) => {
+  const slug = c.req.param('slug');
+  const session = await requireStudioSession(c, slug);
+  if (!session) return c.json({ error: 'Unauthorized' }, 401);
+  const { status } = z.object({ status: z.enum(['backlog', 'in_production']) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
+  if (!file || file.studio_id !== session.studioId) return c.json({ error: 'Not found' }, 404);
+  if (file.production_status === 'delivered') {
+    return c.json({ error: 'This book is already delivered.' }, 400);
+  }
+  await repo.setStudioProductionFileStatus(file.id, status);
+  return c.json({ ok: true });
+});
+
 studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
   const slug = c.req.param('slug');
   const session = await requireStudioSession(c, slug);
@@ -182,7 +213,12 @@ studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
   // Just record the delivery — an operator decides whether to push it into the
   // audiobooks system (or delete it) from the studio management page.
   await repo.updateDriveUpload(uploadId, { status: 'completed' });
-  await repo.audit('studio', studio.id, 'delivery.received', 'studio_portal', { uploadId, objectKey: upload.object_key, audiobookId: upload.audiobook_id });
+  // A delivery uploaded from a book row marks that book "delivered".
+  if (upload.production_file_id) {
+    const pf = await repo.getStudioProductionFile(upload.production_file_id);
+    if (pf && pf.studio_id === studio.id) await repo.setStudioProductionFileStatus(pf.id, 'delivered');
+  }
+  await repo.audit('studio', studio.id, 'delivery.received', 'studio_portal', { uploadId, objectKey: upload.object_key, audiobookId: upload.audiobook_id, productionFileId: upload.production_file_id });
 
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const operators = (await repo.listOperatorUsers()).filter((op) => op.isActive);
@@ -190,12 +226,12 @@ studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
     sendEmail({
       to: op.email,
       subject: `تسليم جديد من ${studio.name}`,
-      html: notifyOperatorsEmail(
-        `تسليم جديد من ${studio.name}`,
-        `رفع استوديو ${studio.name} ملفاً بعنوان "<strong>${upload.name}</strong>". راجِعه ثم ادفعه إلى النظام من صفحة إدارة الاستوديو.`,
-        `${baseUrl}/studios/${studio.id}`,
-        'مراجعة التسليم',
-      ),
+      html: notifyEmail({
+        eyebrow: 'إشعار للمشغّلين', heading: `تسليم جديد من ${studio.name}`,
+        body: `رفع استوديو ${studio.name} ملفاً بعنوان "<strong>${upload.name}</strong>". راجِعه ثم ادفعه إلى النظام من صفحة إدارة الاستوديو.`,
+        ctaLabel: 'مراجعة التسليم', link: `${baseUrl}/studios/${studio.id}`,
+        info: { type: 'ZIP', name: upload.name, meta: studio.name },
+      }),
       emailBinding: c.env.EMAIL,
     }),
   ));
@@ -220,12 +256,12 @@ studioPortal.post('/:slug/sample-upload-url', async (c) => {
     sendEmail({
       to: op.email,
       subject: `عينة جديدة من ${studio.name}`,
-      html: notifyOperatorsEmail(
-        `عينة جديدة: ${fileName}`,
-        `رفع استوديو ${studio.name} عينة جديدة بعنوان "<strong>${fileName}</strong>" تنتظر مراجعتك.`,
-        `${baseUrl}/studios/${studio.id}`,
-        'مراجعة العينات'
-      ),
+      html: notifyEmail({
+        eyebrow: 'إشعار للمشغّلين', heading: `عينة جديدة: ${fileName}`,
+        body: `رفع استوديو ${studio.name} عينة جديدة بعنوان "<strong>${fileName}</strong>" تنتظر مراجعتك.`,
+        ctaLabel: 'مراجعة العينات', link: `${baseUrl}/studios/${studio.id}`,
+        info: { type: 'MP3', name: fileName, meta: studio.name },
+      }),
       emailBinding: c.env.EMAIL,
     })
   ));

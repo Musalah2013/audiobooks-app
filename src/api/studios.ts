@@ -4,8 +4,8 @@ import type { Env } from '../types';
 import { Repository } from '../db';
 import { requirePermission, actorEmail } from './auth';
 import { createUploadUrl } from '../pipeline';
-import { sendEmail, magicLinkEmail, notifyOperatorsEmail, sampleReviewedEmail } from '../email';
-import { keySegments, nowIso, signInternalArtifactUrl, buildCatalogStorageBasePath } from '../utils';
+import { sendEmail, magicLinkEmail, notifyEmail, sampleReviewedEmail } from '../email';
+import { keySegments, nowIso, buildCatalogStorageBasePath, signedStudioLogoUrl } from '../utils';
 
 const studios = new Hono<{ Bindings: Env }>();
 
@@ -21,8 +21,13 @@ function assetToApi(a: { id: string; studio_id: string; name: string; object_key
   return { id: a.id, studioId: a.studio_id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at };
 }
 
+function parseAcqMetadata(raw: string | null | undefined) {
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
 function productionFileToApi(
-  f: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null },
+  f: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null; book_author?: string | null; acq_notes?: string | null; production_status?: string; acq_metadata?: string | null },
   audiobookTitle: string | null = null,
   hasApprovedSample = false,
 ) {
@@ -31,12 +36,15 @@ function productionFileToApi(
     contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at,
     audiobookId: f.audiobook_id, audiobookTitle,
     narrator: f.narrator, expectedNetHours: f.expected_net_hours, estimatedFinishHours: f.estimated_finish_hours,
+    bookAuthor: f.book_author ?? null, acqNotes: f.acq_notes ?? null,
+    acqMetadata: parseAcqMetadata(f.acq_metadata),
+    productionStatus: (f.production_status ?? 'backlog') as 'backlog' | 'in_production' | 'delivered',
     hasApprovedSample,
   };
 }
 
-function driveUploadToApi(d: { id: string; studio_id: string; name: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; net_final_hours: number | null; notes: string | null }) {
-  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed' | 'pushed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id, netFinalHours: d.net_final_hours, notes: d.notes };
+function driveUploadToApi(d: { id: string; studio_id: string; name: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; net_final_hours: number | null; notes: string | null; production_file_id?: string | null }) {
+  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed' | 'pushed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id, netFinalHours: d.net_final_hours, notes: d.notes, productionFileId: d.production_file_id ?? null };
 }
 
 function sampleToApi(s: { id: string; studio_id: string; book_id?: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string }, bookName: string | null = null) {
@@ -154,6 +162,46 @@ studios.delete('/:id/legacy-productions/:prodId', requirePermission('users'), as
   await repo.deleteLegacyProduction(c.req.param('id')!, c.req.param('prodId')!);
   return c.json({ ok: true });
 });
+
+// ─── Acquisition users ────────────────────────────────────────────────────────
+// NOTE: these literal `/acquisition-users` paths MUST be registered before the
+// `/:id` studio routes below, otherwise Hono matches `/:id` first and treats
+// "acquisition-users" as a studio id (shadowing the list/create endpoints).
+
+studios.get('/acquisition-users', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const users = await repo.listAcquisitionUsers();
+  return c.json({ users: users.map((u) => ({ id: u.id, email: u.email, name: u.name, isActive: !!u.is_active, createdAt: u.created_at })) });
+});
+
+studios.post('/acquisition-users', requirePermission('users'), async (c) => {
+  const { email, name } = z.object({ email: z.string().email(), name: z.string().min(1) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const id = await repo.createAcquisitionUser({ email, name, createdBy: actorEmail(c.req.raw) });
+  return c.json({ ok: true, id }, 201);
+});
+
+studios.patch('/acquisition-users/:id', requirePermission('users'), async (c) => {
+  const { name, isActive } = z.object({ name: z.string().min(1).optional(), isActive: z.boolean().optional() }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  await repo.updateAcquisitionUser(c.req.param('id')!, { name, isActive: isActive !== undefined ? (isActive ? 1 : 0) : undefined });
+  return c.json({ ok: true });
+});
+
+studios.post('/acquisition-users/:id/magic-link', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const user = await repo.getAcquisitionUser(c.req.param('id')!);
+  if (!user) return c.json({ error: 'User not found' }, 404);
+  const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  await repo.createAcquisitionMagicLink(user.id, token, expiresAt);
+  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
+  const link = `${baseUrl}/api/acquisition-auth/verify?token=${token}`;
+  await sendEmail({ to: user.email, toName: user.name, subject: 'رابط الدخول — بوابة الاقتناء', html: magicLinkEmail({ link, greetingName: user.name, portalLabel: 'بوابة الاقتناء', ctaLabel: 'الدخول إلى البوابة' }), emailBinding: c.env.EMAIL });
+  return c.json({ ok: true });
+});
+
+// ─── Studio detail + CRUD ─────────────────────────────────────────────────────
 
 studios.get('/:id', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
@@ -371,23 +419,18 @@ studios.post('/:id/magic-link', requirePermission('users'), async (c) => {
   await repo.createStudioMagicLink(studio.id, token, expiresAt);
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
+  const logoUrl = await signedStudioLogoUrl(c.env, baseUrl, studio.logo_object_key);
 
-  // Build signed studio logo URL if available
-  let studioLogoUrl: string | undefined;
-  if (studio.logo_object_key) {
-    const logoExpiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
-    const logoBaseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
-    studioLogoUrl = await signInternalArtifactUrl({
-      baseUrl: logoBaseUrl,
-      path: `/api/files/${studio.logo_object_key}`,
-      key: studio.logo_object_key,
-      method: 'GET',
-      secret: c.env.INTERNAL_API_SECRET,
-      expiresAt: logoExpiresAt,
-    });
-  }
-
-  await sendEmail({ to: studio.contact_email, toName: studio.name, subject: 'رابط الدخول إلى بوابة سماوي', html: magicLinkEmail(link, studio.name, studioLogoUrl), emailBinding: c.env.EMAIL });
+  await sendEmail({
+    to: studio.contact_email, toName: studio.name,
+    subject: 'رابط الدخول إلى بوابة سماوي',
+    html: magicLinkEmail({
+      link, greetingName: studio.name,
+      portalLabel: 'بوابة سماوي للاستوديوهات', ctaLabel: 'الدخول إلى البوابة',
+      studio: { initial: studio.name.trim().charAt(0) || 'S', name: studio.name, sub: 'استوديو شريك', logoUrl },
+    }),
+    emailBinding: c.env.EMAIL,
+  });
   return c.json({ ok: true });
 });
 
@@ -432,34 +475,59 @@ studios.delete('/:id/assets/:assetId', requirePermission('users'), async (c) => 
 
 // ─── Production files ─────────────────────────────────────────────────────────
 
+// Returns a presigned upload URL only — the DB row is created on /complete so a
+// failed/abandoned upload never leaves a ghost production file.
 studios.post('/:id/production-file-upload-url', requirePermission('users'), async (c) => {
-  const { fileName, contentType, sizeBytes } = z.object({ fileName: z.string(), contentType: z.string().default('application/pdf'), sizeBytes: z.number().optional() }).parse(await c.req.json());
+  const { fileName, contentType } = z.object({ fileName: z.string(), contentType: z.string().default('application/pdf'), sizeBytes: z.number().optional() }).parse(await c.req.json());
   const studioId = c.req.param('id')!;
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(studioId);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
   const key = keySegments('studios', studioId, 'production', `${Date.now()}-${fileName}`);
   const upload = await createUploadUrl(c.env, key, contentType);
-  const fileId = await repo.createStudioProductionFile({ studioId, name: fileName, objectKey: key, contentType, sizeBytes: sizeBytes ?? 0, uploadedBy: actorEmail(c.req.raw) });
-  // Notify studio
+  return c.json({ ...upload, objectKey: key });
+});
+
+// Create the production-file row after the upload landed, then notify the studio.
+studios.post('/:id/production-files/complete', requirePermission('users'), async (c) => {
+  const body = z.object({ objectKey: z.string(), fileName: z.string(), contentType: z.string().default('application/pdf'), sizeBytes: z.number().optional(), bookAuthor: z.string().nullish(), acqNotes: z.string().nullish() }).parse(await c.req.json());
+  const studioId = c.req.param('id')!;
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudio(studioId);
+  if (!studio) return c.json({ error: 'Studio not found' }, 404);
+  const object = await c.env.ASSET_BUCKET.head(body.objectKey);
+  if (!object) return c.json({ error: 'Uploaded file not found in storage.' }, 404);
+  const fileId = await repo.createStudioProductionFile({ studioId, name: body.fileName, objectKey: body.objectKey, contentType: body.contentType, sizeBytes: body.sizeBytes ?? object.size, uploadedBy: actorEmail(c.req.raw), bookAuthor: body.bookAuthor ?? null, acqNotes: body.acqNotes ?? null });
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
     subject: 'ملف إنتاج جديد متاح في بوابتك',
-    html: notifyOperatorsEmail(
-      'ملف إنتاج جديد',
-      `تم رفع ملف جديد بعنوان "<strong>${fileName}</strong>" إلى بوابة ${studio.name}.`,
-      `${baseUrl}/studio/${studio.slug}`,
-      'الدخول إلى البوابة'
-    ),
+    html: notifyEmail({
+      eyebrow: 'بوابة الاستوديو', heading: 'ملف إنتاج جديد',
+      body: `تم رفع ملف جديد بعنوان "<strong>${body.fileName}</strong>" إلى بوابة ${studio.name}.`,
+      ctaLabel: 'الدخول إلى البوابة', link: `${baseUrl}/studio/${studio.slug}`,
+      info: { type: 'DOC', name: body.fileName, meta: studio.name },
+    }),
     emailBinding: c.env.EMAIL,
-  });
-  return c.json({ ...upload, objectKey: key, fileId });
+  }).catch(() => undefined);
+  return c.json({ ok: true, fileId });
+});
+
+studios.patch('/:id/production-files/:fileId/meta', requirePermission('users'), async (c) => {
+  const body = z.object({ name: z.string().min(1).optional(), bookAuthor: z.string().nullable().optional(), acqNotes: z.string().nullable().optional() }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
+  if (!file || file.studio_id !== c.req.param('id')) return c.json({ error: 'Production file not found' }, 404);
+  await repo.setStudioProductionFileMeta(file.id, body);
+  return c.json({ ok: true });
 });
 
 studios.delete('/:id/production-files/:fileId', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const deleted = await repo.deleteStudioProductionFile(c.req.param('fileId')!);
+  const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
+  if (!file || file.studio_id !== c.req.param('id')) return c.json({ error: 'Production file not found' }, 404);
+  if (file.audiobook_id) return c.json({ error: 'This file is assigned to a catalog title and in production. Unassign it first.' }, 400);
+  const deleted = await repo.deleteStudioProductionFile(file.id);
   if (deleted?.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key);
   return c.json({ ok: true });
 });
@@ -510,44 +578,13 @@ studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async 
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
     subject: `تحديث حالة العينة — ${statusAr}`,
-    html: sampleReviewedEmail(sample.name, status, note ?? null, studio.name),
+    html: sampleReviewedEmail({
+      sampleName: sample.name, studioName: studio.name, status,
+      reviewNote: note ?? (status === 'approved' ? 'لا توجد ملاحظات.' : '—'),
+      ctaLabel: 'الدخول إلى البوابة', link: `${baseUrl}/studio/${studio.slug}`,
+    }),
     emailBinding: c.env.EMAIL,
   });
-  return c.json({ ok: true });
-});
-
-// ─── Acquisition users ────────────────────────────────────────────────────────
-
-studios.get('/acquisition-users', requirePermission('users'), async (c) => {
-  const repo = new Repository(c.env.DB);
-  const users = await repo.listAcquisitionUsers();
-  return c.json({ users: users.map((u) => ({ id: u.id, email: u.email, name: u.name, isActive: !!u.is_active, createdAt: u.created_at })) });
-});
-
-studios.post('/acquisition-users', requirePermission('users'), async (c) => {
-  const { email, name } = z.object({ email: z.string().email(), name: z.string().min(1) }).parse(await c.req.json());
-  const repo = new Repository(c.env.DB);
-  const id = await repo.createAcquisitionUser({ email, name, createdBy: actorEmail(c.req.raw) });
-  return c.json({ ok: true, id }, 201);
-});
-
-studios.patch('/acquisition-users/:id', requirePermission('users'), async (c) => {
-  const { name, isActive } = z.object({ name: z.string().min(1).optional(), isActive: z.boolean().optional() }).parse(await c.req.json());
-  const repo = new Repository(c.env.DB);
-  await repo.updateAcquisitionUser(c.req.param('id')!, { name, isActive: isActive !== undefined ? (isActive ? 1 : 0) : undefined });
-  return c.json({ ok: true });
-});
-
-studios.post('/acquisition-users/:id/magic-link', requirePermission('users'), async (c) => {
-  const repo = new Repository(c.env.DB);
-  const user = await repo.getAcquisitionUser(c.req.param('id')!);
-  if (!user) return c.json({ error: 'User not found' }, 404);
-  const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  await repo.createAcquisitionMagicLink(user.id, token, expiresAt);
-  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
-  const link = `${baseUrl}/api/acquisition-auth/verify?token=${token}`;
-  await sendEmail({ to: user.email, toName: user.name, subject: 'رابط الدخول — بوابة الاقتناء', html: magicLinkEmail(link, user.name), emailBinding: c.env.EMAIL });
   return c.json({ ok: true });
 });
 
