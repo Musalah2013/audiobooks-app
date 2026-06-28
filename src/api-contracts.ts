@@ -555,6 +555,9 @@ export interface StudioProductionFile {
   narrator?: string | null;
   expectedNetHours?: number | null;
   estimatedFinishHours?: number | null;
+  /** Acquisition-supplied metadata describing the book assignment. */
+  bookAuthor?: string | null;
+  acqNotes?: string | null;
   /** Whether this file has an approved narration sample (gates the plan form). */
   hasApprovedSample?: boolean;
 }

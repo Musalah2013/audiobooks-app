@@ -279,8 +279,11 @@ export default function StudioManage() {
       setBulk({ done: i, total: list.length, name: file.name });
       setUploadProgress(0);
       try {
-        const { uploadUrl } = await apiRequest<{ uploadUrl: string }>(`/api/studios/${id}/${endpoint}`, { method: 'POST', body: { fileName: file.name, contentType: file.type, sizeBytes: file.size } });
+        const { uploadUrl, objectKey } = await apiRequest<{ uploadUrl: string; objectKey: string }>(`/api/studios/${id}/${endpoint}`, { method: 'POST', body: { fileName: file.name, contentType: file.type, sizeBytes: file.size } });
         await xhrPut(uploadUrl, file);
+        if (kind === 'production') {
+          await apiRequest(`/api/studios/${id}/production-files/complete`, { method: 'POST', body: { objectKey, fileName: file.name, contentType: file.type || 'application/pdf', sizeBytes: file.size } });
+        }
         ok += 1;
       } catch {
         failedNames.push(file.name);
@@ -536,7 +539,9 @@ export default function StudioManage() {
                     <FileText className="h-4 w-4 text-red-400 shrink-0" />
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{f.name}</p>
+                      {f.bookAuthor && <p className="text-xs text-[color:var(--fg-2)] truncate">{isArabic ? 'المؤلف:' : 'Author:'} {f.bookAuthor}</p>}
                       <p className="text-xs text-[color:var(--fg-2)]">{formatBytes(f.sizeBytes)} · {f.uploadedBy} · {new Date(f.createdAt).toLocaleDateString()}</p>
+                      {f.acqNotes && <p className="text-xs text-[color:var(--fg-2)] mt-0.5 italic">{f.acqNotes}</p>}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">

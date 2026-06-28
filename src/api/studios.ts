@@ -22,7 +22,7 @@ function assetToApi(a: { id: string; studio_id: string; name: string; object_key
 }
 
 function productionFileToApi(
-  f: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null },
+  f: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null; book_author?: string | null; acq_notes?: string | null },
   audiobookTitle: string | null = null,
   hasApprovedSample = false,
 ) {
@@ -31,6 +31,7 @@ function productionFileToApi(
     contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at,
     audiobookId: f.audiobook_id, audiobookTitle,
     narrator: f.narrator, expectedNetHours: f.expected_net_hours, estimatedFinishHours: f.estimated_finish_hours,
+    bookAuthor: f.book_author ?? null, acqNotes: f.acq_notes ?? null,
     hasApprovedSample,
   };
 }
@@ -432,34 +433,54 @@ studios.delete('/:id/assets/:assetId', requirePermission('users'), async (c) => 
 
 // ─── Production files ─────────────────────────────────────────────────────────
 
+// Returns a presigned upload URL only — the DB row is created on /complete so a
+// failed/abandoned upload never leaves a ghost production file.
 studios.post('/:id/production-file-upload-url', requirePermission('users'), async (c) => {
-  const { fileName, contentType, sizeBytes } = z.object({ fileName: z.string(), contentType: z.string().default('application/pdf'), sizeBytes: z.number().optional() }).parse(await c.req.json());
+  const { fileName, contentType } = z.object({ fileName: z.string(), contentType: z.string().default('application/pdf'), sizeBytes: z.number().optional() }).parse(await c.req.json());
   const studioId = c.req.param('id')!;
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(studioId);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
   const key = keySegments('studios', studioId, 'production', `${Date.now()}-${fileName}`);
   const upload = await createUploadUrl(c.env, key, contentType);
-  const fileId = await repo.createStudioProductionFile({ studioId, name: fileName, objectKey: key, contentType, sizeBytes: sizeBytes ?? 0, uploadedBy: actorEmail(c.req.raw) });
-  // Notify studio
+  return c.json({ ...upload, objectKey: key });
+});
+
+// Create the production-file row after the upload landed, then notify the studio.
+studios.post('/:id/production-files/complete', requirePermission('users'), async (c) => {
+  const body = z.object({ objectKey: z.string(), fileName: z.string(), contentType: z.string().default('application/pdf'), sizeBytes: z.number().optional(), bookAuthor: z.string().nullish(), acqNotes: z.string().nullish() }).parse(await c.req.json());
+  const studioId = c.req.param('id')!;
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudio(studioId);
+  if (!studio) return c.json({ error: 'Studio not found' }, 404);
+  const object = await c.env.ASSET_BUCKET.head(body.objectKey);
+  if (!object) return c.json({ error: 'Uploaded file not found in storage.' }, 404);
+  const fileId = await repo.createStudioProductionFile({ studioId, name: body.fileName, objectKey: body.objectKey, contentType: body.contentType, sizeBytes: body.sizeBytes ?? object.size, uploadedBy: actorEmail(c.req.raw), bookAuthor: body.bookAuthor ?? null, acqNotes: body.acqNotes ?? null });
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
     subject: 'ملف إنتاج جديد متاح في بوابتك',
-    html: notifyOperatorsEmail(
-      'ملف إنتاج جديد',
-      `تم رفع ملف جديد بعنوان "<strong>${fileName}</strong>" إلى بوابة ${studio.name}.`,
-      `${baseUrl}/studio/${studio.slug}`,
-      'الدخول إلى البوابة'
-    ),
+    html: notifyOperatorsEmail('ملف إنتاج جديد', `تم رفع ملف جديد بعنوان "<strong>${body.fileName}</strong>" إلى بوابة ${studio.name}.`, `${baseUrl}/studio/${studio.slug}`, 'الدخول إلى البوابة'),
     emailBinding: c.env.EMAIL,
-  });
-  return c.json({ ...upload, objectKey: key, fileId });
+  }).catch(() => undefined);
+  return c.json({ ok: true, fileId });
+});
+
+studios.patch('/:id/production-files/:fileId/meta', requirePermission('users'), async (c) => {
+  const body = z.object({ name: z.string().min(1).optional(), bookAuthor: z.string().nullable().optional(), acqNotes: z.string().nullable().optional() }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
+  if (!file || file.studio_id !== c.req.param('id')) return c.json({ error: 'Production file not found' }, 404);
+  await repo.setStudioProductionFileMeta(file.id, body);
+  return c.json({ ok: true });
 });
 
 studios.delete('/:id/production-files/:fileId', requirePermission('users'), async (c) => {
   const repo = new Repository(c.env.DB);
-  const deleted = await repo.deleteStudioProductionFile(c.req.param('fileId')!);
+  const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
+  if (!file || file.studio_id !== c.req.param('id')) return c.json({ error: 'Production file not found' }, 404);
+  if (file.audiobook_id) return c.json({ error: 'This file is assigned to a catalog title and in production. Unassign it first.' }, 400);
+  const deleted = await repo.deleteStudioProductionFile(file.id);
   if (deleted?.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key);
   return c.json({ ok: true });
 });

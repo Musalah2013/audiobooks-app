@@ -31,7 +31,7 @@ type StudioAggregate = {
   legacyProductions: number; legacyNetHours: number;
 };
 type StudioAssetRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
-type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null };
+type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null; book_author: string | null; acq_notes: string | null };
 type StudioSampleRow = { id: string; studio_id: string; book_id: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string };
 type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; net_final_hours: number | null; notes: string | null };
 type AcquisitionUserRow = { id: string; email: string; name: string; is_active: number; created_at: string; created_by: string };
@@ -1130,12 +1130,24 @@ export class Repository {
     return this.db.prepare(`DELETE FROM studio_asset WHERE id = ? RETURNING object_key`).bind(id).first<{ object_key: string }>();
   }
 
-  async createStudioProductionFile(input: { studioId: string; name: string; objectKey: string; contentType: string; sizeBytes: number; uploadedBy: string }) {
+  async createStudioProductionFile(input: { studioId: string; name: string; objectKey: string; contentType: string; sizeBytes: number; uploadedBy: string; bookAuthor?: string | null; acqNotes?: string | null }) {
     const id = crypto.randomUUID();
     await this.db.prepare(
-      `INSERT INTO studio_production_file (id, studio_id, name, object_key, content_type, size_bytes, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, input.studioId, input.name, input.objectKey, input.contentType, input.sizeBytes, input.uploadedBy).run();
+      `INSERT INTO studio_production_file (id, studio_id, name, object_key, content_type, size_bytes, uploaded_by, book_author, acq_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, input.studioId, input.name, input.objectKey, input.contentType, input.sizeBytes, input.uploadedBy, input.bookAuthor ?? null, input.acqNotes ?? null).run();
     return id;
+  }
+
+  /** Update the assignment metadata (title=name, author, notes) on a production file. */
+  async setStudioProductionFileMeta(id: string, patch: { name?: string; bookAuthor?: string | null; acqNotes?: string | null }) {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    if (patch.name !== undefined) { fields.push('name = ?'); values.push(patch.name); }
+    if ('bookAuthor' in patch) { fields.push('book_author = ?'); values.push(patch.bookAuthor ?? null); }
+    if ('acqNotes' in patch) { fields.push('acq_notes = ?'); values.push(patch.acqNotes ?? null); }
+    if (!fields.length) return;
+    values.push(id);
+    await this.db.prepare(`UPDATE studio_production_file SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
   }
 
   async listStudioProductionFiles(studioId: string) {
