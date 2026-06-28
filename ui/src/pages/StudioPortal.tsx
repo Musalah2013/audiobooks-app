@@ -30,6 +30,9 @@ function StatusBadge({ status, isArabic }: { status: string; isArabic: boolean }
     uploading: { ar: 'جاري الرفع',   en: 'Uploading', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500' },
     completed: { ar: 'مكتمل',        en: 'Completed', bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
     failed:    { ar: 'فشل',          en: 'Failed',    bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500' },
+    backlog:       { ar: 'قائمة الانتظار', en: 'Backlog',       bg: 'bg-slate-50', text: 'text-slate-600', dot: 'bg-slate-400' },
+    in_production: { ar: 'قيد الإنتاج',    en: 'In Production', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-500' },
+    delivered:     { ar: 'تم التسليم',     en: 'Delivered',     bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
   };
   const info = map[status] ?? { ar: status, en: status, bg: 'bg-slate-50', text: 'text-slate-600', dot: 'bg-slate-400' };
   return (
@@ -194,9 +197,12 @@ export default function StudioPortal() {
   const [deliveryNotes, setDeliveryNotes] = useState<string>('');
   const [planDraft, setPlanDraft] = useState<Record<string, { narrator: string; expectedNetHours: string; estimatedFinishHours: string }>>({});
   const [savingPlan, setSavingPlan] = useState<string | null>(null);
+  const [statusChanging, setStatusChanging] = useState<string | null>(null);
+  const [deliveringBookId, setDeliveringBookId] = useState<string | null>(null);
 
   const driveInputRef = useRef<HTMLInputElement>(null);
   const sampleInputRef = useRef<HTMLInputElement>(null);
+  const bookDeliveryInputRef = useRef<Record<string, HTMLInputElement | null>>({});
 
   const studio = data?.studio;
   const assets = data?.assets ?? [];
@@ -307,6 +313,57 @@ export default function StudioPortal() {
     } catch (err) {
       showNotice(err instanceof Error ? err.message : t('فشل حفظ البيانات', 'Failed to save'));
     } finally { setSavingPlan(null); }
+  }
+
+  async function changeBookStatus(fileId: string, status: 'backlog' | 'in_production') {
+    setStatusChanging(fileId);
+    try {
+      await apiRequest(`/api/studio-portal/${slug}/production-files/${fileId}/status`, { method: 'POST', body: { status } });
+      refetch();
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : t('فشل تغيير الحالة', 'Failed to change status'));
+    } finally { setStatusChanging(null); }
+  }
+
+  // Deliver a book directly from its row: upload the final audio tied to the book,
+  // which marks it "delivered" server-side.
+  async function deliverBook(fileId: string, file: File) {
+    setDeliveringBookId(fileId); setUploadProgress(0);
+    const LARGE = 80 * 1024 * 1024;
+    try {
+      let uploadId: string;
+      if (file.size > LARGE) {
+        const PART_SIZE = 25 * 1024 * 1024;
+        const numParts = Math.max(1, Math.ceil(file.size / PART_SIZE));
+        const startInfo = await apiRequest<{ uploadId: string; multipartStartUrl: string }>(`/api/studio-portal/${slug}/delivery-multipart-start`, {
+          method: 'POST', body: { fileName: file.name, contentType: file.type || 'application/octet-stream', productionFileId: fileId },
+        });
+        const startRes = await fetch(`${startInfo.multipartStartUrl}&numParts=${numParts}&contentType=${encodeURIComponent(file.type || 'application/octet-stream')}`, { method: 'POST', credentials: 'include' });
+        if (!startRes.ok) throw new Error(`Multipart start failed: ${startRes.status}`);
+        const { partUrls, completeUrl } = await startRes.json() as { partUrls: string[]; completeUrl: string };
+        const parts: { partNumber: number; etag: string }[] = [];
+        for (let i = 0; i < numParts; i++) {
+          const offset = i * PART_SIZE;
+          const chunk = file.slice(offset, Math.min(offset + PART_SIZE, file.size));
+          const res = await xhrPutPart(partUrls[i], chunk, (loaded) => setUploadProgress(Math.round(((offset + loaded) / file.size) * 100)));
+          parts.push({ partNumber: res.partNumber, etag: res.etag });
+        }
+        const completeRes = await fetch(completeUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ parts }) });
+        if (!completeRes.ok) throw new Error(`Multipart complete failed: ${completeRes.status}`);
+        uploadId = startInfo.uploadId;
+      } else {
+        const res = await apiRequest<{ uploadUrl: string; uploadId: string }>(`/api/studio-portal/${slug}/drive-upload-url`, {
+          method: 'POST', body: { fileName: file.name, contentType: file.type, sizeBytes: file.size, productionFileId: fileId },
+        });
+        await xhrPut(res.uploadUrl, file);
+        uploadId = res.uploadId;
+      }
+      await apiRequest(`/api/studio-portal/${slug}/drive-uploads/${uploadId}/complete`, { method: 'POST' });
+      showNotice(t('تم تسليم الكتاب بنجاح.', 'Book delivered.'));
+      refetch();
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : t('فشل التسليم', 'Delivery failed'));
+    } finally { setDeliveringBookId(null); setUploadProgress(0); }
   }
 
   // PUT one chunk, returning the JSON response, with progress + retries.
@@ -602,6 +659,38 @@ export default function StudioPortal() {
                         <button onClick={async () => { const url = await getPdfDownloadUrl(f.objectKey); window.open(url, '_blank'); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-lg transition-all flex-shrink-0">
                           <Download size={14} /> {t('تنزيل', 'Download')}
                         </button>
+                      </div>
+
+                      {/* Production status flow */}
+                      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold text-slate-500">{t('الحالة:', 'Status:')}</span>
+                        {f.productionStatus === 'delivered' ? (
+                          <StatusBadge status="delivered" isArabic={isArabic} />
+                        ) : (
+                          <>
+                            <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden">
+                              {(['backlog', 'in_production'] as const).map((st) => (
+                                <button
+                                  key={st}
+                                  disabled={statusChanging === f.id || f.productionStatus === st}
+                                  onClick={() => changeBookStatus(f.id, st)}
+                                  className={`px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-default ${f.productionStatus === st ? (st === 'in_production' ? 'bg-blue-500 text-white' : 'bg-slate-600 text-white') : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                >
+                                  {st === 'backlog' ? t('قائمة الانتظار', 'Backlog') : t('قيد الإنتاج', 'In Production')}
+                                </button>
+                              ))}
+                            </div>
+                            <input type="file" className="hidden" ref={(el) => { bookDeliveryInputRef.current[f.id] = el; }} onChange={(e) => { const file = e.target.files?.[0]; if (file) deliverBook(f.id, file); e.target.value = ''; }} />
+                            <button
+                              disabled={deliveringBookId === f.id}
+                              onClick={() => bookDeliveryInputRef.current[f.id]?.click()}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 transition-colors"
+                            >
+                              {deliveringBookId === f.id ? <Loader2 size={13} className="animate-spin" /> : <CloudUpload size={13} />}
+                              {deliveringBookId === f.id ? `${t('جاري التسليم', 'Delivering')} ${uploadProgress}%` : t('تسليم (رفع الصوت)', 'Deliver (upload audio)')}
+                            </button>
+                          </>
+                        )}
                       </div>
 
                       {showPlan && (

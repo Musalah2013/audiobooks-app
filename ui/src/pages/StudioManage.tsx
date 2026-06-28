@@ -538,7 +538,14 @@ export default function StudioManage() {
                   <div className="flex items-center gap-2.5 min-w-0">
                     <FileText className="h-4 w-4 text-red-400 shrink-0" />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{f.name}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium truncate">{f.name}</p>
+                        {f.productionStatus && (
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${f.productionStatus === 'delivered' ? 'bg-emerald-50 text-emerald-700' : f.productionStatus === 'in_production' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                            {f.productionStatus === 'delivered' ? (isArabic ? 'تم التسليم' : 'Delivered') : f.productionStatus === 'in_production' ? (isArabic ? 'قيد الإنتاج' : 'In Production') : (isArabic ? 'قائمة الانتظار' : 'Backlog')}
+                          </span>
+                        )}
+                      </div>
                       {f.bookAuthor && <p className="text-xs text-[color:var(--fg-2)] truncate">{isArabic ? 'المؤلف:' : 'Author:'} {f.bookAuthor}</p>}
                       <p className="text-xs text-[color:var(--fg-2)]">{formatBytes(f.sizeBytes)} · {f.uploadedBy} · {new Date(f.createdAt).toLocaleDateString()}</p>
                       {f.acqNotes && <p className="text-xs text-[color:var(--fg-2)] mt-0.5 italic">{f.acqNotes}</p>}
