@@ -320,35 +320,27 @@ export async function fetchSamawyGenres(env: Env): Promise<Array<{ id: number | 
     "CF-Access-Client-Id": env.SAMAWY_DB_PROXY_CLIENT_ID ?? "",
     "CF-Access-Client-Secret": env.SAMAWY_DB_PROXY_CLIENT_SECRET ?? "",
   };
-  const candidatePaths = ["/genres", "/genre", "/categories", "/book-genres", "/booksets/genres"];
-  for (const path of candidatePaths) {
-    try {
-      const res = await fetch(`${env.SAMAWY_DB_PROXY_BASE_URL}${path}?limit=1000&offset=0`, { headers });
-      if (!res.ok) continue;
-      const data = (await res.json()) as unknown;
-      const rows: unknown[] = Array.isArray(data)
-        ? data
-        : ((data as Record<string, unknown>)?.genres as unknown[])
-          ?? ((data as Record<string, unknown>)?.results as unknown[])
-          ?? ((data as Record<string, unknown>)?.data as unknown[])
-          ?? [];
-      const seen = new Set<string>();
-      const mapped = rows
-        .map((r) => {
-          if (typeof r === "string") return { id: null as number | string | null, name: r };
-          const o = r as Record<string, unknown>;
-          const name = (o.name ?? o.title ?? o.genre ?? o.label ?? o.value) as string | undefined;
-          return name ? { id: (o.id as number | string | null) ?? null, name: String(name) } : null;
-        })
-        .filter((g): g is { id: number | string | null; name: string } => !!g && g.name.trim().length > 0)
-        .filter((g) => { const k = g.name.trim().toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
-        .sort((a, b) => a.name.localeCompare(b.name));
-      if (mapped.length) return mapped;
-    } catch {
-      // try the next candidate path
-    }
-  }
-  return [];
+  const res = await fetch(`${env.SAMAWY_DB_PROXY_BASE_URL}/categories?limit=1000&offset=0`, { headers });
+  if (!res.ok) throw new Error(`Genres (categories) fetch failed: ${res.status}`);
+  const data = (await res.json()) as unknown;
+  const rows: unknown[] = Array.isArray(data)
+    ? data
+    : ((data as Record<string, unknown>)?.categories as unknown[])
+      ?? ((data as Record<string, unknown>)?.genres as unknown[])
+      ?? ((data as Record<string, unknown>)?.results as unknown[])
+      ?? ((data as Record<string, unknown>)?.data as unknown[])
+      ?? [];
+  const seen = new Set<string>();
+  return rows
+    .map((r) => {
+      if (typeof r === "string") return { id: null as number | string | null, name: r };
+      const o = r as Record<string, unknown>;
+      const name = (o.name ?? o.title ?? o.category ?? o.genre ?? o.label ?? o.value) as string | undefined;
+      return name ? { id: (o.id as number | string | null) ?? null, name: String(name) } : null;
+    })
+    .filter((g): g is { id: number | string | null; name: string } => !!g && g.name.trim().length > 0)
+    .filter((g) => { const k = g.name.trim().toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; })
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function lookupSamawyCandidates(
