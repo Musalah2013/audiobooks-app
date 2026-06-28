@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Samawy — Email Templates</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#eef2f6; color:#1a202c; }
+  header { background:#0b80ff; color:#fff; padding:28px 24px; }
+  header h1 { margin:0 0 6px; font-size:22px; }
+  header p { margin:0; opacity:.9; font-size:14px; }
+  nav { background:#fff; border-bottom:1px solid #e2e8f0; padding:12px 24px; position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:8px; }
+  nav a { font-size:12px; text-decoration:none; color:#0b80ff; border:1px solid #cfe2ff; border-radius:999px; padding:4px 10px; }
+  nav a:hover { background:#f0f7ff; }
+  main { max-width:1080px; margin:0 auto; padding:24px; display:grid; gap:24px; }
+  .card { background:#fff; border:1px solid #e2e8f0; border-radius:14px; overflow:hidden; display:grid; grid-template-columns: 360px 1fr; }
+  @media (max-width: 860px){ .card{ grid-template-columns:1fr; } }
+  .meta { padding:20px; border-inline-end:1px solid #eef2f6; }
+  .meta h2 { margin:0 0 14px; font-size:17px; }
+  .meta table { width:100%; border-collapse:collapse; font-size:13px; }
+  .meta th { text-align:left; vertical-align:top; color:#718096; font-weight:600; padding:5px 10px 5px 0; white-space:nowrap; width:80px; }
+  .meta td { padding:5px 0; color:#2d3748; }
+  .meta code { background:#f1f5f9; padding:1px 5px; border-radius:5px; font-size:12px; word-break:break-word; }
+  .preview { background:#f4f6f8; padding:16px; }
+  .preview iframe { width:100%; height:560px; border:1px solid #e2e8f0; border-radius:10px; background:#fff; }
+  footer { text-align:center; color:#a0aec0; font-size:12px; padding:24px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Samawy — Email Templates</h1>
+  <p>Every email the platform sends to a user. 7 messages · generated from the live templates in <code>src/email.ts</code>.</p>
+</header>
+<nav><a href="#studio-magic-link">Studio sign-in link</a><a href="#acquisition-magic-link">Acquisition sign-in link</a><a href="#new-production-file">New production file in your portal</a><a href="#sample-reviewed">Sample review result</a><a href="#sample-reviewed-refused">Sample review result (refused variant)</a><a href="#new-delivery">New delivery from a studio</a><a href="#new-sample">New sample from a studio</a></nav>
+<main>
+
+  <section class="card" id="studio-magic-link">
+    <div class="meta">
+      <h2>Studio sign-in link</h2>
+      <table>
+        <tr><th>Recipient</th><td>Studio contact (studio portal user)</td></tr>
+        <tr><th>Subject</th><td dir="auto"><code>رابط الدخول إلى بوابة سماوي</code></td></tr>
+        <tr><th>Trigger</th><td>Studio requests a magic link, or an operator (re)sends one from Studio Management.</td></tr>
+        <tr><th>Template</th><td><code>magicLinkEmail(link, studioName, studioLogoUrl)</code></td></tr>
+        <tr><th>Source</th><td><code>src/api/studio-auth.ts:83 · src/api/studios.ts:438</code></td></tr>
+      </table>
+    </div>
+    <div class="preview">
+      <iframe srcdoc="<!DOCTYPE html>
+<html lang=&quot;ar&quot; dir=&quot;rtl&quot;>
+<head>
+  <meta charset=&quot;utf-8&quot;>
+  <meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot;>
+  <meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot;>
+</head>
+<body style=&quot;margin:0;padding:0;background-color:#f4f6f8;direction:rtl;text-align:right;font-family:Arial,Tahoma,sans-serif;&quot;>
+  <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f6f8;&quot;>
+    <tr><td align=&quot;center&quot; style=&quot;padding:40px 16px;&quot;>
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;background-color:#ffffff;border-radius:16px;border:1px solid #e2e8f0;&quot;>
+        <tr><td style=&quot;padding:40px 32px 32px;&quot;>
+          
+    <table cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin:0 auto 20px;&quot;><tr>
+        <td style=&quot;padding:0 12px;&quot;><img src=&quot;https://audiobooks.samawy-ops.com/samawy/assets/logo-primary.png&quot; alt=&quot;سماوي&quot; width=&quot;120&quot; style=&quot;display:block;&quot;></td>
+        <td style=&quot;padding:0 12px;&quot;><img src=&quot;https://audiobooks.samawy-ops.com/api/files/studios/example/logo?preview=1&quot; alt=&quot;شعار الاستوديو&quot; width=&quot;56&quot; height=&quot;56&quot; style=&quot;display:block;border-radius:10px;&quot;></td>
+      </tr></table>
+    <p style=&quot;margin:0 0 12px;font-size:18px;font-weight:bold;color:#1a202c;line-height:26px;&quot;>مرحباً استوديو الأمواج 👋</p>
+    <p style=&quot;margin:0 0 20px;font-size:14px;color:#4a5568;line-height:22px;&quot;>
+      لقد طلبتَ رابط الدخول إلى <strong style=&quot;color:#1a202c;&quot;>بوابة سماوي للاستوديوهات</strong>. اضغط على الزر أدناه للدخول مباشرة. الرابط صالح لمدة <strong style=&quot;color:#1a202c;&quot;>24 ساعة</strong> فقط.
+    </p>
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin:24px 0;&quot;>
+    <tr><td align=&quot;center&quot;>
+      <table cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;><tr>
+        <td align=&quot;center&quot; style=&quot;background-color:#0b80ff;border-radius:10px;&quot;>
+          <a href=&quot;https://audiobooks.samawy-ops.com/api/studio-auth/verify?token=EXAMPLE_TOKEN&quot; style=&quot;display:inline-block;padding:14px 36px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;&quot;>الدخول إلى البوابة</a>
+        </td>
+      </tr></table>
+    </td></tr>
+  </table>
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin:20px 0;&quot;>
+    <tr><td style=&quot;border-top:1px solid #e2e8f0;font-size:0;line-height:0;&quot;>&nbsp;</td></tr>
+  </table>
+    <p style=&quot;margin:0;font-size:12px;color:#718096;line-height:18px;text-align:center;&quot;>إذا لم تطلب هذا الرابط، يمكنك تجاهل هذا البريد بأمان.</p>
+  
+        </td></tr>
+      </table>
+      <!-- Footer -->
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;margin-top:20px;&quot;>
+        <tr><td align=&quot;center&quot; style=&quot;padding:0 16px;&quot;>
+          <p style=&quot;margin:0 0 4px;font-size:12px;color:#718096;font-weight:bold;&quot;>سماوي — منصة الكتب الصوتية</p>
+          <p style=&quot;margin:0;font-size:11px;color:#a0aec0;&quot;>© 2026 Samawy. جميع الحقوق محفوظة.</p>
+          
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>" title="Studio sign-in link"></iframe>
+    </div>
+  </section>
+
+  <section class="card" id="acquisition-magic-link">
+    <div class="meta">
+      <h2>Acquisition sign-in link</h2>
+      <table>
+        <tr><th>Recipient</th><td>Acquisition team member</td></tr>
+        <tr><th>Subject</th><td dir="auto"><code>رابط الدخول — بوابة الاقتناء</code></td></tr>
+        <tr><th>Trigger</th><td>Acquisition user requests a magic link, or an admin sends one from the Studios page.</td></tr>
+        <tr><th>Template</th><td><code>magicLinkEmail(link, userName)</code></td></tr>
+        <tr><th>Source</th><td><code>src/api/acquisition-auth.ts:63 · src/api/studios.ts:200</code></td></tr>
+      </table>
+    </div>
+    <div class="preview">
+      <iframe srcdoc="<!DOCTYPE html>
+<html lang=&quot;ar&quot; dir=&quot;rtl&quot;>
+<head>
+  <meta charset=&quot;utf-8&quot;>
+  <meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot;>
+  <meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot;>
+</head>
+<body style=&quot;margin:0;padding:0;background-color:#f4f6f8;direction:rtl;text-align:right;font-family:Arial,Tahoma,sans-serif;&quot;>
+  <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f6f8;&quot;>
+    <tr><td align=&quot;center&quot; style=&quot;padding:40px 16px;&quot;>
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;background-color:#ffffff;border-radius:16px;border:1px solid #e2e8f0;&quot;>
+        <tr><td style=&quot;padding:40px 32px 32px;&quot;>
+          
+    <img src=&quot;https://audiobooks.samawy-ops.com/samawy/assets/logo-primary.png&quot; alt=&quot;سماوي&quot; width=&quot;120&quot; style=&quot;display:block;margin:0 auto 20px;&quot;>
+    <p style=&quot;margin:0 0 12px;font-size:18px;font-weight:bold;color:#1a202c;line-height:26px;&quot;>مرحباً محمد صلاح 👋</p>
+    <p style=&quot;margin:0 0 20px;font-size:14px;color:#4a5568;line-height:22px;&quot;>
+      لقد طلبتَ رابط الدخول إلى <strong style=&quot;color:#1a202c;&quot;>بوابة سماوي للاستوديوهات</strong>. اضغط على الزر أدناه للدخول مباشرة. الرابط صالح لمدة <strong style=&quot;color:#1a202c;&quot;>24 ساعة</strong> فقط.
+    </p>
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin:24px 0;&quot;>
+    <tr><td align=&quot;center&quot;>
+      <table cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;><tr>
+        <td align=&quot;center&quot; style=&quot;background-color:#0b80ff;border-radius:10px;&quot;>
+          <a href=&quot;https://audiobooks.samawy-ops.com/api/acquisition-auth/verify?token=EXAMPLE_TOKEN&quot; style=&quot;display:inline-block;padding:14px 36px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;&quot;>الدخول إلى البوابة</a>
+        </td>
+      </tr></table>
+    </td></tr>
+  </table>
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin:20px 0;&quot;>
+    <tr><td style=&quot;border-top:1px solid #e2e8f0;font-size:0;line-height:0;&quot;>&nbsp;</td></tr>
+  </table>
+    <p style=&quot;margin:0;font-size:12px;color:#718096;line-height:18px;text-align:center;&quot;>إذا لم تطلب هذا الرابط، يمكنك تجاهل هذا البريد بأمان.</p>
+  
+        </td></tr>
+      </table>
+      <!-- Footer -->
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;margin-top:20px;&quot;>
+        <tr><td align=&quot;center&quot; style=&quot;padding:0 16px;&quot;>
+          <p style=&quot;margin:0 0 4px;font-size:12px;color:#718096;font-weight:bold;&quot;>سماوي — منصة الكتب الصوتية</p>
+          <p style=&quot;margin:0;font-size:11px;color:#a0aec0;&quot;>© 2026 Samawy. جميع الحقوق محفوظة.</p>
+          
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>" title="Acquisition sign-in link"></iframe>
+    </div>
+  </section>
+
+  <section class="card" id="new-production-file">
+    <div class="meta">
+      <h2>New production file in your portal</h2>
+      <table>
+        <tr><th>Recipient</th><td>Studio contact</td></tr>
+        <tr><th>Subject</th><td dir="auto"><code>ملف إنتاج جديد متاح في بوابتك</code></td></tr>
+        <tr><th>Trigger</th><td>An operator or acquisition member uploads a production file (book assignment) to the studio.</td></tr>
+        <tr><th>Template</th><td><code>notifyOperatorsEmail('ملف إنتاج جديد', body, portalLink, 'الدخول إلى البوابة')</code></td></tr>
+        <tr><th>Source</th><td><code>src/api/studios.ts:507 · src/api/acquisition-portal.ts:90</code></td></tr>
+      </table>
+    </div>
+    <div class="preview">
+      <iframe srcdoc="<!DOCTYPE html>
+<html lang=&quot;ar&quot; dir=&quot;rtl&quot;>
+<head>
+  <meta charset=&quot;utf-8&quot;>
+  <meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot;>
+  <meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot;>
+</head>
+<body style=&quot;margin:0;padding:0;background-color:#f4f6f8;direction:rtl;text-align:right;font-family:Arial,Tahoma,sans-serif;&quot;>
+  <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f6f8;&quot;>
+    <tr><td align=&quot;center&quot; style=&quot;padding:40px 16px;&quot;>
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;background-color:#ffffff;border-radius:16px;border:1px solid #e2e8f0;&quot;>
+        <tr><td style=&quot;padding:40px 32px 32px;&quot;>
+          
+    <!-- Logo -->
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin-bottom:28px;&quot;>
+      <tr><td align=&quot;center&quot;>
+        <img src=&quot;https://audiobooks.samawy-ops.com/samawy/assets/logo-primary.png&quot; alt=&quot;سماوي&quot; width=&quot;120&quot; style=&quot;display:block;&quot;>
+      </td></tr>
+    </table>
+    <p style=&quot;margin:0 0 16px;font-size:17px;font-weight:700;color:#1a202c;&quot;>ملف إنتاج جديد</p>
+    <p style=&quot;margin:0 0 20px;font-size:14px;color:#4a5568;line-height:22px;&quot;>تم رفع ملف جديد بعنوان &quot;<strong>رواية الرجل الثاني</strong>&quot; إلى بوابة استوديو الأمواج.</p>
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin:24px 0;&quot;>
+    <tr><td align=&quot;center&quot;>
+      <table cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;><tr>
+        <td align=&quot;center&quot; style=&quot;background-color:#0b80ff;border-radius:10px;&quot;>
+          <a href=&quot;https://audiobooks.samawy-ops.com/studio/example-studio&quot; style=&quot;display:inline-block;padding:14px 36px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;&quot;>الدخول إلى البوابة</a>
+        </td>
+      </tr></table>
+    </td></tr>
+  </table>
+  
+        </td></tr>
+      </table>
+      <!-- Footer -->
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;margin-top:20px;&quot;>
+        <tr><td align=&quot;center&quot; style=&quot;padding:0 16px;&quot;>
+          <p style=&quot;margin:0 0 4px;font-size:12px;color:#718096;font-weight:bold;&quot;>سماوي — منصة الكتب الصوتية</p>
+          <p style=&quot;margin:0;font-size:11px;color:#a0aec0;&quot;>© 2026 Samawy. جميع الحقوق محفوظة.</p>
+          
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>" title="New production file in your portal"></iframe>
+    </div>
+  </section>
+
+  <section class="card" id="sample-reviewed">
+    <div class="meta">
+      <h2>Sample review result</h2>
+      <table>
+        <tr><th>Recipient</th><td>Studio contact</td></tr>
+        <tr><th>Subject</th><td dir="auto"><code>تحديث حالة العينة — موافقة / رفض</code></td></tr>
+        <tr><th>Trigger</th><td>An operator approves or refuses a narration sample the studio submitted.</td></tr>
+        <tr><th>Template</th><td><code>sampleReviewedEmail(sampleName, status, reviewNote, studioName)</code></td></tr>
+        <tr><th>Source</th><td><code>src/api/studios.ts:578</code></td></tr>
+      </table>
+    </div>
+    <div class="preview">
+      <iframe srcdoc="<!DOCTYPE html>
+<html lang=&quot;ar&quot; dir=&quot;rtl&quot;>
+<head>
+  <meta charset=&quot;utf-8&quot;>
+  <meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot;>
+  <meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot;>
+</head>
+<body style=&quot;margin:0;padding:0;background-color:#f4f6f8;direction:rtl;text-align:right;font-family:Arial,Tahoma,sans-serif;&quot;>
+  <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f6f8;&quot;>
+    <tr><td align=&quot;center&quot; style=&quot;padding:40px 16px;&quot;>
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;background-color:#ffffff;border-radius:16px;border:1px solid #e2e8f0;&quot;>
+        <tr><td style=&quot;padding:40px 32px 32px;&quot;>
+          
+    <!-- Logo -->
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin-bottom:28px;&quot;>
+      <tr><td align=&quot;center&quot;>
+        <img src=&quot;https://audiobooks.samawy-ops.com/samawy/assets/logo-primary.png&quot; alt=&quot;سماوي&quot; width=&quot;120&quot; style=&quot;display:block;&quot;>
+      </td></tr>
+    </table>
+    <p style=&quot;margin:0 0 16px;font-size:18px;font-weight:bold;color:#1a202c;&quot;>تحديث حالة العينة ✅</p>
+    <p style=&quot;margin:0 0 12px;font-size:14px;color:#4a5568;line-height:22px;&quot;>
+      تم مراجعة عينة <strong>&quot;عينة الفصل الأول.mp3&quot;</strong> من استوديو <strong>استوديو الأمواج</strong>.
+    </p>
+    <div style=&quot;background:#f8fafc;border-radius:12px;padding:16px;margin:16px 0;border:1px solid #e2e8f0;&quot;>
+      <p style=&quot;margin:0 0 8px;font-size:13px;color:#64748b;&quot;>الحالة:</p>
+      <p style=&quot;margin:0;font-size:16px;font-weight:bold;color:#059669;&quot;>موافقة</p>
+      <p style=&quot;margin:12px 0 0;font-size:13px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:12px;&quot;>ملاحظة المراجعة: أداء ممتاز، يرجى المتابعة بنفس الجودة.</p>
+    </div>
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin:24px 0;&quot;>
+    <tr><td align=&quot;center&quot;>
+      <table cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;><tr>
+        <td align=&quot;center&quot; style=&quot;background-color:#0b80ff;border-radius:10px;&quot;>
+          <a href=&quot;https://audiobooks.samawy-ops.com/studio/استوديو الأمواج&quot; style=&quot;display:inline-block;padding:14px 36px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;&quot;>الدخول إلى البوابة</a>
+        </td>
+      </tr></table>
+    </td></tr>
+  </table>
+  
+        </td></tr>
+      </table>
+      <!-- Footer -->
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;margin-top:20px;&quot;>
+        <tr><td align=&quot;center&quot; style=&quot;padding:0 16px;&quot;>
+          <p style=&quot;margin:0 0 4px;font-size:12px;color:#718096;font-weight:bold;&quot;>سماوي — منصة الكتب الصوتية</p>
+          <p style=&quot;margin:0;font-size:11px;color:#a0aec0;&quot;>© 2026 Samawy. جميع الحقوق محفوظة.</p>
+          
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>" title="Sample review result"></iframe>
+    </div>
+  </section>
+
+  <section class="card" id="sample-reviewed-refused">
+    <div class="meta">
+      <h2>Sample review result (refused variant)</h2>
+      <table>
+        <tr><th>Recipient</th><td>Studio contact</td></tr>
+        <tr><th>Subject</th><td dir="auto"><code>تحديث حالة العينة — رفض</code></td></tr>
+        <tr><th>Trigger</th><td>Same endpoint as above, when the sample is refused (shown for completeness).</td></tr>
+        <tr><th>Template</th><td><code>sampleReviewedEmail(sampleName, 'refused', reviewNote, studioName)</code></td></tr>
+        <tr><th>Source</th><td><code>src/api/studios.ts:578</code></td></tr>
+      </table>
+    </div>
+    <div class="preview">
+      <iframe srcdoc="<!DOCTYPE html>
+<html lang=&quot;ar&quot; dir=&quot;rtl&quot;>
+<head>
+  <meta charset=&quot;utf-8&quot;>
+  <meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot;>
+  <meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot;>
+</head>
+<body style=&quot;margin:0;padding:0;background-color:#f4f6f8;direction:rtl;text-align:right;font-family:Arial,Tahoma,sans-serif;&quot;>
+  <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f6f8;&quot;>
+    <tr><td align=&quot;center&quot; style=&quot;padding:40px 16px;&quot;>
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;background-color:#ffffff;border-radius:16px;border:1px solid #e2e8f0;&quot;>
+        <tr><td style=&quot;padding:40px 32px 32px;&quot;>
+          
+    <!-- Logo -->
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin-bottom:28px;&quot;>
+      <tr><td align=&quot;center&quot;>
+        <img src=&quot;https://audiobooks.samawy-ops.com/samawy/assets/logo-primary.png&quot; alt=&quot;سماوي&quot; width=&quot;120&quot; style=&quot;display:block;&quot;>
+      </td></tr>
+    </table>
+    <p style=&quot;margin:0 0 16px;font-size:18px;font-weight:bold;color:#1a202c;&quot;>تحديث حالة العينة ❌</p>
+    <p style=&quot;margin:0 0 12px;font-size:14px;color:#4a5568;line-height:22px;&quot;>
+      تم مراجعة عينة <strong>&quot;عينة الفصل الأول.mp3&quot;</strong> من استوديو <strong>استوديو الأمواج</strong>.
+    </p>
+    <div style=&quot;background:#f8fafc;border-radius:12px;padding:16px;margin:16px 0;border:1px solid #e2e8f0;&quot;>
+      <p style=&quot;margin:0 0 8px;font-size:13px;color:#64748b;&quot;>الحالة:</p>
+      <p style=&quot;margin:0;font-size:16px;font-weight:bold;color:#dc2626;&quot;>مرفوضة</p>
+      <p style=&quot;margin:12px 0 0;font-size:13px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:12px;&quot;>ملاحظة المراجعة: مستوى الضوضاء في الخلفية مرتفع، يرجى إعادة التسجيل.</p>
+    </div>
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin:24px 0;&quot;>
+    <tr><td align=&quot;center&quot;>
+      <table cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;><tr>
+        <td align=&quot;center&quot; style=&quot;background-color:#0b80ff;border-radius:10px;&quot;>
+          <a href=&quot;https://audiobooks.samawy-ops.com/studio/استوديو الأمواج&quot; style=&quot;display:inline-block;padding:14px 36px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;&quot;>الدخول إلى البوابة</a>
+        </td>
+      </tr></table>
+    </td></tr>
+  </table>
+  
+        </td></tr>
+      </table>
+      <!-- Footer -->
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;margin-top:20px;&quot;>
+        <tr><td align=&quot;center&quot; style=&quot;padding:0 16px;&quot;>
+          <p style=&quot;margin:0 0 4px;font-size:12px;color:#718096;font-weight:bold;&quot;>سماوي — منصة الكتب الصوتية</p>
+          <p style=&quot;margin:0;font-size:11px;color:#a0aec0;&quot;>© 2026 Samawy. جميع الحقوق محفوظة.</p>
+          
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>" title="Sample review result (refused variant)"></iframe>
+    </div>
+  </section>
+
+  <section class="card" id="new-delivery">
+    <div class="meta">
+      <h2>New delivery from a studio</h2>
+      <table>
+        <tr><th>Recipient</th><td>All active operators</td></tr>
+        <tr><th>Subject</th><td dir="auto"><code>تسليم جديد من {studio}</code></td></tr>
+        <tr><th>Trigger</th><td>A studio uploads a final-audio delivery in the studio portal.</td></tr>
+        <tr><th>Template</th><td><code>notifyOperatorsEmail(title, body, manageLink, 'مراجعة التسليم')</code></td></tr>
+        <tr><th>Source</th><td><code>src/api/studio-portal.ts:226</code></td></tr>
+      </table>
+    </div>
+    <div class="preview">
+      <iframe srcdoc="<!DOCTYPE html>
+<html lang=&quot;ar&quot; dir=&quot;rtl&quot;>
+<head>
+  <meta charset=&quot;utf-8&quot;>
+  <meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot;>
+  <meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot;>
+</head>
+<body style=&quot;margin:0;padding:0;background-color:#f4f6f8;direction:rtl;text-align:right;font-family:Arial,Tahoma,sans-serif;&quot;>
+  <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f6f8;&quot;>
+    <tr><td align=&quot;center&quot; style=&quot;padding:40px 16px;&quot;>
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;background-color:#ffffff;border-radius:16px;border:1px solid #e2e8f0;&quot;>
+        <tr><td style=&quot;padding:40px 32px 32px;&quot;>
+          
+    <!-- Logo -->
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin-bottom:28px;&quot;>
+      <tr><td align=&quot;center&quot;>
+        <img src=&quot;https://audiobooks.samawy-ops.com/samawy/assets/logo-primary.png&quot; alt=&quot;سماوي&quot; width=&quot;120&quot; style=&quot;display:block;&quot;>
+      </td></tr>
+    </table>
+    <p style=&quot;margin:0 0 16px;font-size:17px;font-weight:700;color:#1a202c;&quot;>تسليم جديد من استوديو الأمواج</p>
+    <p style=&quot;margin:0 0 20px;font-size:14px;color:#4a5568;line-height:22px;&quot;>رفع استوديو استوديو الأمواج ملفاً بعنوان &quot;<strong>الرجل الثاني - النسخة النهائية.zip</strong>&quot;. راجِعه ثم ادفعه إلى النظام من صفحة إدارة الاستوديو.</p>
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin:24px 0;&quot;>
+    <tr><td align=&quot;center&quot;>
+      <table cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;><tr>
+        <td align=&quot;center&quot; style=&quot;background-color:#0b80ff;border-radius:10px;&quot;>
+          <a href=&quot;https://audiobooks.samawy-ops.com/studios/example-studio&quot; style=&quot;display:inline-block;padding:14px 36px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;&quot;>مراجعة التسليم</a>
+        </td>
+      </tr></table>
+    </td></tr>
+  </table>
+  
+        </td></tr>
+      </table>
+      <!-- Footer -->
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;margin-top:20px;&quot;>
+        <tr><td align=&quot;center&quot; style=&quot;padding:0 16px;&quot;>
+          <p style=&quot;margin:0 0 4px;font-size:12px;color:#718096;font-weight:bold;&quot;>سماوي — منصة الكتب الصوتية</p>
+          <p style=&quot;margin:0;font-size:11px;color:#a0aec0;&quot;>© 2026 Samawy. جميع الحقوق محفوظة.</p>
+          
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>" title="New delivery from a studio"></iframe>
+    </div>
+  </section>
+
+  <section class="card" id="new-sample">
+    <div class="meta">
+      <h2>New sample from a studio</h2>
+      <table>
+        <tr><th>Recipient</th><td>All active operators</td></tr>
+        <tr><th>Subject</th><td dir="auto"><code>عينة جديدة من {studio}</code></td></tr>
+        <tr><th>Trigger</th><td>A studio uploads a narration sample in the studio portal.</td></tr>
+        <tr><th>Template</th><td><code>notifyOperatorsEmail(title, body, manageLink, 'مراجعة العينات')</code></td></tr>
+        <tr><th>Source</th><td><code>src/api/studio-portal.ts:256</code></td></tr>
+      </table>
+    </div>
+    <div class="preview">
+      <iframe srcdoc="<!DOCTYPE html>
+<html lang=&quot;ar&quot; dir=&quot;rtl&quot;>
+<head>
+  <meta charset=&quot;utf-8&quot;>
+  <meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1.0&quot;>
+  <meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot;>
+</head>
+<body style=&quot;margin:0;padding:0;background-color:#f4f6f8;direction:rtl;text-align:right;font-family:Arial,Tahoma,sans-serif;&quot;>
+  <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f6f8;&quot;>
+    <tr><td align=&quot;center&quot; style=&quot;padding:40px 16px;&quot;>
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;background-color:#ffffff;border-radius:16px;border:1px solid #e2e8f0;&quot;>
+        <tr><td style=&quot;padding:40px 32px 32px;&quot;>
+          
+    <!-- Logo -->
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin-bottom:28px;&quot;>
+      <tr><td align=&quot;center&quot;>
+        <img src=&quot;https://audiobooks.samawy-ops.com/samawy/assets/logo-primary.png&quot; alt=&quot;سماوي&quot; width=&quot;120&quot; style=&quot;display:block;&quot;>
+      </td></tr>
+    </table>
+    <p style=&quot;margin:0 0 16px;font-size:17px;font-weight:700;color:#1a202c;&quot;>عينة جديدة: عينة الفصل الأول.mp3</p>
+    <p style=&quot;margin:0 0 20px;font-size:14px;color:#4a5568;line-height:22px;&quot;>رفع استوديو استوديو الأمواج عينة جديدة بعنوان &quot;<strong>عينة الفصل الأول.mp3</strong>&quot; تنتظر مراجعتك.</p>
+    <table width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;margin:24px 0;&quot;>
+    <tr><td align=&quot;center&quot;>
+      <table cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;><tr>
+        <td align=&quot;center&quot; style=&quot;background-color:#0b80ff;border-radius:10px;&quot;>
+          <a href=&quot;https://audiobooks.samawy-ops.com/studios/example-studio&quot; style=&quot;display:inline-block;padding:14px 36px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;&quot;>مراجعة العينات</a>
+        </td>
+      </tr></table>
+    </td></tr>
+  </table>
+  
+        </td></tr>
+      </table>
+      <!-- Footer -->
+      <table width=&quot;480&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:100%;max-width:480px;margin-top:20px;&quot;>
+        <tr><td align=&quot;center&quot; style=&quot;padding:0 16px;&quot;>
+          <p style=&quot;margin:0 0 4px;font-size:12px;color:#718096;font-weight:bold;&quot;>سماوي — منصة الكتب الصوتية</p>
+          <p style=&quot;margin:0;font-size:11px;color:#a0aec0;&quot;>© 2026 Samawy. جميع الحقوق محفوظة.</p>
+          
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>" title="New sample from a studio"></iframe>
+    </div>
+  </section>
+</main>
+<footer>Rendered with sample data from the actual template functions. Arabic, RTL.</footer>
+</body>
+</html>
