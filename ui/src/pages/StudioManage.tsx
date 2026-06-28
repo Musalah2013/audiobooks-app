@@ -53,8 +53,11 @@ export default function StudioManage() {
   const [savingRate, setSavingRate] = useState(false);
   const [pushingDelivery, setPushingDelivery] = useState<string | null>(null);
   const [confirmDeleteDelivery, setConfirmDeleteDelivery] = useState<string | null>(null);
-  const [pushTitleFor, setPushTitleFor] = useState<string | null>(null);
-  const [pushTitleId, setPushTitleId] = useState('');
+  const [pushFormFor, setPushFormFor] = useState<string | null>(null);
+  const [sellerQuery, setSellerQuery] = useState('');
+  const [sellerResults, setSellerResults] = useState<{ id: number; name: string }[]>([]);
+  const [pushSeller, setPushSeller] = useState<{ id: number; name: string } | null>(null);
+  const [metaDraft, setMetaDraft] = useState({ title: '', author: '', isbn: '', narrator: '', genre: '', pubYear: '', sellingType: '', price: '' });
   const [editingProd, setEditingProd] = useState<string | null>(null);
   const [prodDraft, setProdDraft] = useState<{ bookTitle: string; narrator: string; isbn: string; netHours: string; notes: string }>({ bookTitle: '', narrator: '', isbn: '', netHours: '', notes: '' });
   const [confirmDeleteProd, setConfirmDeleteProd] = useState<string | null>(null);
@@ -126,16 +129,47 @@ export default function StudioManage() {
     }
   }
 
-  async function pushDelivery(uploadId: string, audiobookId?: string) {
+  async function searchPushSellers() {
+    try {
+      const res = await apiRequest<{ sellers: { id: number; name: string }[] }>(`/api/sellers?q=${encodeURIComponent(sellerQuery)}`);
+      setSellerResults(res.sellers);
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل البحث' : 'Search failed'), 'error');
+    }
+  }
+
+  function openPushForm(uploadId: string) {
+    setPushFormFor(pushFormFor === uploadId ? null : uploadId);
+    setPushSeller(null); setSellerQuery(''); setSellerResults([]);
+    setMetaDraft({ title: '', author: '', isbn: '', narrator: '', genre: '', pubYear: '', sellingType: '', price: '' });
+  }
+
+  // metadata: null → assigned delivery (attach directly); object → create new book
+  async function pushDelivery(uploadId: string, metadata?: Record<string, unknown>) {
     setPushingDelivery(uploadId);
     try {
-      await apiRequest(`/api/studios/${id}/deliveries/${uploadId}/push`, { method: 'POST', body: audiobookId ? { audiobookId } : {} });
-      addToast(isArabic ? 'تم دفع التسليم إلى العنوان.' : 'Pushed to the catalog title.', 'success');
-      setPushTitleFor(null); setPushTitleId('');
+      const res = await apiRequest<{ mode: string }>(`/api/studios/${id}/deliveries/${uploadId}/push`, { method: 'POST', body: metadata ? { metadata } : {} });
+      addToast(res.mode === 'created' ? (isArabic ? 'تم إنشاء العنوان ودفع الملف.' : 'Created the title and pushed the file.') : (isArabic ? 'تم دفع التسليم إلى العنوان.' : 'Pushed to the catalog title.'), 'success');
+      setPushFormFor(null);
       refetch();
     } catch (err) {
       addToast(err instanceof Error ? err : (isArabic ? 'فشل الدفع' : 'Push failed'), 'error');
     } finally { setPushingDelivery(null); }
+  }
+
+  function submitPushForm(uploadId: string) {
+    if (!pushSeller || !metaDraft.title.trim()) return;
+    pushDelivery(uploadId, {
+      sellerId: pushSeller.id, sellerName: pushSeller.name,
+      title: metaDraft.title.trim(),
+      author: metaDraft.author.trim() || null,
+      isbn: metaDraft.isbn.trim() || null,
+      narrator: metaDraft.narrator.trim() || null,
+      genre: metaDraft.genre.trim() || null,
+      pubYear: metaDraft.pubYear.trim() || null,
+      sellingType: metaDraft.sellingType || null,
+      price: metaDraft.price.trim() === '' ? null : Number(metaDraft.price),
+    });
   }
 
   async function deleteDelivery(uploadId: string) {
@@ -678,7 +712,7 @@ export default function StudioManage() {
                           type="button"
                           className="btn-primary text-xs py-1 px-2.5 disabled:opacity-50"
                           disabled={pushingDelivery === u.id}
-                          onClick={() => u.audiobookId ? pushDelivery(u.id) : setPushTitleFor(pushTitleFor === u.id ? null : u.id)}
+                          onClick={() => u.audiobookId ? pushDelivery(u.id) : openPushForm(u.id)}
                         >
                           <Upload className="h-3.5 w-3.5" />{pushingDelivery === u.id ? '…' : (isArabic ? 'دفع للنظام' : 'Push to system')}
                         </button>
@@ -698,16 +732,51 @@ export default function StudioManage() {
                     )}
                   </div>
                 </div>
-                {pushTitleFor === u.id && !u.audiobookId && u.status === 'completed' && (
-                  <div className="mt-2 ml-7 flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-[color:var(--fg-2)]">{isArabic ? 'اختر العنوان:' : 'Choose title:'}</span>
-                    <select className="input text-xs w-auto max-w-[260px]" value={pushTitleId} onChange={(e) => setPushTitleId(e.target.value)}>
-                      <option value="">{isArabic ? '— اختر —' : '— Select —'}</option>
-                      {booksData?.books.map((b) => <option key={b.id} value={b.id}>{b.title}{b.publisherName ? ` · ${b.publisherName}` : ''}</option>)}
-                    </select>
-                    <button type="button" className="btn-primary text-xs py-1 px-2.5 disabled:opacity-50" disabled={!pushTitleId || pushingDelivery === u.id} onClick={() => pushDelivery(u.id, pushTitleId)}>
-                      {isArabic ? 'تأكيد الدفع' : 'Confirm push'}
-                    </button>
+                {pushFormFor === u.id && !u.audiobookId && u.status === 'completed' && (
+                  <div className="mt-3 ml-7 rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-3">
+                    <p className="text-xs font-semibold text-[color:var(--samawy-ink)]">{isArabic ? 'بيانات العنوان (يملؤها مدير الاستوديو)' : 'Title metadata (studio manager fills this)'}</p>
+                    {/* Publisher */}
+                    {pushSeller ? (
+                      <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800 w-fit">
+                        <span className="font-semibold">{pushSeller.name} <span className="opacity-70">#{pushSeller.id}</span></span>
+                        <button type="button" className="text-emerald-700" onClick={() => setPushSeller(null)}><XCircle className="h-3.5 w-3.5" /></button>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <div className="flex gap-2">
+                          <input className="input text-xs flex-1" placeholder={isArabic ? 'ابحث عن الناشر…' : 'Search publisher…'} value={sellerQuery} onChange={(e) => setSellerQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchPushSellers()} />
+                          <button type="button" className="btn-secondary text-xs px-2.5" onClick={searchPushSellers}>{isArabic ? 'بحث' : 'Search'}</button>
+                        </div>
+                        {sellerResults.length > 0 && (
+                          <div className="divide-y divide-slate-100 rounded-lg border border-slate-100 bg-white max-h-40 overflow-y-auto">
+                            {sellerResults.map((s) => (
+                              <button key={s.id} type="button" className="w-full text-start px-3 py-1.5 text-xs hover:bg-slate-50" onClick={() => { setPushSeller(s); setSellerResults([]); }}>{s.name} <span className="text-[color:var(--fg-2)]">#{s.id}</span></button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {/* Fields */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input className="input text-xs" placeholder={isArabic ? 'العنوان *' : 'Title *'} value={metaDraft.title} onChange={(e) => setMetaDraft((d) => ({ ...d, title: e.target.value }))} />
+                      <input className="input text-xs" placeholder={isArabic ? 'المؤلف' : 'Author'} value={metaDraft.author} onChange={(e) => setMetaDraft((d) => ({ ...d, author: e.target.value }))} />
+                      <input className="input text-xs" placeholder={isArabic ? 'الراوي' : 'Narrator'} value={metaDraft.narrator} onChange={(e) => setMetaDraft((d) => ({ ...d, narrator: e.target.value }))} />
+                      <input className="input text-xs font-mono" placeholder="ISBN" value={metaDraft.isbn} onChange={(e) => setMetaDraft((d) => ({ ...d, isbn: e.target.value }))} />
+                      <input className="input text-xs" placeholder={isArabic ? 'النوع' : 'Genre'} value={metaDraft.genre} onChange={(e) => setMetaDraft((d) => ({ ...d, genre: e.target.value }))} />
+                      <input className="input text-xs" placeholder={isArabic ? 'سنة النشر' : 'Pub year'} value={metaDraft.pubYear} onChange={(e) => setMetaDraft((d) => ({ ...d, pubYear: e.target.value }))} />
+                      <select className="input text-xs" value={metaDraft.sellingType} onChange={(e) => setMetaDraft((d) => ({ ...d, sellingType: e.target.value }))}>
+                        <option value="">{isArabic ? 'نوع البيع' : 'Selling type'}</option>
+                        <option value="subscription">{isArabic ? 'اشتراك' : 'Subscription'}</option>
+                        <option value="a_la_carte">{isArabic ? 'شراء منفرد' : 'A la carte'}</option>
+                      </select>
+                      <input className="input text-xs" type="number" min="0" step="0.01" placeholder={isArabic ? 'السعر' : 'Price'} value={metaDraft.price} onChange={(e) => setMetaDraft((d) => ({ ...d, price: e.target.value }))} />
+                    </div>
+                    <div className="flex items-center justify-end gap-2">
+                      <button type="button" className="btn-secondary text-xs py-1 px-2.5" onClick={() => setPushFormFor(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
+                      <button type="button" className="btn-primary text-xs py-1 px-2.5 disabled:opacity-50" disabled={!pushSeller || !metaDraft.title.trim() || pushingDelivery === u.id} onClick={() => submitPushForm(u.id)}>
+                        <Upload className="h-3.5 w-3.5" />{isArabic ? 'إنشاء ودفع' : 'Create & push'}
+                      </button>
+                    </div>
                   </div>
                 )}
                 {(u.netFinalHours != null || u.notes || cost != null) && (
