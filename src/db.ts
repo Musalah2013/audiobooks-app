@@ -1247,6 +1247,10 @@ export class Repository {
     return results;
   }
 
+  async deleteDriveUpload(id: string) {
+    await this.db.prepare(`DELETE FROM studio_drive_upload WHERE id = ?`).bind(id).run();
+  }
+
   /** Link a set of a studio's drive uploads to the intake batch that will process them. */
   async linkDriveUploadsToBatch(uploadIds: string[], batchId: string) {
     if (uploadIds.length === 0) return;

@@ -51,6 +51,8 @@ export default function StudioManage() {
   const [savingContact, setSavingContact] = useState(false);
   const [rateInput, setRateInput] = useState('');
   const [savingRate, setSavingRate] = useState(false);
+  const [pushingDelivery, setPushingDelivery] = useState<string | null>(null);
+  const [confirmDeleteDelivery, setConfirmDeleteDelivery] = useState<string | null>(null);
   const [editingProd, setEditingProd] = useState<string | null>(null);
   const [prodDraft, setProdDraft] = useState<{ bookTitle: string; narrator: string; isbn: string; netHours: string; notes: string }>({ bookTitle: '', narrator: '', isbn: '', netHours: '', notes: '' });
   const [confirmDeleteProd, setConfirmDeleteProd] = useState<string | null>(null);
@@ -119,6 +121,28 @@ export default function StudioManage() {
       refetch();
     } catch (err) {
       addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Failed to remove'), 'error');
+    }
+  }
+
+  async function pushDelivery(uploadId: string) {
+    setPushingDelivery(uploadId);
+    try {
+      const res = await apiRequest<{ mode: string; audiobookId?: string; batchId?: string }>(`/api/studios/${id}/deliveries/${uploadId}/push`, { method: 'POST' });
+      addToast(res.mode === 'assigned' ? (isArabic ? 'تم دفع التسليم إلى العنوان.' : 'Pushed to the catalog title.') : (isArabic ? 'تم إنشاء دفعة استيراد.' : 'Created an intake batch.'), 'success');
+      refetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الدفع' : 'Push failed'), 'error');
+    } finally { setPushingDelivery(null); }
+  }
+
+  async function deleteDelivery(uploadId: string) {
+    try {
+      await apiRequest(`/api/studios/${id}/deliveries/${uploadId}`, { method: 'DELETE' });
+      addToast(isArabic ? 'تم حذف التسليم.' : 'Delivery deleted.', 'success');
+      setConfirmDeleteDelivery(null);
+      refetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
     }
   }
 
@@ -615,8 +639,8 @@ export default function StudioManage() {
             <p className="text-sm font-semibold">{isArabic ? 'تسليمات الصوت النهائي' : 'Finished audio deliveries'}</p>
             <p className="text-xs text-[color:var(--fg-2)]">
               {isArabic
-                ? 'الملفات النهائية التي رفعها الاستوديو. تُنشأ دفعة الاستيراد تلقائياً عند كل تسليم — افتحها من رابط الدفعة بجانب كل ملف.'
-                : 'Finished audio the studio uploaded. An intake batch is created automatically on each delivery — open it from the batch link next to each file.'}
+                ? 'الملفات النهائية التي رفعها الاستوديو. راجِع كل ملف ثم ادفعه إلى نظام الكتب الصوتية أو احذفه.'
+                : 'Finished audio the studio uploaded. Review each file, then push it into the audiobooks system or delete it.'}
             </p>
           </div>
           {driveUploads.length === 0 ? (
@@ -637,13 +661,31 @@ export default function StudioManage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {u.batchId ? (
+                    {u.audiobookId && <span className="badge-blue !px-2 !py-0.5 !text-[10px]">{isArabic ? 'مُسنَد' : 'Assigned'}</span>}
+                    {u.batchId && (
                       <Link to={`/batches/${u.batchId}`} className="text-xs text-[color:var(--samawy-blue)] underline">
                         {isArabic ? 'عرض الدفعة' : 'View batch'}
                       </Link>
+                    )}
+                    {u.status === 'pushed' ? (
+                      <span className="badge-green !px-2 !py-0.5 !text-[10px]">{isArabic ? 'تم الدفع' : 'Pushed'}</span>
+                    ) : u.status === 'completed' ? (
+                      <>
+                        <button type="button" className="btn-primary text-xs py-1 px-2.5 disabled:opacity-50" disabled={pushingDelivery === u.id} onClick={() => pushDelivery(u.id)}>
+                          <Upload className="h-3.5 w-3.5" />{pushingDelivery === u.id ? '…' : (isArabic ? 'دفع للنظام' : 'Push to system')}
+                        </button>
+                        {confirmDeleteDelivery === u.id ? (
+                          <span className="flex items-center gap-1">
+                            <button type="button" className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white" onClick={() => deleteDelivery(u.id)}>{isArabic ? 'تأكيد' : 'Confirm'}</button>
+                            <button type="button" className="text-[10px] text-slate-500" onClick={() => setConfirmDeleteDelivery(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
+                          </span>
+                        ) : (
+                          <button type="button" className="text-red-400 hover:text-red-600" onClick={() => setConfirmDeleteDelivery(u.id)} title={isArabic ? 'حذف' : 'Delete'}><Trash2 className="h-3.5 w-3.5" /></button>
+                        )}
+                      </>
                     ) : (
-                      <span className={`badge-${u.status === 'completed' ? 'green' : u.status === 'failed' ? 'red' : 'yellow'}`}>
-                        {u.status === 'completed' ? (isArabic ? 'مكتمل' : 'Completed') : u.status === 'failed' ? (isArabic ? 'فشل' : 'Failed') : (isArabic ? 'قيد الرفع' : 'Uploading')}
+                      <span className={`badge-${u.status === 'failed' ? 'red' : 'yellow'}`}>
+                        {u.status === 'failed' ? (isArabic ? 'فشل' : 'Failed') : (isArabic ? 'قيد الرفع' : 'Uploading')}
                       </span>
                     )}
                   </div>

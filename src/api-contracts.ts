@@ -579,7 +579,7 @@ export interface StudioDriveUpload {
   id: string;
   studioId: string;
   name: string;
-  status: "pending" | "uploading" | "completed" | "failed";
+  status: "pending" | "uploading" | "completed" | "failed" | "pushed";
   driveFileId: string | null;
   error: string | null;
   createdAt: string;

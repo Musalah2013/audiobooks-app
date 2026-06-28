@@ -17,7 +17,7 @@ async function requireStudioSession(c: Context<{ Bindings: Env }>, slug: string)
 }
 
 function driveUploadToApi(d: { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null }) {
-  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id };
+  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed' | 'pushed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id };
 }
 
 studioPortal.get('/:slug', async (c) => {
@@ -178,67 +178,27 @@ studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
     return c.json({ error: 'Uploaded object not found in storage.' }, 404);
   }
 
+  // Just record the delivery — an operator decides whether to push it into the
+  // audiobooks system (or delete it) from the studio management page.
+  await repo.updateDriveUpload(uploadId, { status: 'completed' });
+  await repo.audit('studio', studio.id, 'delivery.received', 'studio_portal', { uploadId, objectKey: upload.object_key, audiobookId: upload.audiobook_id });
+
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
-  const notifyOps = async (subject: string, heading: string, body: string, link: string, cta: string) => {
-    const operators = (await repo.listOperatorUsers()).filter((op) => op.isActive);
-    await Promise.allSettled(operators.map((op) =>
-      sendEmail({ to: op.email, subject, html: notifyOperatorsEmail(heading, body, link, cta), emailBinding: c.env.EMAIL }),
-    ));
-  };
-
-  // ── Assigned delivery: attach finished audio straight to the catalog title,
-  //    reset it to pending, and skip intake entirely. ──
-  if (upload.audiobook_id) {
-    const book = await repo.getAudiobook(upload.audiobook_id);
-    const candidate = book?.candidateId ? await repo.getCandidate(book.candidateId) : null;
-    if (!book || !candidate) {
-      await repo.updateDriveUpload(uploadId, { status: 'failed', error: 'Assigned title is no longer available.' });
-      return c.json({ error: 'Assigned title is no longer available.' }, 409);
-    }
-    const fileName = upload.object_key.split('/').pop() ?? upload.name;
-    const newSourceGroup = {
-      ...(candidate.sourceGroup ?? {}),
-      items: [{ key: upload.object_key, name: fileName, mimeType: object.httpMetadata?.contentType ?? 'application/octet-stream', sizeBytes: object.size, parentPath: '' }],
-      coverCandidates: candidate.sourceGroup?.coverCandidates ?? [],
-    };
-    await repo.updateCandidateSourceGroup(candidate.id, newSourceGroup.groupKey ?? null, newSourceGroup as Parameters<typeof repo.updateCandidateSourceGroup>[2]);
-    await repo.replaceTracks(book.id, []);
-    await repo.updateAudiobook(book.id, {
-      processingStatus: 'pending', dossierStatus: 'pending',
-      dossierWorkbookKey: null, dossierAudioZipKey: null,
-      sampleTrackId: null, sampleStartSeconds: null, sampleEndSeconds: null, sampleObjectKey: null, sampleGeneratedAt: null,
-    });
-    await repo.updateDriveUpload(uploadId, { status: 'completed' });
-    await repo.audit('audiobook_record', book.id, 'delivery.attached', 'studio_portal', { studioId: studio.id, uploadId, objectKey: upload.object_key });
-    await notifyOps(
-      `تسليم صوت جاهز من ${studio.name}`,
-      `تسليم جديد للعنوان: ${book.title}`,
-      `سلّم استوديو ${studio.name} الصوت النهائي للعنوان "<strong>${book.title}</strong>". جاهز لتحضير المقاطع والمعالجة.`,
-      `${baseUrl}/books/${book.id}`,
-      'تحضير المقاطع',
-    );
-    return c.json({ ok: true, mode: 'assigned', audiobookId: book.id });
-  }
-
-  // ── Unassigned delivery: create an upload-type intake batch pointed straight
-  //    at the delivered R2 object, for operator metadata + reconciliation. ──
-  const batch = await repo.createBatch({ id: crypto.randomUUID(), sourceType: 'upload', uploadObjectKey: upload.object_key, studioId: studio.id });
-  if (batch) {
-    await repo.linkDriveUploadsToBatch([uploadId], batch.id);
-    await repo.updateDriveUpload(uploadId, { status: 'completed' });
-    await repo.audit('ingestion_batch', batch.id, 'created', 'studio_portal', { source: 'studio_delivery_unassigned', studioId: studio.id, uploadId });
-    await notifyOps(
-      `تسليم جديد بحاجة لمعالجة من ${studio.name}`,
-      `تسليم غير مرتبط بعنوان من ${studio.name}`,
-      `رفع استوديو ${studio.name} ملفاً بعنوان "<strong>${upload.name}</strong>" غير مرتبط بعنوان. أنشئنا دفعة استيراد بانتظار بيانات التعريف.`,
-      `${baseUrl}/batches/${batch.id}`,
-      'فتح الدفعة',
-    );
-  } else {
-    await repo.updateDriveUpload(uploadId, { status: 'failed', error: 'Failed to create intake batch.' });
-    return c.json({ error: 'Failed to create intake batch.' }, 500);
-  }
-  return c.json({ ok: true, mode: 'unassigned', batchId: batch.id });
+  const operators = (await repo.listOperatorUsers()).filter((op) => op.isActive);
+  await Promise.allSettled(operators.map((op) =>
+    sendEmail({
+      to: op.email,
+      subject: `تسليم جديد من ${studio.name}`,
+      html: notifyOperatorsEmail(
+        `تسليم جديد من ${studio.name}`,
+        `رفع استوديو ${studio.name} ملفاً بعنوان "<strong>${upload.name}</strong>". راجِعه ثم ادفعه إلى النظام من صفحة إدارة الاستوديو.`,
+        `${baseUrl}/studios/${studio.id}`,
+        'مراجعة التسليم',
+      ),
+      emailBinding: c.env.EMAIL,
+    }),
+  ));
+  return c.json({ ok: true });
 });
 
 studioPortal.post('/:slug/sample-upload-url', async (c) => {
