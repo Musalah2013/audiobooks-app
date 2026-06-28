@@ -128,6 +128,11 @@ export default function BookDetail() {
 
   useEffect(() => {
     if (!data?.tracks.length) return;
+    // Only seed the selection once. Re-running on every data refetch would
+    // reset the dropdown back to the first track and clobber the operator's
+    // in-progress choice. A saved sample track id still takes precedence on
+    // first load via the find() below.
+    if (sampleTrackId && data.tracks.some((t) => t.id === sampleTrackId)) return;
     const selected = data.book?.sampleTrackId
       ? data.tracks.find((t) => t.id === data.book?.sampleTrackId)
       : data.tracks.find((t) => t.finalObjectKey) ?? data.tracks[0];
@@ -136,7 +141,7 @@ export default function BookDetail() {
       setSampleStartSeconds(data.book?.sampleStartSeconds ?? 0);
       setSampleEndSeconds(data.book?.sampleEndSeconds ?? Math.min(selected.finalDurationSeconds ?? 30, 30));
     }
-  }, [data?.tracks, data?.book?.sampleTrackId, data?.book?.sampleStartSeconds, data?.book?.sampleEndSeconds]);
+  }, [data?.tracks, data?.book?.sampleTrackId, data?.book?.sampleStartSeconds, data?.book?.sampleEndSeconds, sampleTrackId]);
 
   // Sync metaForm when book data loads
   useEffect(() => {
