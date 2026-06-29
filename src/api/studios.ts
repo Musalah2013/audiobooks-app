@@ -201,6 +201,53 @@ studios.post('/acquisition-users/:id/magic-link', requirePermission('users'), as
   return c.json({ ok: true });
 });
 
+// ─── Shared asset library ─────────────────────────────────────────────────────
+// Literal `/shared-assets` paths MUST be registered before the `/:id` studio
+// routes below, or Hono treats "shared-assets" as a studio id.
+
+function sharedAssetToApi(a: { id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; studioIds?: string[] }) {
+  return { id: a.id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at, studioIds: a.studioIds ?? [] };
+}
+
+studios.get('/shared-assets', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const assets = await repo.listSharedAssets();
+  return c.json({ assets: assets.map(sharedAssetToApi) });
+});
+
+// Presigned URL only — the row is created on /complete (no ghost on abandon).
+studios.post('/shared-assets/upload-url', requirePermission('users'), async (c) => {
+  const { fileName, contentType } = z.object({ fileName: z.string(), contentType: z.string().default('application/octet-stream'), sizeBytes: z.number().optional() }).parse(await c.req.json());
+  const key = keySegments('shared-assets', `${Date.now()}-${fileName}`);
+  const upload = await createUploadUrl(c.env, key, contentType);
+  return c.json({ ...upload, objectKey: key });
+});
+
+studios.post('/shared-assets/complete', requirePermission('users'), async (c) => {
+  const body = z.object({ objectKey: z.string(), fileName: z.string(), contentType: z.string().default('application/octet-stream'), sizeBytes: z.number().optional(), studioIds: z.array(z.string()).default([]) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const object = await c.env.ASSET_BUCKET.head(body.objectKey);
+  if (!object) return c.json({ error: 'Uploaded file not found in storage.' }, 404);
+  const id = await repo.createSharedAsset({ name: body.fileName, objectKey: body.objectKey, contentType: body.contentType, sizeBytes: body.sizeBytes ?? object.size, uploadedBy: actorEmail(c.req.raw), studioIds: body.studioIds });
+  return c.json({ ok: true, id });
+});
+
+studios.patch('/shared-assets/:assetId/visibility', requirePermission('users'), async (c) => {
+  const { studioIds } = z.object({ studioIds: z.array(z.string()) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const asset = await repo.getSharedAsset(c.req.param('assetId')!);
+  if (!asset) return c.json({ error: 'Asset not found' }, 404);
+  await repo.setSharedAssetVisibility(asset.id, studioIds);
+  return c.json({ ok: true });
+});
+
+studios.delete('/shared-assets/:assetId', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const deleted = await repo.deleteSharedAsset(c.req.param('assetId')!);
+  if (deleted?.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key);
+  return c.json({ ok: true });
+});
+
 // ─── Studio detail + CRUD ─────────────────────────────────────────────────────
 
 studios.get('/:id', requirePermission('users'), async (c) => {

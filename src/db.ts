@@ -31,6 +31,7 @@ type StudioAggregate = {
   legacyProductions: number; legacyNetHours: number;
 };
 type StudioAssetRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
+type SharedAssetRow = { id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
 type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null; book_author: string | null; acq_notes: string | null; production_status: string; acq_metadata: string | null };
 type StudioSampleRow = { id: string; studio_id: string; book_id: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string };
 type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; net_final_hours: number | null; notes: string | null; production_file_id: string | null };
@@ -1128,6 +1129,61 @@ export class Repository {
 
   async deleteStudioAsset(id: string) {
     return this.db.prepare(`DELETE FROM studio_asset WHERE id = ? RETURNING object_key`).bind(id).first<{ object_key: string }>();
+  }
+
+  // ─── Shared asset library (admin-managed, visible to many studios) ────────────
+
+  async createSharedAsset(input: { name: string; objectKey: string; contentType: string; sizeBytes: number; uploadedBy: string; studioIds: string[] }) {
+    const id = crypto.randomUUID();
+    await this.db.prepare(
+      `INSERT INTO shared_asset (id, name, object_key, content_type, size_bytes, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(id, input.name, input.objectKey, input.contentType, input.sizeBytes, input.uploadedBy).run();
+    await this.setSharedAssetVisibility(id, input.studioIds);
+    return id;
+  }
+
+  /** Replace the visibility set. Empty array → visible to ALL studios. */
+  async setSharedAssetVisibility(assetId: string, studioIds: string[]) {
+    await this.db.prepare(`DELETE FROM shared_asset_visibility WHERE asset_id = ?`).bind(assetId).run();
+    const unique = [...new Set(studioIds)].filter(Boolean);
+    for (const sid of unique) {
+      await this.db.prepare(`INSERT OR IGNORE INTO shared_asset_visibility (asset_id, studio_id) VALUES (?, ?)`).bind(assetId, sid).run();
+    }
+  }
+
+  async getSharedAsset(id: string) {
+    return this.db.prepare(`SELECT * FROM shared_asset WHERE id = ?`).bind(id).first<SharedAssetRow>();
+  }
+
+  /** All shared assets with their visibility studioIds ([] = all studios). */
+  async listSharedAssets() {
+    const [{ results: assets }, { results: vis }] = await Promise.all([
+      this.db.prepare(`SELECT * FROM shared_asset ORDER BY created_at DESC`).all<SharedAssetRow>(),
+      this.db.prepare(`SELECT asset_id, studio_id FROM shared_asset_visibility`).all<{ asset_id: string; studio_id: string }>(),
+    ]);
+    const byAsset = new Map<string, string[]>();
+    for (const v of vis) {
+      const arr = byAsset.get(v.asset_id) ?? [];
+      arr.push(v.studio_id);
+      byAsset.set(v.asset_id, arr);
+    }
+    return assets.map((a) => ({ ...a, studioIds: byAsset.get(a.id) ?? [] }));
+  }
+
+  async deleteSharedAsset(id: string) {
+    return this.db.prepare(`DELETE FROM shared_asset WHERE id = ? RETURNING object_key`).bind(id).first<{ object_key: string }>();
+  }
+
+  /** Shared assets a given studio may see: those with no visibility rows (all),
+   *  or those explicitly targeted at this studio. */
+  async listSharedAssetsForStudio(studioId: string) {
+    const { results } = await this.db.prepare(
+      `SELECT a.* FROM shared_asset a
+       WHERE NOT EXISTS (SELECT 1 FROM shared_asset_visibility v WHERE v.asset_id = a.id)
+          OR EXISTS (SELECT 1 FROM shared_asset_visibility v WHERE v.asset_id = a.id AND v.studio_id = ?)
+       ORDER BY a.created_at DESC`
+    ).bind(studioId).all<SharedAssetRow>();
+    return results;
   }
 
   async createStudioProductionFile(input: { studioId: string; name: string; objectKey: string; contentType: string; sizeBytes: number; uploadedBy: string; bookAuthor?: string | null; acqNotes?: string | null; acqMetadata?: string | null }) {

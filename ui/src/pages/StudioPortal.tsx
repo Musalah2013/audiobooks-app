@@ -615,7 +615,10 @@ export default function StudioPortal() {
                   <div key={a.id} className="flex items-center gap-4 p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all bg-white">
                     <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0"><FileText size={18} className="text-blue-500" /></div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate">{a.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{a.name}</p>
+                        {a.shared && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 shrink-0">{t('مشترك', 'Shared')}</span>}
+                      </div>
                       <div className="flex items-center gap-3 mt-1">
                         <span className="text-xs text-slate-400 flex items-center gap-1"><Hash size={12} /> {formatBytes(a.sizeBytes)}</span>
                         <span className="text-xs text-slate-400 flex items-center gap-1"><Calendar size={12} /> {fd(a.createdAt)}</span>

@@ -3,14 +3,22 @@ import { Link } from 'react-router-dom';
 import {
   Building2, Plus, Trash2, Send, Settings2, Mail, Users,
   Music, CloudUpload, DollarSign, Clock, LibraryBig, AlertCircle,
+  Package, Download, Upload, Pencil, FileText,
 } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { InlineError } from '../components/InlineError';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
-import type { StudiosResponse, StudioWithStats, AcquisitionUser } from '@api';
+import type { StudiosResponse, StudioWithStats, AcquisitionUser, SharedAsset } from '@api';
 
 interface AcquisitionUsersResponse { users: AcquisitionUser[] }
+interface SharedAssetsResponse { assets: SharedAsset[] }
+
+function formatBytes(b: number) {
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
+  return `${(b / 1024 / 1024).toFixed(1)} MB`;
+}
 
 function slugify(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -51,6 +59,7 @@ function Stat({ icon: Icon, label, value, accent }: { icon: typeof Building2; la
 export default function Studios() {
   const { data, loading, error, errorDetail, refetch } = useApi<StudiosResponse>('/api/studios');
   const { data: acqData, refetch: refetchAcq } = useApi<AcquisitionUsersResponse>('/api/studios/acquisition-users');
+  const { data: sharedData, refetch: refetchShared } = useApi<SharedAssetsResponse>('/api/studios/shared-assets');
   const { addToast } = useToast();
   const { isArabic } = useLocale();
 
@@ -65,6 +74,13 @@ export default function Studios() {
   const [acqForm, setAcqForm] = useState({ email: '', name: '' });
   const [creatingAcq, setCreatingAcq] = useState(false);
   const [sendingAcqLink, setSendingAcqLink] = useState<string | null>(null);
+
+  // Shared asset library
+  const [assetTargets, setAssetTargets] = useState<string[]>([]); // [] = all studios
+  const [uploadingAsset, setUploadingAsset] = useState(false);
+  const [editingVis, setEditingVis] = useState<string | null>(null);
+  const [visDraft, setVisDraft] = useState<string[]>([]);
+  const [confirmDeleteAsset, setConfirmDeleteAsset] = useState<string | null>(null);
 
   async function createStudio() {
     if (!newForm.name || !newForm.slug || !newForm.contactEmail) {
@@ -139,12 +155,52 @@ export default function Studios() {
     }
   }
 
+  async function uploadSharedAsset(file: File) {
+    setUploadingAsset(true);
+    try {
+      const { uploadUrl, objectKey } = await apiRequest<{ uploadUrl: string; objectKey: string }>('/api/studios/shared-assets/upload-url', { method: 'POST', body: { fileName: file.name, contentType: file.type, sizeBytes: file.size } });
+      const put = await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } });
+      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
+      await apiRequest('/api/studios/shared-assets/complete', { method: 'POST', body: { objectKey, fileName: file.name, contentType: file.type || 'application/octet-stream', sizeBytes: file.size, studioIds: assetTargets } });
+      addToast(isArabic ? 'تمت إضافة الملف.' : 'Asset added.', 'success');
+      setAssetTargets([]);
+      refetchShared();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الرفع' : 'Upload failed'), 'error');
+    } finally { setUploadingAsset(false); }
+  }
+
+  async function saveVisibility(assetId: string) {
+    try {
+      await apiRequest(`/api/studios/shared-assets/${assetId}/visibility`, { method: 'PATCH', body: { studioIds: visDraft } });
+      addToast(isArabic ? 'تم تحديث الظهور.' : 'Visibility updated.', 'success');
+      setEditingVis(null);
+      refetchShared();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحفظ' : 'Failed to save'), 'error');
+    }
+  }
+
+  async function deleteSharedAsset(assetId: string) {
+    try {
+      await apiRequest(`/api/studios/shared-assets/${assetId}`, { method: 'DELETE' });
+      addToast(isArabic ? 'تم حذف الملف.' : 'Asset deleted.', 'success');
+      setConfirmDeleteAsset(null);
+      refetchShared();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
+    }
+  }
+
   if (loading) return <div className="card text-sm text-center text-[color:var(--fg-2)]">{isArabic ? 'جاري التحميل…' : 'Loading…'}</div>;
   if (error) return <InlineError message={error} detail={errorDetail ?? undefined} />;
 
   const studios = data?.studios ?? [];
   const summary = data?.summary;
   const acqUsers = acqData?.users ?? [];
+  const sharedAssets = sharedData?.assets ?? [];
+  const studioNameById = new Map(studios.map((s) => [s.id, s.name]));
+  const toggleIn = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   const sampleTotal = (summary?.samplesPending ?? 0) + (summary?.samplesApproved ?? 0) + (summary?.samplesRefused ?? 0);
 
   return (
@@ -330,6 +386,99 @@ export default function Studios() {
                   <Send className="h-3 w-3" />
                   {isArabic ? 'إرسال رابط' : 'Send link'}
                 </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Shared asset library */}
+      <section className="card space-y-4">
+        <div className="flex items-center gap-2">
+          <Package className="h-4 w-4 text-[color:var(--samawy-blue)]" />
+          <h3 className="text-base font-bold text-[color:var(--samawy-ink)]">{isArabic ? 'مكتبة الملفات المشتركة' : 'Shared Asset Library'}</h3>
+        </div>
+        <p className="text-xs text-[color:var(--fg-2)]">{isArabic ? 'ارفع ملفاً مرجعياً مرة واحدة وحدّد أي الاستوديوهات تراه. بدون تحديد = يظهر لجميع الاستوديوهات.' : 'Upload a reference file once and choose which studios see it. No selection = visible to all studios.'}</p>
+
+        {/* Upload + target picker */}
+        <div className="border border-slate-200 rounded-[14px] p-4 space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-[color:var(--fg-2)] mb-1.5 block">{isArabic ? 'مرئي للاستوديوهات' : 'Visible to studios'} <span className="font-normal opacity-70">({assetTargets.length === 0 ? (isArabic ? 'الكل' : 'all') : assetTargets.length})</span></label>
+            <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+              {studios.map((s) => {
+                const on = assetTargets.includes(s.id);
+                return (
+                  <button key={s.id} type="button" onClick={() => setAssetTargets((l) => toggleIn(l, s.id))}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${on ? 'bg-[color:var(--samawy-blue)] text-white border-[color:var(--samawy-blue)]' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                    {s.name}
+                  </button>
+                );
+              })}
+            </div>
+            {assetTargets.length === 0 && <p className="text-[11px] text-emerald-600 mt-1.5">{isArabic ? 'سيظهر لجميع الاستوديوهات.' : 'Will be visible to all studios.'}</p>}
+          </div>
+          <label className={`btn-primary text-xs py-1.5 px-3 inline-flex cursor-pointer ${uploadingAsset ? 'opacity-50 pointer-events-none' : ''}`}>
+            <Upload className="h-3.5 w-3.5" />{uploadingAsset ? (isArabic ? 'جاري الرفع…' : 'Uploading…') : (isArabic ? 'رفع ملف' : 'Upload file')}
+            <input type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadSharedAsset(f); e.target.value = ''; }} />
+          </label>
+        </div>
+
+        {/* Asset list */}
+        {sharedAssets.length === 0 ? (
+          <p className="text-sm text-[color:var(--fg-2)]">{isArabic ? 'لا توجد ملفات مشتركة بعد.' : 'No shared assets yet.'}</p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {sharedAssets.map((a) => (
+              <div key={a.id} className="py-3">
+                <div className="flex items-center gap-3">
+                  <FileText className="h-4 w-4 text-[color:var(--samawy-blue)] shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-[color:var(--samawy-ink)] truncate">{a.name}</p>
+                    <p className="text-xs text-[color:var(--fg-2)]">{formatBytes(a.sizeBytes)} · {new Date(a.createdAt).toLocaleDateString()}</p>
+                  </div>
+                  <a href={`${API_BASE}/api/files/${a.objectKey}?_dl=1`} download className="btn-secondary text-xs py-1 px-2"><Download className="h-3.5 w-3.5" /></a>
+                  <button type="button" className="text-slate-400 hover:text-[color:var(--samawy-blue)] p-1" onClick={() => { setEditingVis(a.id); setVisDraft(a.studioIds); }} title={isArabic ? 'تعديل الظهور' : 'Edit visibility'}><Pencil className="h-3.5 w-3.5" /></button>
+                  {confirmDeleteAsset === a.id ? (
+                    <span className="flex items-center gap-1">
+                      <button type="button" className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white" onClick={() => deleteSharedAsset(a.id)}>{isArabic ? 'تأكيد' : 'Confirm'}</button>
+                      <button type="button" className="text-[10px] text-slate-500" onClick={() => setConfirmDeleteAsset(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
+                    </span>
+                  ) : (
+                    <button type="button" className="text-red-400 hover:text-red-600 p-1" onClick={() => setConfirmDeleteAsset(a.id)}><Trash2 className="h-3.5 w-3.5" /></button>
+                  )}
+                </div>
+                {/* Visibility */}
+                <div className="mt-2 ml-7">
+                  {editingVis === a.id ? (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                        {studios.map((s) => {
+                          const on = visDraft.includes(s.id);
+                          return (
+                            <button key={s.id} type="button" onClick={() => setVisDraft((l) => toggleIn(l, s.id))}
+                              className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${on ? 'bg-[color:var(--samawy-blue)] text-white border-[color:var(--samawy-blue)]' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                              {s.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-[color:var(--fg-2)]">{visDraft.length === 0 ? (isArabic ? 'الكل' : 'All studios') : `${visDraft.length} ${isArabic ? 'استوديو' : 'studios'}`}</span>
+                        <button type="button" className="btn-primary text-xs py-1 px-2.5" onClick={() => saveVisibility(a.id)}>{isArabic ? 'حفظ' : 'Save'}</button>
+                        <button type="button" className="text-xs text-slate-500" onClick={() => setEditingVis(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-[color:var(--fg-2)]">
+                      <span className="font-semibold">{isArabic ? 'مرئي لـ:' : 'Visible to:'}</span>
+                      {a.studioIds.length === 0 ? (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">{isArabic ? 'جميع الاستوديوهات' : 'All studios'}</span>
+                      ) : (
+                        a.studioIds.map((sid) => <span key={sid} className="px-2 py-0.5 rounded-full bg-slate-100">{studioNameById.get(sid) ?? sid}</span>)
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>

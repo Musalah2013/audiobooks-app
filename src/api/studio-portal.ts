@@ -32,8 +32,9 @@ studioPortal.get('/:slug', async (c) => {
   const studio = await repo.getStudioBySlug(slug);
   if (!studio || !studio.is_active) return c.json({ error: 'Not found' }, 404);
   await repo.failStalePendingDeliveries().catch(() => undefined);
-  const [assets, productionFiles, samples, driveUploads] = await Promise.all([
+  const [assets, sharedAssets, productionFiles, samples, driveUploads] = await Promise.all([
     repo.listStudioAssets(studio.id),
+    repo.listSharedAssetsForStudio(studio.id),
     repo.listStudioProductionFiles(studio.id),
     repo.listStudioSamples(studio.id),
     repo.listDriveUploads(studio.id),
@@ -53,7 +54,10 @@ studioPortal.get('/:slug', async (c) => {
   const approvedFileIds = new Set(samples.filter((s) => s.status === 'approved' && s.book_id).map((s) => s.book_id!));
   return c.json({
     studio: { id: studio.id, name: studio.name, slug: studio.slug, contactEmail: studio.contact_email, logoObjectKey: studio.logo_object_key, isActive: !!studio.is_active, createdAt: studio.created_at, createdBy: studio.created_by, hourlyRateUsd: studio.hourly_rate_usd },
-    assets: assets.map((a) => ({ id: a.id, studioId: a.studio_id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at })),
+    assets: [
+      ...assets.map((a) => ({ id: a.id, studioId: a.studio_id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at, shared: false })),
+      ...sharedAssets.map((a) => ({ id: a.id, studioId: studio.id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at, shared: true })),
+    ],
     productionFiles: productionFiles.map((f) => ({ id: f.id, studioId: f.studio_id, name: f.name, objectKey: f.object_key, contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at, audiobookId: f.audiobook_id, audiobookTitle: f.audiobook_id ? (titleById.get(f.audiobook_id) ?? null) : null, narrator: f.narrator, expectedNetHours: f.expected_net_hours, estimatedFinishHours: f.estimated_finish_hours, productionStatus: (f.production_status ?? 'backlog'), acqMetadata: f.acq_metadata ? safeJson(f.acq_metadata) : null, hasApprovedSample: approvedFileIds.has(f.id) })),
     samples: samples.map((s) => ({ id: s.id, studioId: s.studio_id, bookId: s.book_id ?? null, bookName: s.book_id ? (bookNameMap.get(s.book_id) ?? null) : null, name: s.name, objectKey: s.object_key, contentType: s.content_type, sizeBytes: s.size_bytes, status: s.status, reviewedBy: s.reviewed_by, reviewNote: s.review_note, reviewedAt: s.reviewed_at, createdAt: s.created_at })),
     driveUploads: driveUploads.map(driveUploadToApi),
