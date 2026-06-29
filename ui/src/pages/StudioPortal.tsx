@@ -510,7 +510,7 @@ export default function StudioPortal() {
     );
   }
 
-  if (error?.includes('401') || error?.includes('Unauthorized')) return <LoginGate slug={slug ?? ''} />;
+  if (error?.includes('401') || error?.includes('Unauthorized') || error?.includes('Authentication')) return <LoginGate slug={slug ?? ''} />;
   if (!data) {
     return (
       <div className="min-h-screen bg-[#f5f7fa] flex items-center justify-center" dir={dir}>

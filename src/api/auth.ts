@@ -49,6 +49,14 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
     return next();
   }
 
+  // Portal routes enforce their OWN session auth inside each handler (returning a
+  // proper 401 Unauthorized). Let them through here so unauthenticated requests
+  // get the portal's login response instead of the operator "Authentication
+  // required" 401 — which the portal login screens would not recognise.
+  if (path.startsWith('/api/studio-portal/') || path.startsWith('/api/acquisition-portal/')) {
+    return next();
+  }
+
   const internalSecret = c.req.header('X-Internal-Secret');
   if (internalSecret === c.env.INTERNAL_API_SECRET) {
     return next();

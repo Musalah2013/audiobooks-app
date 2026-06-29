@@ -343,7 +343,7 @@ export default function AcquisitionPortal() {
     }
   }
 
-  if (error?.includes('401') || error?.includes('Unauthorized')) return <LoginGate />;
+  if (error?.includes('401') || error?.includes('Unauthorized') || error?.includes('Authentication')) return <LoginGate />;
   if (loading) return <LoginGate />;
   if (!data) return <LoginGate />;
 
