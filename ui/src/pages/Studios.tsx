@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Building2, Plus, Trash2, Send, Settings2, Mail, Users,
+  Building2, Plus, Trash2, Settings2, Mail, Users,
   Music, CloudUpload, DollarSign, Clock, LibraryBig, AlertCircle,
-  Package, Download, Upload, Pencil, FileText,
+  Package, Download, Upload, Pencil, FileText, KeyRound,
 } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { InlineError } from '../components/InlineError';
@@ -64,14 +64,14 @@ export default function Studios() {
   const { isArabic } = useLocale();
 
   const [showNewForm, setShowNewForm] = useState(false);
-  const [newForm, setNewForm] = useState({ name: '', slug: '', contactEmail: '' });
+  const [newForm, setNewForm] = useState({ name: '', slug: '', contactEmail: '', password: '' });
   const [creating, setCreating] = useState(false);
   const [sendingLink, setSendingLink] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   const [showAcqForm, setShowAcqForm] = useState(false);
-  const [acqForm, setAcqForm] = useState({ email: '', name: '' });
+  const [acqForm, setAcqForm] = useState({ email: '', name: '', password: '' });
   const [creatingAcq, setCreatingAcq] = useState(false);
   const [sendingAcqLink, setSendingAcqLink] = useState<string | null>(null);
 
@@ -87,11 +87,15 @@ export default function Studios() {
       addToast(isArabic ? 'يرجى ملء جميع الحقول المطلوبة' : 'Please fill all required fields', 'error');
       return;
     }
+    if (newForm.password && newForm.password.length < 8) {
+      addToast(isArabic ? 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' : 'Password must be at least 8 characters', 'error');
+      return;
+    }
     setCreating(true);
     try {
-      await apiRequest('/api/studios', { method: 'POST', body: { name: newForm.name, slug: newForm.slug, contactEmail: newForm.contactEmail } });
+      await apiRequest('/api/studios', { method: 'POST', body: { name: newForm.name, slug: newForm.slug, contactEmail: newForm.contactEmail, password: newForm.password || undefined } });
       addToast(isArabic ? 'تم إنشاء الاستوديو.' : 'Studio created.', 'success');
-      setNewForm({ name: '', slug: '', contactEmail: '' });
+      setNewForm({ name: '', slug: '', contactEmail: '', password: '' });
       setShowNewForm(false);
       refetch();
     } catch (err) {
@@ -101,13 +105,17 @@ export default function Studios() {
     }
   }
 
-  async function sendLink(studioId: string) {
+  // Admin sets/resets the studio's primary contact password.
+  async function setStudioPassword(studioId: string) {
+    const pw = window.prompt(isArabic ? 'كلمة مرور جديدة لمدير الاستوديو (8 أحرف على الأقل):' : 'New password for the studio primary contact (min 8 chars):');
+    if (pw == null) return;
+    if (pw.length < 8) { addToast(isArabic ? 'كلمة المرور قصيرة جداً' : 'Password too short', 'error'); return; }
     setSendingLink(studioId);
     try {
-      await apiRequest(`/api/studios/${studioId}/magic-link`, { method: 'POST' });
-      addToast(isArabic ? 'تم إرسال رابط الدخول.' : 'Magic link sent.', 'success');
+      await apiRequest(`/api/studios/${studioId}/set-password`, { method: 'POST', body: { password: pw } });
+      addToast(isArabic ? 'تم تعيين كلمة المرور.' : 'Password set.', 'success');
     } catch (err) {
-      addToast(err instanceof Error ? err : (isArabic ? 'فشل الإرسال' : 'Failed to send'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل التعيين' : 'Failed to set'), 'error');
     } finally {
       setSendingLink(null);
     }
@@ -129,11 +137,15 @@ export default function Studios() {
 
   async function createAcqUser() {
     if (!acqForm.email || !acqForm.name) return;
+    if (!acqForm.password || acqForm.password.length < 8) {
+      addToast(isArabic ? 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' : 'Password must be at least 8 characters', 'error');
+      return;
+    }
     setCreatingAcq(true);
     try {
-      await apiRequest('/api/studios/acquisition-users', { method: 'POST', body: { email: acqForm.email, name: acqForm.name } });
+      await apiRequest('/api/studios/acquisition-users', { method: 'POST', body: { email: acqForm.email, name: acqForm.name, password: acqForm.password } });
       addToast(isArabic ? 'تم إنشاء حساب الاقتناء.' : 'Acquisition user created.', 'success');
-      setAcqForm({ email: '', name: '' });
+      setAcqForm({ email: '', name: '', password: '' });
       setShowAcqForm(false);
       refetchAcq();
     } catch (err) {
@@ -143,13 +155,17 @@ export default function Studios() {
     }
   }
 
-  async function sendAcqLink(id: string) {
+  // Admin sets/resets an acquisition member's password.
+  async function setAcqPassword(id: string) {
+    const pw = window.prompt(isArabic ? 'كلمة مرور جديدة (8 أحرف على الأقل):' : 'New password (min 8 chars):');
+    if (pw == null) return;
+    if (pw.length < 8) { addToast(isArabic ? 'كلمة المرور قصيرة جداً' : 'Password too short', 'error'); return; }
     setSendingAcqLink(id);
     try {
-      await apiRequest(`/api/studios/acquisition-users/${id}/magic-link`, { method: 'POST' });
-      addToast(isArabic ? 'تم إرسال رابط الدخول.' : 'Magic link sent.', 'success');
+      await apiRequest(`/api/studios/acquisition-users/${id}/set-password`, { method: 'POST', body: { password: pw } });
+      addToast(isArabic ? 'تم تعيين كلمة المرور.' : 'Password set.', 'success');
     } catch (err) {
-      addToast(err instanceof Error ? err : (isArabic ? 'فشل الإرسال' : 'Failed'), 'error');
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل التعيين' : 'Failed'), 'error');
     } finally {
       setSendingAcqLink(null);
     }
@@ -237,6 +253,10 @@ export default function Studios() {
               <label className="text-xs font-semibold text-[color:var(--fg-2)] mb-1 block">{isArabic ? 'البريد الإلكتروني *' : 'Contact Email *'}</label>
               <input className="input w-full" type="email" value={newForm.contactEmail} onChange={(e) => setNewForm((p) => ({ ...p, contactEmail: e.target.value }))} placeholder="studio@example.com" />
             </div>
+            <div>
+              <label className="text-xs font-semibold text-[color:var(--fg-2)] mb-1 block">{isArabic ? 'كلمة المرور (للدخول)' : 'Password (for login)'}</label>
+              <input className="input w-full" type="password" value={newForm.password} onChange={(e) => setNewForm((p) => ({ ...p, password: e.target.value }))} placeholder={isArabic ? '8 أحرف على الأقل' : 'min 8 characters'} autoComplete="new-password" />
+            </div>
             <div className="sm:col-span-2 flex gap-2 justify-end">
               <button type="button" className="btn-secondary" onClick={() => setShowNewForm(false)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
               <button type="button" className="btn-primary" disabled={creating} onClick={createStudio}>{creating ? (isArabic ? 'جاري الإنشاء…' : 'Creating…') : (isArabic ? 'إنشاء' : 'Create')}</button>
@@ -304,8 +324,8 @@ export default function Studios() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button type="button" className="btn-secondary text-xs py-1 px-2.5" disabled={sendingLink === s.id} onClick={() => sendLink(s.id)} title={isArabic ? 'إرسال رابط الدخول' : 'Send magic link'}>
-                      <Send className="h-3 w-3" />
+                    <button type="button" className="btn-secondary text-xs py-1 px-2.5" disabled={sendingLink === s.id} onClick={() => setStudioPassword(s.id)} title={isArabic ? 'تعيين كلمة المرور' : 'Set password'}>
+                      <KeyRound className="h-3 w-3" />
                     </button>
                     <Link to={`/studios/${s.id}`} className="btn-secondary text-xs py-1 px-2.5" title={isArabic ? 'إدارة' : 'Manage'}>
                       <Settings2 className="h-3 w-3" />
@@ -365,6 +385,10 @@ export default function Studios() {
               <label className="text-xs font-semibold text-[color:var(--fg-2)] mb-1 block">{isArabic ? 'البريد *' : 'Email *'}</label>
               <input className="input w-full" type="email" value={acqForm.email} onChange={(e) => setAcqForm((p) => ({ ...p, email: e.target.value }))} />
             </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs font-semibold text-[color:var(--fg-2)] mb-1 block">{isArabic ? 'كلمة المرور *' : 'Password *'}</label>
+              <input className="input w-full" type="password" value={acqForm.password} onChange={(e) => setAcqForm((p) => ({ ...p, password: e.target.value }))} placeholder={isArabic ? '8 أحرف على الأقل' : 'min 8 characters'} autoComplete="new-password" />
+            </div>
             <div className="sm:col-span-2 flex gap-2 justify-end">
               <button type="button" className="btn-secondary text-xs py-1.5 px-3" onClick={() => setShowAcqForm(false)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
               <button type="button" className="btn-primary text-xs py-1.5 px-3" disabled={creatingAcq} onClick={createAcqUser}>{isArabic ? 'إنشاء' : 'Create'}</button>
@@ -382,9 +406,9 @@ export default function Studios() {
                   <p className="text-sm font-semibold text-[color:var(--samawy-ink)]">{u.name}</p>
                   <p className="text-xs text-[color:var(--fg-2)]">{u.email}</p>
                 </div>
-                <button type="button" className="btn-secondary text-xs py-1 px-2.5" disabled={sendingAcqLink === u.id} onClick={() => sendAcqLink(u.id)} title={isArabic ? 'إرسال رابط الدخول' : 'Send magic link'}>
-                  <Send className="h-3 w-3" />
-                  {isArabic ? 'إرسال رابط' : 'Send link'}
+                <button type="button" className="btn-secondary text-xs py-1 px-2.5" disabled={sendingAcqLink === u.id} onClick={() => setAcqPassword(u.id)} title={isArabic ? 'تعيين كلمة المرور' : 'Set password'}>
+                  <KeyRound className="h-3 w-3" />
+                  {isArabic ? 'كلمة المرور' : 'Set password'}
                 </button>
               </div>
             ))}

@@ -1,9 +1,8 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { Repository } from '../db';
-import { sendEmail, magicLinkEmail } from '../email';
-import { hmacSign } from '../password';
-import { RateLimiter, magicLinkRateLimiter } from '../rate-limit';
+import { hmacSign, verifyPassword } from '../password';
+import { RateLimiter, loginRateLimiter } from '../rate-limit';
 
 const ACQUISITION_SESSION_COOKIE = '_acqsession';
 const ACQUISITION_SESSION_COOKIE_RE = new RegExp(`(?:^|;\\s*)${ACQUISITION_SESSION_COOKIE}=([^;]+)`);
@@ -41,44 +40,23 @@ export function clearAcquisitionSessionCookie(): string {
 
 const acquisitionAuth = new Hono<{ Bindings: Env }>();
 
-acquisitionAuth.post('/request', async (c) => {
+acquisitionAuth.post('/login', async (c) => {
   const ip = RateLimiter.getClientIP(c);
-  const { allowed, retryAfter } = magicLinkRateLimiter.check(ip);
+  const { allowed, retryAfter } = loginRateLimiter.check(ip);
   if (!allowed) {
     c.header('Retry-After', String(retryAfter));
     return c.json({ error: 'Too many requests. Please try again later.' }, 429);
   }
-  const { email } = await c.req.json() as { email?: string };
-  if (!email) return c.json({ error: 'email required' }, 400);
+  const { email, password } = await c.req.json() as { email?: string; password?: string };
+  if (!email || !password) return c.json({ error: 'email and password are required.' }, 400);
   const repo = new Repository(c.env.DB);
   const user = await repo.getAcquisitionUserByEmail(email);
-  if (!user || !user.is_active) return c.json({ ok: true }); // silent
-
-  const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  await repo.createAcquisitionMagicLink(user.id, token, expiresAt);
-
-  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
-  const link = `${baseUrl}/api/acquisition-auth/verify?token=${token}`;
-  await sendEmail({
-    to: user.email,
-    toName: user.name,
-    subject: 'رابط الدخول — بوابة الاقتناء',
-    html: magicLinkEmail({ link, greetingName: user.name, portalLabel: 'بوابة الاقتناء', ctaLabel: 'الدخول إلى البوابة' }),
-    emailBinding: c.env.EMAIL,
-  });
-  return c.json({ ok: true });
-});
-
-acquisitionAuth.get('/verify', async (c) => {
-  const token = c.req.query('token');
-  if (!token) return c.redirect('/');
-  const repo = new Repository(c.env.DB);
-  const result = await repo.verifyAndConsumeAcquisitionMagicLink(token);
-  if (!result) return c.html('<p>رابط غير صالح أو منتهي الصلاحية. <a href="/">العودة</a></p>', 400);
-  const cookie = await createAcquisitionSessionCookie(result.acquisitionUserId, c.env.INTERNAL_API_SECRET);
+  if (!user || !user.is_active || !user.password_hash || !(await verifyPassword(password, user.password_hash))) {
+    return c.json({ error: 'Invalid email or password.' }, 401);
+  }
+  const cookie = await createAcquisitionSessionCookie(user.id, c.env.INTERNAL_API_SECRET);
   c.header('Set-Cookie', cookie);
-  return c.redirect('/acquisition');
+  return c.json({ ok: true });
 });
 
 acquisitionAuth.post('/logout', (c) => {

@@ -44,8 +44,8 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
   const cookieHeader = c.req.header('Cookie') ?? null;
 
   // Public auth endpoints (mounted before middleware, but defense-in-depth)
-  if (path === '/api/studio-auth/request' || path === '/api/studio-auth/verify' ||
-      path === '/api/acquisition-auth/request' || path === '/api/acquisition-auth/verify') {
+  if (path === '/api/studio-auth/login' || path === '/api/studio-auth/logout' ||
+      path === '/api/acquisition-auth/login' || path === '/api/acquisition-auth/logout') {
     return next();
   }
 

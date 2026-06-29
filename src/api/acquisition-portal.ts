@@ -7,8 +7,23 @@ import { createUploadUrl } from '../pipeline';
 import { sendEmail, notifyEmail } from '../email';
 import { keySegments } from '../utils';
 import { searchSamawySellers, fetchSamawyGenres } from '../integrations';
+import { hashPassword, verifyPassword } from '../password';
 
 const acquisitionPortal = new Hono<{ Bindings: Env }>();
+
+// A signed-in acquisition member changes their own password.
+acquisitionPortal.post('/change-password', async (c) => {
+  const session = await verifyAcquisitionSessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);
+  if (!session) return c.json({ error: 'Unauthorized' }, 401);
+  const { currentPassword, newPassword } = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(8) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const user = await repo.getAcquisitionUser(session.acquisitionUserId);
+  if (!user || !user.password_hash || !(await verifyPassword(currentPassword, user.password_hash))) {
+    return c.json({ error: 'Current password is incorrect.' }, 400);
+  }
+  await repo.setAcquisitionUserPassword(user.id, await hashPassword(newPassword));
+  return c.json({ ok: true });
+});
 
 // Rich, delivery-style catalog metadata captured by the acquisition member.
 const acqMetadataSchema = z.object({

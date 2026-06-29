@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import {
   Download, Upload, CheckCircle2, FileText, Music, CloudUpload, Send, Loader2,
   Search, BookOpen, Package, Inbox, LogOut, Globe, ChevronDown,
-  FileAudio, Hash, Calendar, AlertCircle, Clock
+  FileAudio, Hash, Calendar, AlertCircle, Clock, KeyRound
 } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { useLocale } from '../hooks/useLocale';
@@ -108,25 +108,30 @@ function LoginGate({ slug }: { slug: string }) {
   const dir = isArabic ? 'rtl' : 'ltr';
   const t = (ar: string, en: string) => (isArabic ? ar : en);
   const [email, setEmail] = useState('');
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [password, setPassword] = useState('');
+  const [signing, setSigning] = useState(false);
   const [error, setError] = useState('');
 
-  async function requestLink() {
-    if (!email.trim()) return;
-    setSending(true); setError('');
+  async function signIn() {
+    if (!email.trim() || !password) return;
+    setSigning(true); setError('');
     try {
-      await fetch(`${API_BASE_URL}/api/studio-auth/request`, {
+      const res = await fetch(`${API_BASE_URL}/api/studio-auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug, email: email.trim() }),
+        body: JSON.stringify({ slug, email: email.trim(), password }),
         credentials: 'include',
       });
-      setSent(true);
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({})) as { error?: string };
+        setError(b.error || t('بريد إلكتروني أو كلمة مرور غير صحيحة.', 'Invalid email or password.'));
+        return;
+      }
+      location.href = `/studio/${slug}`;
     } catch {
       setError(t('حدث خطأ. يرجى المحاولة مرة أخرى.', 'Something went wrong. Please try again.'));
     } finally {
-      setSending(false);
+      setSigning(false);
     }
   }
 
@@ -138,34 +143,29 @@ function LoginGate({ slug }: { slug: string }) {
           <CloudUpload size={28} className="text-[#0b80ff]" />
         </div>
         <h1 className="text-xl font-bold text-slate-900 mb-2">{t('بوابة سماوي للاستوديوهات', 'Samawy Studio Portal')}</h1>
-        {sent ? (
-          <div className="mt-6">
-            <div className="w-14 h-14 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle2 size={28} className="text-emerald-500" />
-            </div>
-            <p className="text-slate-600 leading-relaxed">{t('تم إرسال رابط الدخول إلى بريدك الإلكتروني. تحقق من بريدك وانقر على الرابط للدخول.', 'A sign-in link has been sent to your email. Check your inbox and click the link to sign in.')}</p>
-          </div>
-        ) : (
-          <>
-            <p className="text-slate-400 mb-7 text-sm leading-relaxed">{t('أدخل بريدك الإلكتروني المسجّل لتلقّي رابط الدخول.', 'Enter your registered email to receive a sign-in link.')}</p>
-            <input
-              type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@studio.com"
-              className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-[#0b80ff]/20 focus:border-[#0b80ff] transition-all"
-              dir="ltr"
-              onKeyDown={(e) => e.key === 'Enter' && requestLink()}
-            />
-            {error && <p className="text-red-500 text-xs mb-3">{error}</p>}
-            <button
-              onClick={requestLink}
-              disabled={sending || !email.trim()}
-              className="w-full py-3 bg-[#0b80ff] text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50 transition-all hover:bg-blue-600"
-            >
-              {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-              {sending ? t('جاري الإرسال…', 'Sending…') : t('إرسال رابط الدخول', 'Send sign-in link')}
-            </button>
-          </>
-        )}
+        <p className="text-slate-400 mb-7 text-sm leading-relaxed">{t('سجّل الدخول ببريدك الإلكتروني وكلمة المرور.', 'Sign in with your email and password.')}</p>
+        <input
+          type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+          placeholder="your@studio.com"
+          className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-[#0b80ff]/20 focus:border-[#0b80ff] transition-all"
+          dir="ltr"
+        />
+        <input
+          type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+          placeholder={t('كلمة المرور', 'Password')}
+          className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-[#0b80ff]/20 focus:border-[#0b80ff] transition-all"
+          dir="ltr"
+          onKeyDown={(e) => e.key === 'Enter' && signIn()}
+        />
+        {error && <p className="text-red-500 text-xs mb-3">{error}</p>}
+        <button
+          onClick={signIn}
+          disabled={signing || !email.trim() || !password}
+          className="w-full py-3 bg-[#0b80ff] text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50 transition-all hover:bg-blue-600"
+        >
+          {signing ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+          {signing ? t('جاري الدخول…', 'Signing in…') : t('تسجيل الدخول', 'Sign in')}
+        </button>
       </div>
     </div>
   );
@@ -316,6 +316,20 @@ export default function StudioPortal() {
     } catch (err) {
       showNotice(err instanceof Error ? err.message : t('فشل حفظ البيانات', 'Failed to save'));
     } finally { setSavingPlan(null); }
+  }
+
+  async function changePassword() {
+    const currentPassword = window.prompt(t('كلمة المرور الحالية:', 'Current password:'));
+    if (currentPassword == null) return;
+    const newPassword = window.prompt(t('كلمة المرور الجديدة (8 أحرف على الأقل):', 'New password (min 8 chars):'));
+    if (newPassword == null) return;
+    if (newPassword.length < 8) { showNotice(t('كلمة المرور قصيرة جداً', 'Password too short')); return; }
+    try {
+      await apiRequest(`/api/studio-portal/${slug}/change-password`, { method: 'POST', body: { currentPassword, newPassword } });
+      showNotice(t('تم تغيير كلمة المرور.', 'Password changed.'));
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : t('فشل التغيير', 'Failed to change'));
+    }
   }
 
   async function changeBookStatus(fileId: string, status: 'backlog' | 'in_production') {
@@ -531,6 +545,13 @@ export default function StudioPortal() {
             <p className="text-xs text-slate-400">{t('بوابة سماوي للاستوديوهات', 'Samawy Studio Portal')}</p>
           </div>
           <LangToggle />
+          <button
+            onClick={changePassword}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-lg transition-all"
+          >
+            <KeyRound size={14} />
+            {t('كلمة المرور', 'Password')}
+          </button>
           <button
             onClick={() => fetch(`${API_BASE_URL}/api/studio-auth/logout`, { method: 'POST', credentials: 'include' }).then(() => location.reload())}
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-lg transition-all"

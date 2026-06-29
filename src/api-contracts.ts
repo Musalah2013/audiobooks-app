@@ -460,6 +460,8 @@ export interface StudioContact {
   email: string;
   name: string | null;
   createdAt: string;
+  /** Whether this login user has a password set. */
+  hasPassword?: boolean;
 }
 
 export interface Studio {

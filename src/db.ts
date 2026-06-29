@@ -21,8 +21,8 @@ import { jsonParse, nowIso } from "./utils";
 type Row = Record<string, unknown>;
 
 // ─── Studio row types ────────────────────────────────────────────────────────
-type StudioRow = { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string; hourly_rate_usd: number | null };
-type StudioContactRow = { id: string; studio_id: string; email: string; name: string | null; created_at: string };
+type StudioRow = { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string; hourly_rate_usd: number | null; password_hash: string | null };
+type StudioContactRow = { id: string; studio_id: string; email: string; name: string | null; created_at: string; password_hash: string | null };
 type StudioLegacyProductionRow = { id: string; studio_id: string; book_title: string; isbn: string | null; narrator: string | null; net_hours: number | null; notes: string | null; created_at: string };
 type StudioAggregate = {
   contacts: number; productionFiles: number; assignedFiles: number;
@@ -35,7 +35,7 @@ type SharedAssetRow = { id: string; name: string; object_key: string; content_ty
 type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null; book_author: string | null; acq_notes: string | null; production_status: string; acq_metadata: string | null };
 type StudioSampleRow = { id: string; studio_id: string; book_id: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string };
 type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; net_final_hours: number | null; notes: string | null; production_file_id: string | null };
-type AcquisitionUserRow = { id: string; email: string; name: string; is_active: number; created_at: string; created_by: string };
+type AcquisitionUserRow = { id: string; email: string; name: string; is_active: number; created_at: string; created_by: string; password_hash: string | null };
 
 function bindObject(stmt: D1PreparedStatement, values: unknown[]) {
   return stmt.bind(...values);
@@ -969,13 +969,18 @@ export class Repository {
 
   // ─── Studios ────────────────────────────────────────────────────────────────
 
-  async createStudio(input: { id: string; name: string; slug: string; contactEmail: string; createdBy: string }) {
+  async createStudio(input: { id: string; name: string; slug: string; contactEmail: string; createdBy: string; passwordHash?: string | null }) {
     await this.db.prepare(
-      `INSERT INTO studio (id, name, slug, contact_email, is_active, created_by) VALUES (?, ?, ?, ?, 1, ?)`
-    ).bind(input.id, input.name, input.slug, input.contactEmail, input.createdBy).run();
-    // The primary contact is also a manageable studio user.
+      `INSERT INTO studio (id, name, slug, contact_email, is_active, created_by, password_hash) VALUES (?, ?, ?, ?, 1, ?, ?)`
+    ).bind(input.id, input.name, input.slug, input.contactEmail, input.createdBy, input.passwordHash ?? null).run();
+    // The primary contact is also a manageable studio user (shares the studio password).
     await this.addStudioContact(input.id, input.contactEmail).catch(() => undefined);
     return this.getStudio(input.id);
+  }
+
+  /** Set the primary contact's login password (stored on the studio row). */
+  async setStudioPassword(studioId: string, passwordHash: string) {
+    await this.db.prepare(`UPDATE studio SET password_hash = ? WHERE id = ?`).bind(passwordHash, studioId).run();
   }
 
   // ─── Studio contacts (login users) ──────────────────────────────────────────
@@ -986,12 +991,24 @@ export class Repository {
     return results;
   }
 
-  async addStudioContact(studioId: string, email: string, name?: string | null) {
+  async addStudioContact(studioId: string, email: string, name?: string | null, passwordHash?: string | null) {
     const id = crypto.randomUUID();
     await this.db
-      .prepare(`INSERT OR IGNORE INTO studio_contact (id, studio_id, email, name) VALUES (?, ?, ?, ?)`)
-      .bind(id, studioId, email.trim().toLowerCase(), name ?? null).run();
+      .prepare(`INSERT OR IGNORE INTO studio_contact (id, studio_id, email, name, password_hash) VALUES (?, ?, ?, ?, ?)`)
+      .bind(id, studioId, email.trim().toLowerCase(), name ?? null, passwordHash ?? null).run();
     return id;
+  }
+
+  async getStudioContact(contactId: string) {
+    return this.db.prepare(`SELECT * FROM studio_contact WHERE id = ?`).bind(contactId).first<StudioContactRow>();
+  }
+
+  async getStudioContactByEmail(studioId: string, email: string) {
+    return this.db.prepare(`SELECT * FROM studio_contact WHERE studio_id = ? AND lower(email) = lower(?)`).bind(studioId, email).first<StudioContactRow>();
+  }
+
+  async setStudioContactPassword(contactId: string, passwordHash: string) {
+    await this.db.prepare(`UPDATE studio_contact SET password_hash = ? WHERE id = ?`).bind(passwordHash, contactId).run();
   }
 
   async deleteStudioContact(studioId: string, contactId: string) {
@@ -1349,12 +1366,16 @@ export class Repository {
 
   // ─── Acquisition users ───────────────────────────────────────────────────────
 
-  async createAcquisitionUser(input: { email: string; name: string; createdBy: string }) {
+  async createAcquisitionUser(input: { email: string; name: string; createdBy: string; passwordHash?: string | null }) {
     const id = crypto.randomUUID();
     await this.db.prepare(
-      `INSERT INTO acquisition_user (id, email, name, created_by) VALUES (?, ?, ?, ?)`
-    ).bind(id, input.email, input.name, input.createdBy).run();
+      `INSERT INTO acquisition_user (id, email, name, created_by, password_hash) VALUES (?, ?, ?, ?, ?)`
+    ).bind(id, input.email, input.name, input.createdBy, input.passwordHash ?? null).run();
     return id;
+  }
+
+  async setAcquisitionUserPassword(id: string, passwordHash: string) {
+    await this.db.prepare(`UPDATE acquisition_user SET password_hash = ? WHERE id = ?`).bind(passwordHash, id).run();
   }
 
   async getAcquisitionUser(id: string) {
@@ -1362,7 +1383,7 @@ export class Repository {
   }
 
   async getAcquisitionUserByEmail(email: string) {
-    return this.db.prepare(`SELECT * FROM acquisition_user WHERE email = ?`).bind(email).first<AcquisitionUserRow>();
+    return this.db.prepare(`SELECT * FROM acquisition_user WHERE lower(email) = lower(?)`).bind(email).first<AcquisitionUserRow>();
   }
 
   async listAcquisitionUsers() {

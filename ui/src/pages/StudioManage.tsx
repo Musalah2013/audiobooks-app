@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2, CloudUpload, Mail, DollarSign, Plus, Pencil, Search, ChevronDown, BookOpen } from 'lucide-react';
+import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2, CloudUpload, Mail, DollarSign, Plus, Pencil, Search, ChevronDown, BookOpen, KeyRound } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { AudioPlayer } from '../components/AudioPlayer';
 import { useToast } from '../hooks/useToast.tsx';
@@ -118,6 +118,19 @@ export default function StudioManage() {
     } catch (err) {
       addToast(err instanceof Error ? err : (isArabic ? 'فشل الإضافة' : 'Failed to add'), 'error');
     } finally { setSavingContact(false); }
+  }
+
+  async function setContactPassword(contactId: string) {
+    const pw = window.prompt(isArabic ? 'كلمة مرور جديدة (8 أحرف على الأقل):' : 'New password (min 8 chars):');
+    if (pw == null) return;
+    if (pw.length < 8) { addToast(isArabic ? 'كلمة المرور قصيرة جداً' : 'Password too short', 'error'); return; }
+    try {
+      await apiRequest(`/api/studios/${id}/contacts/${contactId}/set-password`, { method: 'POST', body: { password: pw } });
+      addToast(isArabic ? 'تم تعيين كلمة المرور.' : 'Password set.', 'success');
+      refetch();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل التعيين' : 'Failed to set'), 'error');
+    }
   }
 
   async function removeContact(contactId: string) {
@@ -456,12 +469,20 @@ export default function StudioManage() {
             <div className="space-y-1.5 mb-2">
               {contacts.map((ct) => (
                 <div key={ct.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-1.5">
-                  <span className="text-sm truncate">{ct.email}</span>
-                  {contacts.length > 1 && (
-                    <button type="button" className="text-red-400 hover:text-red-600" onClick={() => removeContact(ct.id)} title={isArabic ? 'حذف' : 'Remove'}>
-                      <Trash2 className="h-3.5 w-3.5" />
+                  <span className="text-sm truncate flex items-center gap-2">
+                    {ct.email}
+                    {ct.hasPassword === false && <span className="text-[10px] text-amber-600">{isArabic ? '(بدون كلمة مرور)' : '(no password)'}</span>}
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button type="button" className="text-slate-400 hover:text-[color:var(--samawy-blue)]" onClick={() => setContactPassword(ct.id)} title={isArabic ? 'تعيين كلمة المرور' : 'Set password'}>
+                      <KeyRound className="h-3.5 w-3.5" />
                     </button>
-                  )}
+                    {contacts.length > 1 && (
+                      <button type="button" className="text-red-400 hover:text-red-600" onClick={() => removeContact(ct.id)} title={isArabic ? 'حذف' : 'Remove'}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

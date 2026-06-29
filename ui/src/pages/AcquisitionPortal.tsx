@@ -81,23 +81,28 @@ function LangToggle({ isArabic, toggleLocale }: { isArabic: boolean; toggleLocal
 function LoginGate() {
   const { isArabic, toggleLocale } = useLocale();
   const [email, setEmail] = useState('');
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [password, setPassword] = useState('');
+  const [signing, setSigning] = useState(false);
   const [error, setError] = useState('');
   const t = (ar: string, en: string) => (isArabic ? ar : en);
 
-  async function requestLink() {
-    if (!email.trim()) return;
-    setSending(true); setError('');
+  async function signIn() {
+    if (!email.trim() || !password) return;
+    setSigning(true); setError('');
     try {
-      await fetch(`${API_BASE_URL}/api/acquisition-auth/request`, {
+      const res = await fetch(`${API_BASE_URL}/api/acquisition-auth/login`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }), credentials: 'include',
+        body: JSON.stringify({ email: email.trim(), password }), credentials: 'include',
       });
-      setSent(true);
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({})) as { error?: string };
+        setError(b.error || t('بريد إلكتروني أو كلمة مرور غير صحيحة.', 'Invalid email or password.'));
+        return;
+      }
+      location.reload();
     } catch {
       setError(t('حدث خطأ. يرجى المحاولة مرة أخرى.', 'Something went wrong. Please try again.'));
-    } finally { setSending(false); }
+    } finally { setSigning(false); }
   }
 
   return (
@@ -108,27 +113,18 @@ function LoginGate() {
           <CloudUpload className="w-7 h-7 text-[#0b80ff]" />
         </div>
         <h1 className="text-xl font-bold text-[#1a202c] mb-2">{t('بوابة الاقتناء', 'Acquisition Portal')}</h1>
-        {sent ? (
-          <>
-            <div className="w-12 h-12 rounded-full bg-[#f0fdf4] flex items-center justify-center mx-auto my-5">
-              <CheckCircle2 className="w-6 h-6 text-[#16a34a]" />
-            </div>
-            <p className="text-[#555] leading-relaxed">{t('تم إرسال رابط الدخول. تحقق من بريدك.', 'Sign-in link sent. Check your inbox.')}</p>
-          </>
-        ) : (
-          <>
-            <p className="text-[#718096] mb-6 leading-relaxed text-sm">{t('أدخل بريدك الإلكتروني لتلقّي رابط الدخول.', 'Enter your email to receive a sign-in link.')}</p>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your@email.com" dir="ltr"
-              className="w-full py-[11px] px-[14px] border border-slate-200 rounded-[10px] text-sm mb-3 box-border"
-              onKeyDown={(e) => e.key === 'Enter' && requestLink()} />
-            {error && <p className="text-[#e53e3e] text-[13px] mb-2">{error}</p>}
-            <button onClick={requestLink} disabled={sending || !email.trim()}
-              className="w-full p-3 bg-[#0b80ff] text-white border-none rounded-[10px] text-sm font-semibold cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60">
-              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {t('إرسال رابط الدخول', 'Send sign-in link')}
-            </button>
-          </>
-        )}
+        <p className="text-[#718096] mb-6 leading-relaxed text-sm">{t('سجّل الدخول ببريدك الإلكتروني وكلمة المرور.', 'Sign in with your email and password.')}</p>
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your@email.com" dir="ltr"
+          className="w-full py-[11px] px-[14px] border border-slate-200 rounded-[10px] text-sm mb-3 box-border" />
+        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t('كلمة المرور', 'Password')} dir="ltr"
+          className="w-full py-[11px] px-[14px] border border-slate-200 rounded-[10px] text-sm mb-3 box-border"
+          onKeyDown={(e) => e.key === 'Enter' && signIn()} />
+        {error && <p className="text-[#e53e3e] text-[13px] mb-2">{error}</p>}
+        <button onClick={signIn} disabled={signing || !email.trim() || !password}
+          className="w-full p-3 bg-[#0b80ff] text-white border-none rounded-[10px] text-sm font-semibold cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60">
+          {signing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          {t('تسجيل الدخول', 'Sign in')}
+        </button>
       </div>
     </div>
   );
@@ -322,6 +318,20 @@ export default function AcquisitionPortal() {
   }
   useEffect(() => () => { if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current); }, []);
 
+  async function changePassword() {
+    const currentPassword = window.prompt(t('كلمة المرور الحالية:', 'Current password:'));
+    if (currentPassword == null) return;
+    const newPassword = window.prompt(t('كلمة المرور الجديدة (8 أحرف على الأقل):', 'New password (min 8 chars):'));
+    if (newPassword == null) return;
+    if (newPassword.length < 8) { showNotice(t('كلمة المرور قصيرة جداً', 'Password too short')); return; }
+    try {
+      await apiRequest('/api/acquisition-portal/change-password', { method: 'POST', body: { currentPassword, newPassword } });
+      showNotice(t('تم تغيير كلمة المرور.', 'Password changed.'));
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : t('فشل التغيير', 'Failed to change'));
+    }
+  }
+
   async function deleteFile(studioId: string, fileId: string) {
     try {
       await apiRequest(`/api/acquisition-portal/studios/${studioId}/production-files/${fileId}`, { method: 'DELETE' });
@@ -348,6 +358,10 @@ export default function AcquisitionPortal() {
           <span className="font-bold text-base text-[#1a202c]">{t('بوابة الاقتناء — سماوي', 'Acquisition Portal — Samawy')}</span>
           <div className="ms-auto flex items-center gap-2">
             <LangToggle isArabic={isArabic} toggleLocale={toggleLocale} />
+            <button onClick={changePassword}
+              className="bg-transparent border border-slate-200 rounded-lg py-[5px] px-3 text-[13px] text-[#718096] cursor-pointer">
+              {t('كلمة المرور', 'Password')}
+            </button>
             <button onClick={() => fetch(`${API_BASE_URL}/api/acquisition-auth/logout`, { method: 'POST', credentials: 'include' }).then(() => location.reload())}
               className="bg-transparent border border-slate-200 rounded-lg py-[5px] px-3 text-[13px] text-[#718096] cursor-pointer">
               {t('خروج', 'Sign out')}

@@ -7,8 +7,30 @@ import { createUploadUrl } from '../pipeline';
 import { signInternalArtifactUrl, signMultipartUrl } from '../utils';
 import { sendEmail, notifyEmail } from '../email';
 import { keySegments, nowIso } from '../utils';
+import { hashPassword, verifyPassword } from '../password';
 
 const studioPortal = new Hono<{ Bindings: Env }>();
+
+// A signed-in studio user changes their own password.
+studioPortal.post('/:slug/change-password', async (c) => {
+  const slug = c.req.param('slug');
+  const session = await verifyStudioSessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);
+  if (!session || session.slug !== slug) return c.json({ error: 'Unauthorized' }, 401);
+  const { currentPassword, newPassword } = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(8) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudio(session.studioId);
+  if (!studio) return c.json({ error: 'Not found' }, 404);
+  // Resolve which credential this session represents.
+  const isPrimary = session.contactId == null;
+  const currentHash = isPrimary ? studio.password_hash : (await repo.getStudioContact(session.contactId!))?.password_hash ?? null;
+  if (!currentHash || !(await verifyPassword(currentPassword, currentHash))) {
+    return c.json({ error: 'Current password is incorrect.' }, 400);
+  }
+  const hash = await hashPassword(newPassword);
+  if (isPrimary) await repo.setStudioPassword(studio.id, hash);
+  else await repo.setStudioContactPassword(session.contactId!, hash);
+  return c.json({ ok: true });
+});
 
 async function requireStudioSession(c: Context<{ Bindings: Env }>, slug: string) {
   const session = await verifyStudioSessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);

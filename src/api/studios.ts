@@ -4,8 +4,9 @@ import type { Env } from '../types';
 import { Repository } from '../db';
 import { requirePermission, actorEmail } from './auth';
 import { createUploadUrl } from '../pipeline';
-import { sendEmail, magicLinkEmail, notifyEmail, sampleReviewedEmail } from '../email';
-import { keySegments, nowIso, buildCatalogStorageBasePath, signedStudioLogoUrl } from '../utils';
+import { sendEmail, notifyEmail, sampleReviewedEmail } from '../email';
+import { keySegments, nowIso, buildCatalogStorageBasePath } from '../utils';
+import { hashPassword } from '../password';
 
 const studios = new Hono<{ Bindings: Env }>();
 
@@ -13,8 +14,8 @@ function studioToApi(s: { id: string; name: string; slug: string; contact_email:
   return { id: s.id, name: s.name, slug: s.slug, contactEmail: s.contact_email, logoObjectKey: s.logo_object_key, isActive: !!s.is_active, createdAt: s.created_at, createdBy: s.created_by, hourlyRateUsd: s.hourly_rate_usd };
 }
 
-function contactToApi(c: { id: string; studio_id: string; email: string; name: string | null; created_at: string }) {
-  return { id: c.id, studioId: c.studio_id, email: c.email, name: c.name, createdAt: c.created_at };
+function contactToApi(c: { id: string; studio_id: string; email: string; name: string | null; created_at: string; password_hash?: string | null }) {
+  return { id: c.id, studioId: c.studio_id, email: c.email, name: c.name, createdAt: c.created_at, hasPassword: !!c.password_hash };
 }
 
 function assetToApi(a: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string }) {
@@ -175,9 +176,9 @@ studios.get('/acquisition-users', requirePermission('users'), async (c) => {
 });
 
 studios.post('/acquisition-users', requirePermission('users'), async (c) => {
-  const { email, name } = z.object({ email: z.string().email(), name: z.string().min(1) }).parse(await c.req.json());
+  const { email, name, password } = z.object({ email: z.string().email(), name: z.string().min(1), password: z.string().min(8).optional() }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
-  const id = await repo.createAcquisitionUser({ email, name, createdBy: actorEmail(c.req.raw) });
+  const id = await repo.createAcquisitionUser({ email, name, createdBy: actorEmail(c.req.raw), passwordHash: password ? await hashPassword(password) : null });
   return c.json({ ok: true, id }, 201);
 });
 
@@ -188,16 +189,13 @@ studios.patch('/acquisition-users/:id', requirePermission('users'), async (c) =>
   return c.json({ ok: true });
 });
 
-studios.post('/acquisition-users/:id/magic-link', requirePermission('users'), async (c) => {
+// Admin sets/resets an acquisition member's password.
+studios.post('/acquisition-users/:id/set-password', requirePermission('users'), async (c) => {
+  const { password } = z.object({ password: z.string().min(8) }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   const user = await repo.getAcquisitionUser(c.req.param('id')!);
   if (!user) return c.json({ error: 'User not found' }, 404);
-  const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  await repo.createAcquisitionMagicLink(user.id, token, expiresAt);
-  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
-  const link = `${baseUrl}/api/acquisition-auth/verify?token=${token}`;
-  await sendEmail({ to: user.email, toName: user.name, subject: 'رابط الدخول — بوابة الاقتناء', html: magicLinkEmail({ link, greetingName: user.name, portalLabel: 'بوابة الاقتناء', ctaLabel: 'الدخول إلى البوابة' }), emailBinding: c.env.EMAIL });
+  await repo.setAcquisitionUserPassword(user.id, await hashPassword(password));
   return c.json({ ok: true });
 });
 
@@ -274,7 +272,10 @@ studios.get('/:id', requirePermission('users'), async (c) => {
   const fileNameById = new Map(productionFiles.map((f) => [f.id, f.name]));
   return c.json({
     studio: studioToApi(studio),
-    contacts: contacts.map(contactToApi),
+    // The primary contact authenticates against the studio row's password.
+    contacts: contacts.map((ct) => ct.email.toLowerCase() === studio.contact_email.toLowerCase()
+      ? { ...contactToApi(ct), hasPassword: !!studio.password_hash }
+      : contactToApi(ct)),
     assets: assets.map(assetToApi),
     productionFiles: productionFiles.map((f) => productionFileToApi(f, f.audiobook_id ? titleById.get(f.audiobook_id) ?? null : null, approvedFileIds.has(f.id))),
     samples: samples.map((s) => sampleToApi(s, s.book_id ? fileNameById.get(s.book_id) ?? null : null)),
@@ -399,13 +400,29 @@ studios.delete('/:id/deliveries/:uploadId', requirePermission('users'), async (c
 
 // ─── Studio contacts (login users) ────────────────────────────────────────────
 studios.post('/:id/contacts', requirePermission('users'), async (c) => {
-  const { email, name } = z.object({ email: z.string().email(), name: z.string().optional() }).parse(await c.req.json());
+  const { email, name, password } = z.object({ email: z.string().email(), name: z.string().optional(), password: z.string().min(8).optional() }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(c.req.param('id')!);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
-  await repo.addStudioContact(studio.id, email, name ?? null);
+  await repo.addStudioContact(studio.id, email, name ?? null, password ? await hashPassword(password) : null);
   const contacts = await repo.listStudioContacts(studio.id);
   return c.json({ ok: true, contacts: contacts.map(contactToApi) });
+});
+
+// Admin sets/resets a studio login user's password. The primary contact's
+// password lives on the studio row; additional contacts have their own.
+studios.post('/:id/contacts/:contactId/set-password', requirePermission('users'), async (c) => {
+  const { password } = z.object({ password: z.string().min(8) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudio(c.req.param('id')!);
+  if (!studio) return c.json({ error: 'Studio not found' }, 404);
+  const contact = await repo.getStudioContact(c.req.param('contactId')!);
+  if (!contact || contact.studio_id !== studio.id) return c.json({ error: 'Contact not found' }, 404);
+  const hash = await hashPassword(password);
+  // The primary contact's email is authenticated against the studio row.
+  if (contact.email.toLowerCase() === studio.contact_email.toLowerCase()) await repo.setStudioPassword(studio.id, hash);
+  else await repo.setStudioContactPassword(contact.id, hash);
+  return c.json({ ok: true });
 });
 
 studios.delete('/:id/contacts/:contactId', requirePermission('users'), async (c) => {
@@ -423,9 +440,10 @@ studios.post('/', requirePermission('users'), async (c) => {
     name: z.string().min(1),
     slug: z.string().min(1).regex(/^[a-z0-9-]+$/),
     contactEmail: z.string().email(),
+    password: z.string().min(8).optional(),
   }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
-  const studio = await repo.createStudio({ id: crypto.randomUUID(), name: body.name, slug: body.slug, contactEmail: body.contactEmail, createdBy: actorEmail(c.req.raw) });
+  const studio = await repo.createStudio({ id: crypto.randomUUID(), name: body.name, slug: body.slug, contactEmail: body.contactEmail, createdBy: actorEmail(c.req.raw), passwordHash: body.password ? await hashPassword(body.password) : null });
   return c.json({ ok: true, studio: studio ? studioToApi(studio) : null }, 201);
 });
 
@@ -455,29 +473,15 @@ studios.delete('/:id', requirePermission('users'), async (c) => {
   return c.json({ ok: true });
 });
 
-// ─── Magic link ───────────────────────────────────────────────────────────────
+// ─── Password ─────────────────────────────────────────────────────────────────
 
-studios.post('/:id/magic-link', requirePermission('users'), async (c) => {
+// Admin sets/resets the primary contact's login password.
+studios.post('/:id/set-password', requirePermission('users'), async (c) => {
+  const { password } = z.object({ password: z.string().min(8) }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(c.req.param('id')!);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
-  const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  await repo.createStudioMagicLink(studio.id, token, expiresAt);
-  const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
-  const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
-  const logoUrl = await signedStudioLogoUrl(c.env, baseUrl, studio.logo_object_key);
-
-  await sendEmail({
-    to: studio.contact_email, toName: studio.name,
-    subject: 'رابط الدخول إلى بوابة سماوي',
-    html: magicLinkEmail({
-      link, greetingName: studio.name,
-      portalLabel: 'بوابة سماوي للاستوديوهات', ctaLabel: 'الدخول إلى البوابة',
-      studio: { initial: studio.name.trim().charAt(0) || 'S', name: studio.name, sub: 'استوديو شريك', logoUrl },
-    }),
-    emailBinding: c.env.EMAIL,
-  });
+  await repo.setStudioPassword(studio.id, await hashPassword(password));
   return c.json({ ok: true });
 });
 
