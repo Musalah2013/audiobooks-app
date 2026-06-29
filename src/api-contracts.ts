@@ -12,8 +12,8 @@
 
 // ─── Permissions & Users ──────────────────────────────────────────────────────
 
-export type UserPermission = "intake" | "metadata" | "matching" | "processing" | "dossier" | "users";
-export const ALL_PERMISSIONS: UserPermission[] = ["intake", "metadata", "matching", "processing", "dossier", "users"];
+export type UserPermission = "intake" | "metadata" | "matching" | "processing" | "dossier" | "users" | "studios";
+export const ALL_PERMISSIONS: UserPermission[] = ["intake", "metadata", "matching", "processing", "dossier", "users", "studios"];
 
 export interface OperatorUser {
   email: string;

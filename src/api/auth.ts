@@ -127,6 +127,18 @@ export function requirePermission(permission: UserPermission) {
   };
 }
 
+// The studios flow is gated by its own `studios` permission, granted per user in
+// Users settings (existing admins were backfilled so they keep access).
+export function requireStudiosAccess() {
+  return async (c: Context<{ Bindings: Env; Variables: { user: OperatorUser | null } }>, next: Next) => {
+    const user = c.get("user");
+    if (!user || !hasPermission(user, 'studios')) {
+      return c.json({ error: 'Requires studios permission' }, 403);
+    }
+    return next();
+  };
+}
+
 // ─── Auth API Routes ───────────────────────────────────────────────
 
 auth.get('/me', async (c) => {
@@ -252,7 +264,7 @@ auth.post('/users', async (c) => {
   const parsed = z.object({
     email: z.string().email(),
     name: z.string().optional(),
-    permissions: z.array(z.enum(['intake', 'metadata', 'matching', 'processing', 'dossier', 'users'])),
+    permissions: z.array(z.enum(['intake', 'metadata', 'matching', 'processing', 'dossier', 'users', 'studios'])),
   }).parse(body);
 
   const repo = new Repository(c.env.DB);
@@ -296,7 +308,7 @@ auth.patch('/users/:email', async (c) => {
   const body = await c.req.json();
   const parsed = z.object({
     name: z.string().optional(),
-    permissions: z.array(z.enum(['intake', 'metadata', 'matching', 'processing', 'dossier', 'users'])).optional(),
+    permissions: z.array(z.enum(['intake', 'metadata', 'matching', 'processing', 'dossier', 'users', 'studios'])).optional(),
     isActive: z.boolean().optional(),
   }).parse(body);
 
