@@ -42,6 +42,7 @@ export default function StudioManage() {
   const [dragTarget, setDragTarget] = useState<'asset' | 'production' | null>(null);
   const [reviewNote, setReviewNote] = useState<Record<string, string>>({});
   const [reviewing, setReviewing] = useState<string | null>(null);
+  const [confirmDeleteSample, setConfirmDeleteSample] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<string | null>(null);
   const { data: booksData } = useApi<BooksResponse>('/api/books');
@@ -358,6 +359,17 @@ export default function StudioManage() {
     }
   }
 
+  async function deleteSample(sampleId: string) {
+    try {
+      await apiRequest(`/api/studios/${id}/samples/${sampleId}`, { method: 'DELETE' });
+      addToast(isArabic ? 'تم حذف العينة.' : 'Sample deleted.', 'success');
+      setConfirmDeleteSample(null);
+      refetchSamples();
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشل الحذف' : 'Delete failed'), 'error');
+    }
+  }
+
   function renderDropzone(kind: 'asset' | 'production', accept: string | undefined, label: string, hint: string) {
     const active = dragTarget === kind;
     return (
@@ -521,7 +533,10 @@ export default function StudioManage() {
                   <div className="flex items-center gap-2.5 min-w-0">
                     <FileText className="h-4 w-4 text-slate-400 shrink-0" />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{a.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium truncate">{a.name}</p>
+                        {a.shared && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 shrink-0">{isArabic ? 'مشترك' : 'Shared'}</span>}
+                      </div>
                       <p className="text-xs text-[color:var(--fg-2)]">{formatBytes(a.sizeBytes)} · {new Date(a.createdAt).toLocaleDateString()}</p>
                     </div>
                   </div>
@@ -529,7 +544,9 @@ export default function StudioManage() {
                     <a href={`${API_BASE}/api/files/${a.objectKey}?_dl=1`} className="btn-secondary text-xs py-1 px-2" title={isArabic ? 'تنزيل' : 'Download'} download>
                       <Download className="h-3.5 w-3.5" />
                     </a>
-                    {confirmDelete === a.id ? (
+                    {a.shared ? (
+                      <span className="text-[10px] text-[color:var(--fg-2)]">{isArabic ? 'يُدار مركزياً' : 'Managed centrally'}</span>
+                    ) : confirmDelete === a.id ? (
                       <div className="flex items-center gap-1">
                         <button type="button" className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white" onClick={() => deleteAsset(a.id)}>{isArabic ? 'تأكيد' : 'Confirm'}</button>
                         <button type="button" className="text-[10px] text-slate-500" onClick={() => setConfirmDelete(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
@@ -672,9 +689,19 @@ export default function StudioManage() {
                                   <p className="text-xs text-[color:var(--fg-2)]">{formatBytes(s.sizeBytes)} · {new Date(s.createdAt).toLocaleDateString()}</p>
                                 </div>
                               </div>
-                              <span className={`badge-${s.status === 'approved' ? 'green' : s.status === 'refused' ? 'red' : 'yellow'}`}>
-                                {s.status === 'approved' ? (isArabic ? 'موافقة' : 'Approved') : s.status === 'refused' ? (isArabic ? 'مرفوضة' : 'Refused') : (isArabic ? 'قيد المراجعة' : 'Pending')}
-                              </span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className={`badge-${s.status === 'approved' ? 'green' : s.status === 'refused' ? 'red' : 'yellow'}`}>
+                                  {s.status === 'approved' ? (isArabic ? 'موافقة' : 'Approved') : s.status === 'refused' ? (isArabic ? 'مرفوضة' : 'Refused') : (isArabic ? 'قيد المراجعة' : 'Pending')}
+                                </span>
+                                {confirmDeleteSample === s.id ? (
+                                  <span className="flex items-center gap-1">
+                                    <button type="button" className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white" onClick={() => deleteSample(s.id)}>{isArabic ? 'تأكيد' : 'Confirm'}</button>
+                                    <button type="button" className="text-[10px] text-slate-500" onClick={() => setConfirmDeleteSample(null)}>{isArabic ? 'إلغاء' : 'Cancel'}</button>
+                                  </span>
+                                ) : (
+                                  <button type="button" className="text-red-400 hover:text-red-600 p-1" title={isArabic ? 'حذف العينة' : 'Delete sample'} onClick={() => setConfirmDeleteSample(s.id)}><Trash2 className="h-3.5 w-3.5" /></button>
+                                )}
+                              </div>
                             </div>
                             <AudioPlayer src={`${API_BASE}/api/files/${s.objectKey}?preview=1`} />
                             {s.reviewNote && <p className="text-xs text-[color:var(--fg-2)] bg-slate-50 rounded-[10px] px-3 py-2">{s.reviewNote}</p>}

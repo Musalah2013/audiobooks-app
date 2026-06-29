@@ -1315,6 +1315,10 @@ export class Repository {
     return this.db.prepare(`SELECT * FROM studio_sample WHERE id = ?`).bind(id).first<StudioSampleRow>();
   }
 
+  async deleteStudioSample(studioId: string, id: string) {
+    return this.db.prepare(`DELETE FROM studio_sample WHERE id = ? AND studio_id = ? RETURNING object_key`).bind(id, studioId).first<{ object_key: string }>();
+  }
+
   async createDriveUpload(input: { studioId: string; name: string; objectKey: string; audiobookId?: string | null; netFinalHours?: number | null; notes?: string | null; productionFileId?: string | null }) {
     const id = crypto.randomUUID();
     await this.db.prepare(

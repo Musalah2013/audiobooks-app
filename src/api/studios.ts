@@ -253,8 +253,9 @@ studios.get('/:id', requirePermission('users'), async (c) => {
   const studio = await repo.getStudio(c.req.param('id')!);
   if (!studio) return c.json({ error: 'Not found' }, 404);
   await repo.failStalePendingDeliveries().catch(() => undefined);
-  const [assets, productionFiles, samples, driveUploads, contacts, legacyProductions] = await Promise.all([
+  const [assets, sharedAssets, productionFiles, samples, driveUploads, contacts, legacyProductions] = await Promise.all([
     repo.listStudioAssets(studio.id),
+    repo.listSharedAssetsForStudio(studio.id),
     repo.listStudioProductionFiles(studio.id),
     repo.listStudioSamples(studio.id),
     repo.listDriveUploads(studio.id),
@@ -276,7 +277,11 @@ studios.get('/:id', requirePermission('users'), async (c) => {
     contacts: contacts.map((ct) => ct.email.toLowerCase() === studio.contact_email.toLowerCase()
       ? { ...contactToApi(ct), hasPassword: !!studio.password_hash }
       : contactToApi(ct)),
-    assets: assets.map(assetToApi),
+    assets: [
+      ...assets.map((a) => ({ ...assetToApi(a), shared: false })),
+      // Shared-library assets visible to this studio (read-only here; managed centrally).
+      ...sharedAssets.map((a) => ({ id: a.id, studioId: studio.id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at, shared: true })),
+    ],
     productionFiles: productionFiles.map((f) => productionFileToApi(f, f.audiobook_id ? titleById.get(f.audiobook_id) ?? null : null, approvedFileIds.has(f.id))),
     samples: samples.map((s) => sampleToApi(s, s.book_id ? fileNameById.get(s.book_id) ?? null : null)),
     driveUploads: driveUploads.map(driveUploadToApi),
@@ -613,6 +618,15 @@ studios.get('/:id/samples', requirePermission('users'), async (c) => {
   ]);
   const fileNameById = new Map(files.map((f) => [f.id, f.name]));
   return c.json({ samples: samples.map((s) => sampleToApi(s, s.book_id ? fileNameById.get(s.book_id) ?? null : null)) });
+});
+
+// Admin deletes an uploaded sample (and its audio object).
+studios.delete('/:id/samples/:sampleId', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const deleted = await repo.deleteStudioSample(c.req.param('id')!, c.req.param('sampleId')!);
+  if (!deleted) return c.json({ error: 'Sample not found' }, 404);
+  if (deleted.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key).catch(() => undefined);
+  return c.json({ ok: true });
 });
 
 studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async (c) => {
