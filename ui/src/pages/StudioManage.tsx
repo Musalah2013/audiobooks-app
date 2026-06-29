@@ -21,7 +21,9 @@ function fmtHours(h: number | null | undefined) {
   return h == null ? '—' : `${h} h`;
 }
 
-type TabKey = 'info' | 'assets' | 'production' | 'samples' | 'deliveries';
+type TabKey = 'info' | 'assets' | 'production' | 'samples' | 'deliveries' | 'audit';
+
+interface AuditEvent { id: string; action: string; actor: string; createdAt: string; detail: Record<string, unknown> | null }
 
 function formatBytes(b: number) {
   if (b < 1024) return `${b} B`;
@@ -33,6 +35,7 @@ export default function StudioManage() {
   const { id } = useParams<{ id: string }>();
   const { data, loading, error, refetch } = useApi<ManageData>(`/api/studios/${id}`);
   const { data: sampleData, refetch: refetchSamples } = useApi<{ samples: StudioSample[] }>(`/api/studios/${id}/samples`);
+  const { data: auditData, refetch: refetchAudit } = useApi<{ events: AuditEvent[] }>(`/api/studios/${id}/audit`);
   const { addToast } = useToast();
   const { isArabic } = useLocale();
   const [activeTab, setActiveTab] = useState<TabKey>('info');
@@ -412,6 +415,7 @@ export default function StudioManage() {
     { key: 'production', label: isArabic ? 'ملفات الإنتاج' : 'Production Files', count: productionFiles.length },
     { key: 'samples', label: isArabic ? 'العينات' : 'Samples', count: samples.length },
     { key: 'deliveries', label: isArabic ? 'التسليمات' : 'Deliveries', count: driveUploads.length },
+    { key: 'audit', label: isArabic ? 'السجل' : 'Audit Log' },
   ];
 
   return (
@@ -923,6 +927,82 @@ export default function StudioManage() {
           )}
         </div>
       )}
+
+      {/* Audit log tab */}
+      {activeTab === 'audit' && (
+        <div className="card space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold">{isArabic ? 'سجل النشاط' : 'Activity log'} <span className="text-xs font-normal text-[color:var(--fg-2)]">({auditData?.events.length ?? 0})</span></p>
+            <button type="button" className="btn-secondary text-xs py-1 px-2.5" onClick={() => refetchAudit()}>{isArabic ? 'تحديث' : 'Refresh'}</button>
+          </div>
+          {!auditData || auditData.events.length === 0 ? (
+            <p className="text-sm text-center text-[color:var(--fg-2)] py-6">{isArabic ? 'لا يوجد نشاط مسجّل بعد.' : 'No recorded activity yet.'}</p>
+          ) : (
+            <div className="relative ps-4">
+              <div className="absolute top-1 bottom-1 start-[5px] w-px bg-slate-100" />
+              <div className="space-y-3">
+                {auditData.events.map((ev) => {
+                  const a = auditMeta(ev.action, isArabic);
+                  const detail = auditDetailText(ev, isArabic);
+                  return (
+                    <div key={ev.id} className="relative flex items-start gap-3">
+                      <div className={`relative z-10 mt-0.5 h-3 w-3 rounded-full ring-2 ring-white shrink-0 ${a.dot}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium text-[color:var(--samawy-ink)]">{a.label}</span>
+                          {detail && <span className="text-xs text-[color:var(--fg-2)] truncate">— {detail}</span>}
+                        </div>
+                        <p className="text-[11px] text-[color:var(--fg-2)]">{ev.actor} · {new Date(ev.createdAt).toLocaleString(isArabic ? 'ar-EG' : 'en-US')}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
+}
+
+function auditMeta(action: string, isArabic: boolean): { label: string; dot: string } {
+  const map: Record<string, { ar: string; en: string; dot: string }> = {
+    'studio.login':                  { ar: 'تسجيل دخول', en: 'Signed in', dot: 'bg-emerald-500' },
+    'studio.viewed':                 { ar: 'فتح البوابة', en: 'Viewed portal', dot: 'bg-slate-300' },
+    'studio.password_changed':       { ar: 'غيّر كلمة المرور', en: 'Changed password', dot: 'bg-amber-500' },
+    'asset.downloaded':              { ar: 'نزّل ملفاً مرجعياً', en: 'Downloaded a reference file', dot: 'bg-blue-400' },
+    'production_file.downloaded':    { ar: 'نزّل ملف إنتاج', en: 'Downloaded a production file', dot: 'bg-blue-400' },
+    'production_file.uploaded':      { ar: 'رفع ملف إنتاج', en: 'Production file uploaded', dot: 'bg-violet-500' },
+    'production_file.plan_submitted':{ ar: 'أرسل خطة الإنتاج', en: 'Submitted production plan', dot: 'bg-violet-500' },
+    'production_file.status_changed':{ ar: 'غيّر حالة الكتاب', en: 'Changed book status', dot: 'bg-blue-500' },
+    'production_file.assigned':      { ar: 'رُبط بعنوان', en: 'Linked to a title', dot: 'bg-blue-500' },
+    'production_file.unassigned':    { ar: 'أُلغي الربط', en: 'Unlinked from title', dot: 'bg-slate-400' },
+    'sample.uploaded':              { ar: 'رفع عينة', en: 'Uploaded a sample', dot: 'bg-amber-500' },
+    'sample.reviewed':              { ar: 'تمت مراجعة عينة', en: 'Sample reviewed', dot: 'bg-emerald-500' },
+    'sample.deleted':               { ar: 'حُذفت عينة', en: 'Sample deleted', dot: 'bg-red-500' },
+    'delivery.uploaded':            { ar: 'رفع تسليماً', en: 'Uploaded a delivery', dot: 'bg-emerald-600' },
+    'delivery.received':            { ar: 'تم استلام تسليم', en: 'Delivery received', dot: 'bg-emerald-600' },
+    'delivery.pushed':              { ar: 'دُفع التسليم للنظام', en: 'Delivery pushed to system', dot: 'bg-violet-600' },
+    'delivery.deleted':             { ar: 'حُذف تسليم', en: 'Delivery deleted', dot: 'bg-red-500' },
+    'legacy.imported':             { ar: 'استيراد تاريخي', en: 'Legacy import', dot: 'bg-slate-400' },
+  };
+  const m = map[action];
+  return { label: m ? (isArabic ? m.ar : m.en) : action, dot: m?.dot ?? 'bg-slate-400' };
+}
+
+function auditDetailText(ev: AuditEvent, isArabic: boolean): string {
+  const d = ev.detail ?? {};
+  const pick = (k: string) => (typeof d[k] === 'string' ? (d[k] as string) : undefined);
+  const name = pick('name') || pick('title') || pick('fileName') || pick('objectKey');
+  if (ev.action === 'production_file.status_changed') {
+    const st = pick('status');
+    const stLabel = st === 'in_production' ? (isArabic ? 'قيد الإنتاج' : 'In Production') : st === 'delivered' ? (isArabic ? 'تم التسليم' : 'Delivered') : (isArabic ? 'قائمة الانتظار' : 'Backlog');
+    return [name, stLabel].filter(Boolean).join(' → ');
+  }
+  if (ev.action === 'sample.reviewed') {
+    const st = pick('status');
+    return [name, st === 'approved' ? (isArabic ? 'موافقة' : 'Approved') : (isArabic ? 'مرفوضة' : 'Refused')].filter(Boolean).join(' — ');
+  }
+  return name ?? '';
 }

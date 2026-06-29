@@ -101,6 +101,7 @@ acquisitionPortal.post('/studios/:studioId/production-files/complete', async (c)
   // The book title comes from the rich metadata when provided, else the file name.
   const name = body.metadata?.title?.trim() || body.fileName;
   const fileId = await repo.createStudioProductionFile({ studioId, name, objectKey: body.objectKey, contentType: body.contentType, sizeBytes: body.sizeBytes ?? object.size, uploadedBy: uploaderName, bookAuthor: body.metadata?.author ?? null, acqNotes: body.acqNotes ?? null, acqMetadata: body.metadata ? JSON.stringify(body.metadata) : null });
+  await repo.audit('studio', studioId, 'production_file.uploaded', `acquisition:${uploaderName}`, { fileId, name }).catch(() => undefined);
   const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
   await sendEmail({
     to: studio.contact_email, toName: studio.name,

@@ -246,6 +246,15 @@ studios.delete('/shared-assets/:assetId', requireStudiosAccess(), async (c) => {
   return c.json({ ok: true });
 });
 
+// ─── Studio audit trail ───────────────────────────────────────────────────────
+// Every recorded action for a studio: logins, views, uploads, downloads, plan
+// submissions, status changes, deliveries, reviews, pushes, etc.
+studios.get('/:id/audit', requireStudiosAccess(), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const events = await repo.listAuditEvents('studio', c.req.param('id')!, 500);
+  return c.json({ events: events.map((e) => ({ id: e.id, action: e.action, actor: e.actor, createdAt: e.createdAt, detail: e.detailJson ? (() => { try { return JSON.parse(e.detailJson!); } catch { return null; } })() : null })) });
+});
+
 // ─── Studio detail + CRUD ─────────────────────────────────────────────────────
 
 studios.get('/:id', requireStudiosAccess(), async (c) => {
@@ -344,6 +353,7 @@ studios.post('/:id/deliveries/:uploadId/push', requirePermission('intake'), asyn
     });
     await repo.updateDriveUpload(uploadId, { status: 'pushed' });
     await repo.audit('audiobook_record', book.id, 'delivery.pushed', actorEmail(c.req.raw), { studioId, uploadId });
+    await repo.audit('studio', studioId, 'delivery.pushed', actorEmail(c.req.raw), { uploadId, audiobookId: book.id, title: book.title }).catch(() => undefined);
     return c.json({ ok: true, mode: 'assigned', audiobookId: book.id });
   }
 
@@ -388,6 +398,7 @@ studios.post('/:id/deliveries/:uploadId/push', requirePermission('intake'), asyn
   await repo.setDriveUploadAudiobook(uploadId, bookId);
   await repo.updateDriveUpload(uploadId, { status: 'pushed' });
   await repo.audit('audiobook_record', bookId, 'delivery.pushed_new', actorEmail(c.req.raw), { studioId, uploadId, batchId: batch.id });
+  await repo.audit('studio', studioId, 'delivery.pushed', actorEmail(c.req.raw), { uploadId, audiobookId: bookId, title: meta.title }).catch(() => undefined);
   return c.json({ ok: true, mode: 'created', audiobookId: bookId });
 });
 
@@ -554,6 +565,7 @@ studios.post('/:id/production-files/complete', requireStudiosAccess(), async (c)
   const object = await c.env.ASSET_BUCKET.head(body.objectKey);
   if (!object) return c.json({ error: 'Uploaded file not found in storage.' }, 404);
   const fileId = await repo.createStudioProductionFile({ studioId, name: body.fileName, objectKey: body.objectKey, contentType: body.contentType, sizeBytes: body.sizeBytes ?? object.size, uploadedBy: actorEmail(c.req.raw), bookAuthor: body.bookAuthor ?? null, acqNotes: body.acqNotes ?? null });
+  await repo.audit('studio', studioId, 'production_file.uploaded', actorEmail(c.req.raw), { fileId, name: body.fileName }).catch(() => undefined);
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
@@ -626,6 +638,7 @@ studios.delete('/:id/samples/:sampleId', requireStudiosAccess(), async (c) => {
   const deleted = await repo.deleteStudioSample(c.req.param('id')!, c.req.param('sampleId')!);
   if (!deleted) return c.json({ error: 'Sample not found' }, 404);
   if (deleted.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key).catch(() => undefined);
+  await repo.audit('studio', c.req.param('id')!, 'sample.deleted', actorEmail(c.req.raw), { sampleId: c.req.param('sampleId') }).catch(() => undefined);
   return c.json({ ok: true });
 });
 
@@ -638,6 +651,7 @@ studios.post('/:id/samples/:sampleId/review', requireStudiosAccess(), async (c) 
   const sample = await repo.getStudioSample(sampleId);
   if (!studio || !sample) return c.json({ error: 'Not found' }, 404);
   await repo.reviewStudioSample(sampleId, status, actorEmail(c.req.raw), note ?? null);
+  await repo.audit('studio', studioId, 'sample.reviewed', actorEmail(c.req.raw), { sampleId, name: sample.name, status, note: note ?? null }).catch(() => undefined);
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const statusAr = status === 'approved' ? 'موافقة' : 'رفض';
   await sendEmail({

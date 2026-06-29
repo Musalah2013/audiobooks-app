@@ -835,6 +835,16 @@ export class Repository {
       .run();
   }
 
+  /** True if an identical (resource, action, actor) event was logged within the window (ms). */
+  async recentAuditExists(resourceType: string, resourceId: string, action: string, actor: string, withinMs: number) {
+    const since = new Date(Date.now() - withinMs).toISOString();
+    const row = await this.db
+      .prepare(`SELECT 1 AS ok FROM audit_event WHERE resource_type = ? AND resource_id = ? AND action = ? AND actor = ? AND created_at >= ? LIMIT 1`)
+      .bind(resourceType, resourceId, action, actor, since)
+      .first<{ ok: number }>();
+    return !!row;
+  }
+
   async listAuditEvents(resourceType: string, resourceId: string, limit = 100) {
     const result = await this.db
       .prepare(

@@ -74,6 +74,7 @@ studioAuth.post('/login', async (c) => {
 
   const cookie = await createStudioSessionCookie({ studioId: studio.id, slug: studio.slug, email: email.toLowerCase(), contactId }, c.env.INTERNAL_API_SECRET);
   c.header('Set-Cookie', cookie);
+  await repo.audit('studio', studio.id, 'studio.login', email.toLowerCase(), { contactId }).catch(() => undefined);
   return c.json({ ok: true, slug: studio.slug });
 });
 
