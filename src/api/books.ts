@@ -511,6 +511,43 @@ books.get('/:id/workbook', async (c) => {
   });
 });
 
+// Public, permanent dossier download (linked from ClickUp). Validated by the
+// per-book token in authMiddleware; resolves the current dossier key at click time.
+books.get('/:id/dossier/:kind', async (c) => {
+  const kind = c.req.param('kind');
+  if (kind !== 'workbook' && kind !== 'audio') return c.json({ error: 'Unknown dossier kind' }, 404);
+  const repo = new Repository(c.env.DB);
+  const book = await repo.getAudiobook(c.req.param('id'));
+  if (!book) return new Response('Book not found.', { status: 404 });
+  const key = kind === 'workbook' ? book.dossierWorkbookKey : book.dossierAudioZipKey;
+  if (!key) return new Response('Dossier is not available for this book yet.', { status: 404 });
+  const object = await c.env.ASSET_BUCKET.get(key, c.req.header('range') ? { range: c.req.raw.headers } : undefined);
+  if (!object) return new Response('Dossier file is no longer in storage.', { status: 410 });
+  const safeTitle = (book.title || 'dossier').replace(/[^\p{L}\p{N}\-_ ]/gu, '').trim() || 'dossier';
+  const filename = kind === 'workbook' ? `${safeTitle} - metadata.xlsx` : `${safeTitle} - audio.zip`;
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('etag', object.httpEtag);
+  headers.set('Accept-Ranges', 'bytes');
+  headers.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+  headers.set('X-Content-Type-Options', 'nosniff');
+  return new Response(object.body, { status: c.req.header('range') ? 206 : 200, headers });
+});
+
+// Re-sync every already-synced book so existing ClickUp tasks pick up the new
+// stable dossier links. Best-effort, sequential; returns counts.
+books.post('/clickup-resync-all', requirePermission('users'), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const all = await repo.listAudiobooks();
+  const targets = all.filter((b) => !b.isLegacy && b.clickupSyncStatus === 'synced' && b.clickupTaskId && b.dossierStatus === 'ready');
+  let synced = 0; const failed: string[] = [];
+  for (const b of targets) {
+    try { await syncAudiobookToClickUp(c.env, repo, b.id); synced += 1; }
+    catch { failed.push(b.title); }
+  }
+  return c.json({ ok: true, total: targets.length, synced, failed });
+});
+
 books.post('/:id/clickup-sync', async (c) => {
   const repo = new Repository(c.env.DB);
   const book = await repo.getAudiobook(c.req.param("id"));

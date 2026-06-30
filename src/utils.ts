@@ -148,6 +148,27 @@ async function hmac(secret: string, message: string): Promise<string> {
   return toBase64Url(new Uint8Array(signature));
 }
 
+// ─── Dossier links for ClickUp ────────────────────────────────────────────────
+// A stable, permanent per-book link that signs only the book id + kind (not the
+// file path). It never expires, survives the dossier being regenerated under a
+// new R2 key, and avoids the path-encoding fragility of signing Arabic/slash
+// object keys. The handler resolves the current dossier key at click time.
+export async function signDossierToken(secret: string, bookId: string, kind: 'workbook' | 'audio'): Promise<string> {
+  return hmac(secret, `dossier:${bookId}:${kind}`);
+}
+
+export async function verifyDossierToken(secret: string, bookId: string, kind: string, token: string): Promise<boolean> {
+  if (kind !== 'workbook' && kind !== 'audio') return false;
+  const expected = await hmac(secret, `dossier:${bookId}:${kind}`);
+  return expected === token;
+}
+
+export function buildDossierLink(baseUrl: string, bookId: string, kind: 'workbook' | 'audio', token: string): string {
+  const url = new URL(`/api/books/${bookId}/dossier/${kind}`, baseUrl);
+  url.searchParams.set('t', token);
+  return url.toString();
+}
+
 function stableQuery(params: Record<string, string>): string {
   return Object.entries(params)
     .sort(([left], [right]) => left.localeCompare(right))

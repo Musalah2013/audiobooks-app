@@ -12,8 +12,8 @@
 
 // ─── Permissions & Users ──────────────────────────────────────────────────────
 
-export type UserPermission = "intake" | "metadata" | "matching" | "processing" | "dossier" | "users";
-export const ALL_PERMISSIONS: UserPermission[] = ["intake", "metadata", "matching", "processing", "dossier", "users"];
+export type UserPermission = "intake" | "metadata" | "matching" | "processing" | "dossier" | "users" | "studios";
+export const ALL_PERMISSIONS: UserPermission[] = ["intake", "metadata", "matching", "processing", "dossier", "users", "studios"];
 
 export interface OperatorUser {
   email: string;
@@ -460,6 +460,8 @@ export interface StudioContact {
   email: string;
   name: string | null;
   createdAt: string;
+  /** Whether this login user has a password set. */
+  hasPassword?: boolean;
 }
 
 export interface Studio {
@@ -536,6 +538,21 @@ export interface StudioAsset {
   sizeBytes: number;
   uploadedBy: string;
   createdAt: string;
+  /** True when this asset comes from the shared library rather than the studio. */
+  shared?: boolean;
+}
+
+/** An asset in the admin-managed shared library, with its visibility set. */
+export interface SharedAsset {
+  id: string;
+  name: string;
+  objectKey: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedBy: string;
+  createdAt: string;
+  /** Studios that can see it. Empty array = visible to ALL studios. */
+  studioIds: string[];
 }
 
 export type ProductionStatus = 'backlog' | 'in_production' | 'delivered';

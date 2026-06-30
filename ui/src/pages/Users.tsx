@@ -13,6 +13,7 @@ const PERMISSION_META: Record<UserPermission, { label: string; labelAr: string; 
   processing: { label: 'Processing',  labelAr: 'المعالجة',    desc: 'Start and manage audio processing',       descAr: 'بدء معالجة الصوت وإدارتها' },
   dossier:    { label: 'Dossier',     labelAr: 'الدوسيه',     desc: 'Finalize dossiers and sync ClickUp',      descAr: 'إنهاء الدوسيهات والمزامنة مع ClickUp' },
   users:      { label: 'Users',       labelAr: 'المستخدمون',  desc: 'Manage users and permissions',            descAr: 'إدارة المستخدمين والصلاحيات' },
+  studios:    { label: 'Studios',     labelAr: 'الاستوديوهات', desc: 'Manage studios, deliveries and assets',  descAr: 'إدارة الاستوديوهات والتسليمات والملفات' },
 };
 
 function PermissionBadge({ perm }: { perm: UserPermission }) {
@@ -23,6 +24,7 @@ function PermissionBadge({ perm }: { perm: UserPermission }) {
     processing: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     dossier: 'bg-orange-50 text-orange-700 border-orange-200',
     users: 'bg-blue-50 text-blue-700 border-blue-200',
+    studios: 'bg-rose-50 text-rose-700 border-rose-200',
   };
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${colors[perm]}`}>

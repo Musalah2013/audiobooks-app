@@ -2,10 +2,11 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../types';
 import { Repository } from '../db';
-import { requirePermission, actorEmail } from './auth';
+import { requirePermission, requireStudiosAccess, actorEmail } from './auth';
 import { createUploadUrl } from '../pipeline';
-import { sendEmail, magicLinkEmail, notifyEmail, sampleReviewedEmail } from '../email';
-import { keySegments, nowIso, buildCatalogStorageBasePath, signedStudioLogoUrl } from '../utils';
+import { sendEmail, notifyEmail, sampleReviewedEmail } from '../email';
+import { keySegments, nowIso, buildCatalogStorageBasePath } from '../utils';
+import { hashPassword } from '../password';
 
 const studios = new Hono<{ Bindings: Env }>();
 
@@ -13,8 +14,8 @@ function studioToApi(s: { id: string; name: string; slug: string; contact_email:
   return { id: s.id, name: s.name, slug: s.slug, contactEmail: s.contact_email, logoObjectKey: s.logo_object_key, isActive: !!s.is_active, createdAt: s.created_at, createdBy: s.created_by, hourlyRateUsd: s.hourly_rate_usd };
 }
 
-function contactToApi(c: { id: string; studio_id: string; email: string; name: string | null; created_at: string }) {
-  return { id: c.id, studioId: c.studio_id, email: c.email, name: c.name, createdAt: c.created_at };
+function contactToApi(c: { id: string; studio_id: string; email: string; name: string | null; created_at: string; password_hash?: string | null }) {
+  return { id: c.id, studioId: c.studio_id, email: c.email, name: c.name, createdAt: c.created_at, hasPassword: !!c.password_hash };
 }
 
 function assetToApi(a: { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string }) {
@@ -53,7 +54,7 @@ function sampleToApi(s: { id: string; studio_id: string; book_id?: string | null
 
 // ─── Studios CRUD ─────────────────────────────────────────────────────────────
 
-studios.get('/', requirePermission('users'), async (c) => {
+studios.get('/', requireStudiosAccess(), async (c) => {
   const repo = new Repository(c.env.DB);
   const [list, agg] = await Promise.all([repo.listStudios(), repo.getStudioAggregates()]);
   const empty = { contacts: 0, productionFiles: 0, assignedFiles: 0, samplesTotal: 0, samplesPending: 0, samplesApproved: 0, samplesRefused: 0, deliveries: 0, deliveriesCompleted: 0, netFinalHours: 0, legacyProductions: 0, legacyNetHours: 0 };
@@ -102,7 +103,7 @@ const legacyStudioSchema = z.object({
   })).optional(),
 });
 
-studios.post('/legacy-import', requirePermission('users'), async (c) => {
+studios.post('/legacy-import', requireStudiosAccess(), async (c) => {
   const body = z.object({ studios: z.array(legacyStudioSchema).min(1).max(2000) }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   let studiosCreated = 0, studiosUpdated = 0, productionsCreated = 0;
@@ -144,7 +145,7 @@ studios.post('/legacy-import', requirePermission('users'), async (c) => {
 });
 
 // Edit / delete an imported legacy production
-studios.patch('/:id/legacy-productions/:prodId', requirePermission('users'), async (c) => {
+studios.patch('/:id/legacy-productions/:prodId', requireStudiosAccess(), async (c) => {
   const body = z.object({
     bookTitle: z.string().min(1).optional(),
     isbn: z.string().nullable().optional(),
@@ -157,7 +158,7 @@ studios.patch('/:id/legacy-productions/:prodId', requirePermission('users'), asy
   return c.json({ ok: true });
 });
 
-studios.delete('/:id/legacy-productions/:prodId', requirePermission('users'), async (c) => {
+studios.delete('/:id/legacy-productions/:prodId', requireStudiosAccess(), async (c) => {
   const repo = new Repository(c.env.DB);
   await repo.deleteLegacyProduction(c.req.param('id')!, c.req.param('prodId')!);
   return c.json({ ok: true });
@@ -168,48 +169,102 @@ studios.delete('/:id/legacy-productions/:prodId', requirePermission('users'), as
 // `/:id` studio routes below, otherwise Hono matches `/:id` first and treats
 // "acquisition-users" as a studio id (shadowing the list/create endpoints).
 
-studios.get('/acquisition-users', requirePermission('users'), async (c) => {
+studios.get('/acquisition-users', requireStudiosAccess(), async (c) => {
   const repo = new Repository(c.env.DB);
   const users = await repo.listAcquisitionUsers();
   return c.json({ users: users.map((u) => ({ id: u.id, email: u.email, name: u.name, isActive: !!u.is_active, createdAt: u.created_at })) });
 });
 
-studios.post('/acquisition-users', requirePermission('users'), async (c) => {
-  const { email, name } = z.object({ email: z.string().email(), name: z.string().min(1) }).parse(await c.req.json());
+studios.post('/acquisition-users', requireStudiosAccess(), async (c) => {
+  const { email, name, password } = z.object({ email: z.string().email(), name: z.string().min(1), password: z.string().min(8).optional() }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
-  const id = await repo.createAcquisitionUser({ email, name, createdBy: actorEmail(c.req.raw) });
+  const id = await repo.createAcquisitionUser({ email, name, createdBy: actorEmail(c.req.raw), passwordHash: password ? await hashPassword(password) : null });
   return c.json({ ok: true, id }, 201);
 });
 
-studios.patch('/acquisition-users/:id', requirePermission('users'), async (c) => {
+studios.patch('/acquisition-users/:id', requireStudiosAccess(), async (c) => {
   const { name, isActive } = z.object({ name: z.string().min(1).optional(), isActive: z.boolean().optional() }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   await repo.updateAcquisitionUser(c.req.param('id')!, { name, isActive: isActive !== undefined ? (isActive ? 1 : 0) : undefined });
   return c.json({ ok: true });
 });
 
-studios.post('/acquisition-users/:id/magic-link', requirePermission('users'), async (c) => {
+// Admin sets/resets an acquisition member's password.
+studios.post('/acquisition-users/:id/set-password', requireStudiosAccess(), async (c) => {
+  const { password } = z.object({ password: z.string().min(8) }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   const user = await repo.getAcquisitionUser(c.req.param('id')!);
   if (!user) return c.json({ error: 'User not found' }, 404);
-  const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  await repo.createAcquisitionMagicLink(user.id, token, expiresAt);
-  const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
-  const link = `${baseUrl}/api/acquisition-auth/verify?token=${token}`;
-  await sendEmail({ to: user.email, toName: user.name, subject: 'رابط الدخول — بوابة الاقتناء', html: magicLinkEmail({ link, greetingName: user.name, portalLabel: 'بوابة الاقتناء', ctaLabel: 'الدخول إلى البوابة' }), emailBinding: c.env.EMAIL });
+  await repo.setAcquisitionUserPassword(user.id, await hashPassword(password));
   return c.json({ ok: true });
+});
+
+// ─── Shared asset library ─────────────────────────────────────────────────────
+// Literal `/shared-assets` paths MUST be registered before the `/:id` studio
+// routes below, or Hono treats "shared-assets" as a studio id.
+
+function sharedAssetToApi(a: { id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; studioIds?: string[] }) {
+  return { id: a.id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at, studioIds: a.studioIds ?? [] };
+}
+
+studios.get('/shared-assets', requireStudiosAccess(), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const assets = await repo.listSharedAssets();
+  return c.json({ assets: assets.map(sharedAssetToApi) });
+});
+
+// Presigned URL only — the row is created on /complete (no ghost on abandon).
+studios.post('/shared-assets/upload-url', requireStudiosAccess(), async (c) => {
+  const { fileName, contentType } = z.object({ fileName: z.string(), contentType: z.string().default('application/octet-stream'), sizeBytes: z.number().optional() }).parse(await c.req.json());
+  const key = keySegments('shared-assets', `${Date.now()}-${fileName}`);
+  const upload = await createUploadUrl(c.env, key, contentType);
+  return c.json({ ...upload, objectKey: key });
+});
+
+studios.post('/shared-assets/complete', requireStudiosAccess(), async (c) => {
+  const body = z.object({ objectKey: z.string(), fileName: z.string(), contentType: z.string().default('application/octet-stream'), sizeBytes: z.number().optional(), studioIds: z.array(z.string()).default([]) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const object = await c.env.ASSET_BUCKET.head(body.objectKey);
+  if (!object) return c.json({ error: 'Uploaded file not found in storage.' }, 404);
+  const id = await repo.createSharedAsset({ name: body.fileName, objectKey: body.objectKey, contentType: body.contentType, sizeBytes: body.sizeBytes ?? object.size, uploadedBy: actorEmail(c.req.raw), studioIds: body.studioIds });
+  return c.json({ ok: true, id });
+});
+
+studios.patch('/shared-assets/:assetId/visibility', requireStudiosAccess(), async (c) => {
+  const { studioIds } = z.object({ studioIds: z.array(z.string()) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const asset = await repo.getSharedAsset(c.req.param('assetId')!);
+  if (!asset) return c.json({ error: 'Asset not found' }, 404);
+  await repo.setSharedAssetVisibility(asset.id, studioIds);
+  return c.json({ ok: true });
+});
+
+studios.delete('/shared-assets/:assetId', requireStudiosAccess(), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const deleted = await repo.deleteSharedAsset(c.req.param('assetId')!);
+  if (deleted?.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key);
+  return c.json({ ok: true });
+});
+
+// ─── Studio audit trail ───────────────────────────────────────────────────────
+// Every recorded action for a studio: logins, views, uploads, downloads, plan
+// submissions, status changes, deliveries, reviews, pushes, etc.
+studios.get('/:id/audit', requireStudiosAccess(), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const events = await repo.listAuditEvents('studio', c.req.param('id')!, 500);
+  return c.json({ events: events.map((e) => ({ id: e.id, action: e.action, actor: e.actor, createdAt: e.createdAt, detail: e.detailJson ? (() => { try { return JSON.parse(e.detailJson!); } catch { return null; } })() : null })) });
 });
 
 // ─── Studio detail + CRUD ─────────────────────────────────────────────────────
 
-studios.get('/:id', requirePermission('users'), async (c) => {
+studios.get('/:id', requireStudiosAccess(), async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(c.req.param('id')!);
   if (!studio) return c.json({ error: 'Not found' }, 404);
   await repo.failStalePendingDeliveries().catch(() => undefined);
-  const [assets, productionFiles, samples, driveUploads, contacts, legacyProductions] = await Promise.all([
+  const [assets, sharedAssets, productionFiles, samples, driveUploads, contacts, legacyProductions] = await Promise.all([
     repo.listStudioAssets(studio.id),
+    repo.listSharedAssetsForStudio(studio.id),
     repo.listStudioProductionFiles(studio.id),
     repo.listStudioSamples(studio.id),
     repo.listDriveUploads(studio.id),
@@ -227,8 +282,15 @@ studios.get('/:id', requirePermission('users'), async (c) => {
   const fileNameById = new Map(productionFiles.map((f) => [f.id, f.name]));
   return c.json({
     studio: studioToApi(studio),
-    contacts: contacts.map(contactToApi),
-    assets: assets.map(assetToApi),
+    // The primary contact authenticates against the studio row's password.
+    contacts: contacts.map((ct) => ct.email.toLowerCase() === studio.contact_email.toLowerCase()
+      ? { ...contactToApi(ct), hasPassword: !!studio.password_hash }
+      : contactToApi(ct)),
+    assets: [
+      ...assets.map((a) => ({ ...assetToApi(a), shared: false })),
+      // Shared-library assets visible to this studio (read-only here; managed centrally).
+      ...sharedAssets.map((a) => ({ id: a.id, studioId: studio.id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at, shared: true })),
+    ],
     productionFiles: productionFiles.map((f) => productionFileToApi(f, f.audiobook_id ? titleById.get(f.audiobook_id) ?? null : null, approvedFileIds.has(f.id))),
     samples: samples.map((s) => sampleToApi(s, s.book_id ? fileNameById.get(s.book_id) ?? null : null)),
     driveUploads: driveUploads.map(driveUploadToApi),
@@ -291,6 +353,7 @@ studios.post('/:id/deliveries/:uploadId/push', requirePermission('intake'), asyn
     });
     await repo.updateDriveUpload(uploadId, { status: 'pushed' });
     await repo.audit('audiobook_record', book.id, 'delivery.pushed', actorEmail(c.req.raw), { studioId, uploadId });
+    await repo.audit('studio', studioId, 'delivery.pushed', actorEmail(c.req.raw), { uploadId, audiobookId: book.id, title: book.title }).catch(() => undefined);
     return c.json({ ok: true, mode: 'assigned', audiobookId: book.id });
   }
 
@@ -335,11 +398,12 @@ studios.post('/:id/deliveries/:uploadId/push', requirePermission('intake'), asyn
   await repo.setDriveUploadAudiobook(uploadId, bookId);
   await repo.updateDriveUpload(uploadId, { status: 'pushed' });
   await repo.audit('audiobook_record', bookId, 'delivery.pushed_new', actorEmail(c.req.raw), { studioId, uploadId, batchId: batch.id });
+  await repo.audit('studio', studioId, 'delivery.pushed', actorEmail(c.req.raw), { uploadId, audiobookId: bookId, title: meta.title }).catch(() => undefined);
   return c.json({ ok: true, mode: 'created', audiobookId: bookId });
 });
 
 // Operator edits the final net hours / notes on a delivery (recomputes cost).
-studios.patch('/:id/deliveries/:uploadId', requirePermission('users'), async (c) => {
+studios.patch('/:id/deliveries/:uploadId', requireStudiosAccess(), async (c) => {
   const { netFinalHours, notes } = z.object({
     netFinalHours: z.number().nonnegative().nullable().optional(),
     notes: z.string().nullable().optional(),
@@ -351,7 +415,7 @@ studios.patch('/:id/deliveries/:uploadId', requirePermission('users'), async (c)
   return c.json({ ok: true });
 });
 
-studios.delete('/:id/deliveries/:uploadId', requirePermission('users'), async (c) => {
+studios.delete('/:id/deliveries/:uploadId', requireStudiosAccess(), async (c) => {
   const studioId = c.req.param('id')!;
   const uploadId = c.req.param('uploadId')!;
   const repo = new Repository(c.env.DB);
@@ -364,17 +428,33 @@ studios.delete('/:id/deliveries/:uploadId', requirePermission('users'), async (c
 });
 
 // ─── Studio contacts (login users) ────────────────────────────────────────────
-studios.post('/:id/contacts', requirePermission('users'), async (c) => {
-  const { email, name } = z.object({ email: z.string().email(), name: z.string().optional() }).parse(await c.req.json());
+studios.post('/:id/contacts', requireStudiosAccess(), async (c) => {
+  const { email, name, password } = z.object({ email: z.string().email(), name: z.string().optional(), password: z.string().min(8).optional() }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(c.req.param('id')!);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
-  await repo.addStudioContact(studio.id, email, name ?? null);
+  await repo.addStudioContact(studio.id, email, name ?? null, password ? await hashPassword(password) : null);
   const contacts = await repo.listStudioContacts(studio.id);
   return c.json({ ok: true, contacts: contacts.map(contactToApi) });
 });
 
-studios.delete('/:id/contacts/:contactId', requirePermission('users'), async (c) => {
+// Admin sets/resets a studio login user's password. The primary contact's
+// password lives on the studio row; additional contacts have their own.
+studios.post('/:id/contacts/:contactId/set-password', requireStudiosAccess(), async (c) => {
+  const { password } = z.object({ password: z.string().min(8) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudio(c.req.param('id')!);
+  if (!studio) return c.json({ error: 'Studio not found' }, 404);
+  const contact = await repo.getStudioContact(c.req.param('contactId')!);
+  if (!contact || contact.studio_id !== studio.id) return c.json({ error: 'Contact not found' }, 404);
+  const hash = await hashPassword(password);
+  // The primary contact's email is authenticated against the studio row.
+  if (contact.email.toLowerCase() === studio.contact_email.toLowerCase()) await repo.setStudioPassword(studio.id, hash);
+  else await repo.setStudioContactPassword(contact.id, hash);
+  return c.json({ ok: true });
+});
+
+studios.delete('/:id/contacts/:contactId', requireStudiosAccess(), async (c) => {
   const repo = new Repository(c.env.DB);
   const studioId = c.req.param('id')!;
   const contacts = await repo.listStudioContacts(studioId);
@@ -384,18 +464,19 @@ studios.delete('/:id/contacts/:contactId', requirePermission('users'), async (c)
   return c.json({ ok: true, contacts: next.map(contactToApi) });
 });
 
-studios.post('/', requirePermission('users'), async (c) => {
+studios.post('/', requireStudiosAccess(), async (c) => {
   const body = z.object({
     name: z.string().min(1),
     slug: z.string().min(1).regex(/^[a-z0-9-]+$/),
     contactEmail: z.string().email(),
+    password: z.string().min(8).optional(),
   }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
-  const studio = await repo.createStudio({ id: crypto.randomUUID(), name: body.name, slug: body.slug, contactEmail: body.contactEmail, createdBy: actorEmail(c.req.raw) });
+  const studio = await repo.createStudio({ id: crypto.randomUUID(), name: body.name, slug: body.slug, contactEmail: body.contactEmail, createdBy: actorEmail(c.req.raw), passwordHash: body.password ? await hashPassword(body.password) : null });
   return c.json({ ok: true, studio: studio ? studioToApi(studio) : null }, 201);
 });
 
-studios.patch('/:id', requirePermission('users'), async (c) => {
+studios.patch('/:id', requireStudiosAccess(), async (c) => {
   const body = z.object({
     name: z.string().min(1).optional(),
     slug: z.string().regex(/^[a-z0-9-]+$/).optional(),
@@ -415,41 +496,27 @@ studios.patch('/:id', requirePermission('users'), async (c) => {
   return c.json({ ok: true, studio: studio ? studioToApi(studio) : null });
 });
 
-studios.delete('/:id', requirePermission('users'), async (c) => {
+studios.delete('/:id', requireStudiosAccess(), async (c) => {
   const repo = new Repository(c.env.DB);
   await repo.deleteStudio(c.req.param('id')!);
   return c.json({ ok: true });
 });
 
-// ─── Magic link ───────────────────────────────────────────────────────────────
+// ─── Password ─────────────────────────────────────────────────────────────────
 
-studios.post('/:id/magic-link', requirePermission('users'), async (c) => {
+// Admin sets/resets the primary contact's login password.
+studios.post('/:id/set-password', requireStudiosAccess(), async (c) => {
+  const { password } = z.object({ password: z.string().min(8) }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(c.req.param('id')!);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
-  const token = crypto.randomUUID().replace(/-/g, '') + crypto.randomUUID().replace(/-/g, '');
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  await repo.createStudioMagicLink(studio.id, token, expiresAt);
-  const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
-  const link = `${baseUrl}/api/studio-auth/verify?token=${token}`;
-  const logoUrl = await signedStudioLogoUrl(c.env, baseUrl, studio.logo_object_key);
-
-  await sendEmail({
-    to: studio.contact_email, toName: studio.name,
-    subject: 'رابط الدخول إلى بوابة سماوي',
-    html: magicLinkEmail({
-      link, greetingName: studio.name,
-      portalLabel: 'بوابة سماوي للاستوديوهات', ctaLabel: 'الدخول إلى البوابة',
-      studio: { initial: studio.name.trim().charAt(0) || 'S', name: studio.name, sub: 'استوديو شريك', logoUrl },
-    }),
-    emailBinding: c.env.EMAIL,
-  });
+  await repo.setStudioPassword(studio.id, await hashPassword(password));
   return c.json({ ok: true });
 });
 
 // ─── Logo upload ──────────────────────────────────────────────────────────────
 
-studios.post('/:id/logo-upload-url', requirePermission('users'), async (c) => {
+studios.post('/:id/logo-upload-url', requireStudiosAccess(), async (c) => {
   const { contentType } = z.object({ contentType: z.string() }).parse(await c.req.json());
   const id = c.req.param('id')!;
   const key = keySegments('studios', id, 'logo');
@@ -461,7 +528,7 @@ studios.post('/:id/logo-upload-url', requirePermission('users'), async (c) => {
 
 // ─── Assets ───────────────────────────────────────────────────────────────────
 
-studios.post('/:id/asset-upload-url', requirePermission('users'), async (c) => {
+studios.post('/:id/asset-upload-url', requireStudiosAccess(), async (c) => {
   const { fileName, contentType, sizeBytes } = z.object({ fileName: z.string(), contentType: z.string(), sizeBytes: z.number().optional() }).parse(await c.req.json());
   const studioId = c.req.param('id')!;
   const repo = new Repository(c.env.DB);
@@ -473,13 +540,13 @@ studios.post('/:id/asset-upload-url', requirePermission('users'), async (c) => {
   return c.json({ ...upload, objectKey: key, assetId });
 });
 
-studios.get('/:id/assets', requirePermission('users'), async (c) => {
+studios.get('/:id/assets', requireStudiosAccess(), async (c) => {
   const repo = new Repository(c.env.DB);
   const assets = await repo.listStudioAssets(c.req.param('id')!);
   return c.json({ assets: assets.map(assetToApi) });
 });
 
-studios.delete('/:id/assets/:assetId', requirePermission('users'), async (c) => {
+studios.delete('/:id/assets/:assetId', requireStudiosAccess(), async (c) => {
   const repo = new Repository(c.env.DB);
   const deleted = await repo.deleteStudioAsset(c.req.param('assetId')!);
   if (deleted?.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key);
@@ -490,7 +557,7 @@ studios.delete('/:id/assets/:assetId', requirePermission('users'), async (c) => 
 
 // Returns a presigned upload URL only — the DB row is created on /complete so a
 // failed/abandoned upload never leaves a ghost production file.
-studios.post('/:id/production-file-upload-url', requirePermission('users'), async (c) => {
+studios.post('/:id/production-file-upload-url', requireStudiosAccess(), async (c) => {
   const { fileName, contentType } = z.object({ fileName: z.string(), contentType: z.string().default('application/pdf'), sizeBytes: z.number().optional() }).parse(await c.req.json());
   const studioId = c.req.param('id')!;
   const repo = new Repository(c.env.DB);
@@ -502,7 +569,7 @@ studios.post('/:id/production-file-upload-url', requirePermission('users'), asyn
 });
 
 // Create the production-file row after the upload landed, then notify the studio.
-studios.post('/:id/production-files/complete', requirePermission('users'), async (c) => {
+studios.post('/:id/production-files/complete', requireStudiosAccess(), async (c) => {
   const body = z.object({ objectKey: z.string(), fileName: z.string(), contentType: z.string().default('application/pdf'), sizeBytes: z.number().optional(), bookAuthor: z.string().nullish(), acqNotes: z.string().nullish() }).parse(await c.req.json());
   const studioId = c.req.param('id')!;
   const repo = new Repository(c.env.DB);
@@ -511,6 +578,7 @@ studios.post('/:id/production-files/complete', requirePermission('users'), async
   const object = await c.env.ASSET_BUCKET.head(body.objectKey);
   if (!object) return c.json({ error: 'Uploaded file not found in storage.' }, 404);
   const fileId = await repo.createStudioProductionFile({ studioId, name: body.fileName, objectKey: body.objectKey, contentType: body.contentType, sizeBytes: body.sizeBytes ?? object.size, uploadedBy: actorEmail(c.req.raw), bookAuthor: body.bookAuthor ?? null, acqNotes: body.acqNotes ?? null });
+  await repo.audit('studio', studioId, 'production_file.uploaded', actorEmail(c.req.raw), { fileId, name: body.fileName }).catch(() => undefined);
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   await sendEmail({
     to: studio.contact_email, toName: studio.name,
@@ -526,7 +594,7 @@ studios.post('/:id/production-files/complete', requirePermission('users'), async
   return c.json({ ok: true, fileId });
 });
 
-studios.patch('/:id/production-files/:fileId/meta', requirePermission('users'), async (c) => {
+studios.patch('/:id/production-files/:fileId/meta', requireStudiosAccess(), async (c) => {
   const body = z.object({ name: z.string().min(1).optional(), bookAuthor: z.string().nullable().optional(), acqNotes: z.string().nullable().optional() }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
@@ -535,7 +603,7 @@ studios.patch('/:id/production-files/:fileId/meta', requirePermission('users'), 
   return c.json({ ok: true });
 });
 
-studios.delete('/:id/production-files/:fileId', requirePermission('users'), async (c) => {
+studios.delete('/:id/production-files/:fileId', requireStudiosAccess(), async (c) => {
   const repo = new Repository(c.env.DB);
   const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
   if (!file || file.studio_id !== c.req.param('id')) return c.json({ error: 'Production file not found' }, 404);
@@ -546,7 +614,7 @@ studios.delete('/:id/production-files/:fileId', requirePermission('users'), asyn
 });
 
 // Assign (or clear) the catalog title a production file narrates.
-studios.patch('/:id/production-files/:fileId/assign', requirePermission('users'), async (c) => {
+studios.patch('/:id/production-files/:fileId/assign', requireStudiosAccess(), async (c) => {
   const { audiobookId } = z.object({ audiobookId: z.string().nullable() }).parse(await c.req.json());
   const repo = new Repository(c.env.DB);
   const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
@@ -567,7 +635,7 @@ studios.patch('/:id/production-files/:fileId/assign', requirePermission('users')
 
 // ─── Samples ──────────────────────────────────────────────────────────────────
 
-studios.get('/:id/samples', requirePermission('users'), async (c) => {
+studios.get('/:id/samples', requireStudiosAccess(), async (c) => {
   const repo = new Repository(c.env.DB);
   const [samples, files] = await Promise.all([
     repo.listStudioSamples(c.req.param('id')!),
@@ -577,7 +645,17 @@ studios.get('/:id/samples', requirePermission('users'), async (c) => {
   return c.json({ samples: samples.map((s) => sampleToApi(s, s.book_id ? fileNameById.get(s.book_id) ?? null : null)) });
 });
 
-studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async (c) => {
+// Admin deletes an uploaded sample (and its audio object).
+studios.delete('/:id/samples/:sampleId', requireStudiosAccess(), async (c) => {
+  const repo = new Repository(c.env.DB);
+  const deleted = await repo.deleteStudioSample(c.req.param('id')!, c.req.param('sampleId')!);
+  if (!deleted) return c.json({ error: 'Sample not found' }, 404);
+  if (deleted.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key).catch(() => undefined);
+  await repo.audit('studio', c.req.param('id')!, 'sample.deleted', actorEmail(c.req.raw), { sampleId: c.req.param('sampleId') }).catch(() => undefined);
+  return c.json({ ok: true });
+});
+
+studios.post('/:id/samples/:sampleId/review', requireStudiosAccess(), async (c) => {
   const { status, note } = z.object({ status: z.enum(['approved', 'refused']), note: z.string().nullable().optional() }).parse(await c.req.json());
   const studioId = c.req.param('id')!;
   const sampleId = c.req.param('sampleId')!;
@@ -586,6 +664,7 @@ studios.post('/:id/samples/:sampleId/review', requirePermission('users'), async 
   const sample = await repo.getStudioSample(sampleId);
   if (!studio || !sample) return c.json({ error: 'Not found' }, 404);
   await repo.reviewStudioSample(sampleId, status, actorEmail(c.req.raw), note ?? null);
+  await repo.audit('studio', studioId, 'sample.reviewed', actorEmail(c.req.raw), { sampleId, name: sample.name, status, note: note ?? null }).catch(() => undefined);
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const statusAr = status === 'approved' ? 'موافقة' : 'رفض';
   await sendEmail({

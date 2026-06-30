@@ -7,8 +7,23 @@ import { createUploadUrl } from '../pipeline';
 import { sendEmail, notifyEmail } from '../email';
 import { keySegments } from '../utils';
 import { searchSamawySellers, fetchSamawyGenres } from '../integrations';
+import { hashPassword, verifyPassword } from '../password';
 
 const acquisitionPortal = new Hono<{ Bindings: Env }>();
+
+// A signed-in acquisition member changes their own password.
+acquisitionPortal.post('/change-password', async (c) => {
+  const session = await verifyAcquisitionSessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);
+  if (!session) return c.json({ error: 'Unauthorized' }, 401);
+  const { currentPassword, newPassword } = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(8) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const user = await repo.getAcquisitionUser(session.acquisitionUserId);
+  if (!user || !user.password_hash || !(await verifyPassword(currentPassword, user.password_hash))) {
+    return c.json({ error: 'Current password is incorrect.' }, 400);
+  }
+  await repo.setAcquisitionUserPassword(user.id, await hashPassword(newPassword));
+  return c.json({ ok: true });
+});
 
 // Rich, delivery-style catalog metadata captured by the acquisition member.
 const acqMetadataSchema = z.object({
@@ -86,6 +101,7 @@ acquisitionPortal.post('/studios/:studioId/production-files/complete', async (c)
   // The book title comes from the rich metadata when provided, else the file name.
   const name = body.metadata?.title?.trim() || body.fileName;
   const fileId = await repo.createStudioProductionFile({ studioId, name, objectKey: body.objectKey, contentType: body.contentType, sizeBytes: body.sizeBytes ?? object.size, uploadedBy: uploaderName, bookAuthor: body.metadata?.author ?? null, acqNotes: body.acqNotes ?? null, acqMetadata: body.metadata ? JSON.stringify(body.metadata) : null });
+  await repo.audit('studio', studioId, 'production_file.uploaded', `acquisition:${uploaderName}`, { fileId, name }).catch(() => undefined);
   const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
   await sendEmail({
     to: studio.contact_email, toName: studio.name,

@@ -21,8 +21,8 @@ import { jsonParse, nowIso } from "./utils";
 type Row = Record<string, unknown>;
 
 // ─── Studio row types ────────────────────────────────────────────────────────
-type StudioRow = { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string; hourly_rate_usd: number | null };
-type StudioContactRow = { id: string; studio_id: string; email: string; name: string | null; created_at: string };
+type StudioRow = { id: string; name: string; slug: string; contact_email: string; drive_folder_id: string | null; logo_object_key: string | null; is_active: number; created_at: string; created_by: string; hourly_rate_usd: number | null; password_hash: string | null };
+type StudioContactRow = { id: string; studio_id: string; email: string; name: string | null; created_at: string; password_hash: string | null };
 type StudioLegacyProductionRow = { id: string; studio_id: string; book_title: string; isbn: string | null; narrator: string | null; net_hours: number | null; notes: string | null; created_at: string };
 type StudioAggregate = {
   contacts: number; productionFiles: number; assignedFiles: number;
@@ -31,10 +31,11 @@ type StudioAggregate = {
   legacyProductions: number; legacyNetHours: number;
 };
 type StudioAssetRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
+type SharedAssetRow = { id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string };
 type StudioProductionFileRow = { id: string; studio_id: string; name: string; object_key: string; content_type: string; size_bytes: number; uploaded_by: string; created_at: string; audiobook_id: string | null; narrator: string | null; expected_net_hours: number | null; estimated_finish_hours: number | null; book_author: string | null; acq_notes: string | null; production_status: string; acq_metadata: string | null };
 type StudioSampleRow = { id: string; studio_id: string; book_id: string | null; name: string; object_key: string; content_type: string; size_bytes: number; status: string; reviewed_by: string | null; review_note: string | null; reviewed_at: string | null; created_at: string };
 type StudioDriveUploadRow = { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; net_final_hours: number | null; notes: string | null; production_file_id: string | null };
-type AcquisitionUserRow = { id: string; email: string; name: string; is_active: number; created_at: string; created_by: string };
+type AcquisitionUserRow = { id: string; email: string; name: string; is_active: number; created_at: string; created_by: string; password_hash: string | null };
 
 function bindObject(stmt: D1PreparedStatement, values: unknown[]) {
   return stmt.bind(...values);
@@ -834,6 +835,16 @@ export class Repository {
       .run();
   }
 
+  /** True if an identical (resource, action, actor) event was logged within the window (ms). */
+  async recentAuditExists(resourceType: string, resourceId: string, action: string, actor: string, withinMs: number) {
+    const since = new Date(Date.now() - withinMs).toISOString();
+    const row = await this.db
+      .prepare(`SELECT 1 AS ok FROM audit_event WHERE resource_type = ? AND resource_id = ? AND action = ? AND actor = ? AND created_at >= ? LIMIT 1`)
+      .bind(resourceType, resourceId, action, actor, since)
+      .first<{ ok: number }>();
+    return !!row;
+  }
+
   async listAuditEvents(resourceType: string, resourceId: string, limit = 100) {
     const result = await this.db
       .prepare(
@@ -968,13 +979,18 @@ export class Repository {
 
   // ─── Studios ────────────────────────────────────────────────────────────────
 
-  async createStudio(input: { id: string; name: string; slug: string; contactEmail: string; createdBy: string }) {
+  async createStudio(input: { id: string; name: string; slug: string; contactEmail: string; createdBy: string; passwordHash?: string | null }) {
     await this.db.prepare(
-      `INSERT INTO studio (id, name, slug, contact_email, is_active, created_by) VALUES (?, ?, ?, ?, 1, ?)`
-    ).bind(input.id, input.name, input.slug, input.contactEmail, input.createdBy).run();
-    // The primary contact is also a manageable studio user.
+      `INSERT INTO studio (id, name, slug, contact_email, is_active, created_by, password_hash) VALUES (?, ?, ?, ?, 1, ?, ?)`
+    ).bind(input.id, input.name, input.slug, input.contactEmail, input.createdBy, input.passwordHash ?? null).run();
+    // The primary contact is also a manageable studio user (shares the studio password).
     await this.addStudioContact(input.id, input.contactEmail).catch(() => undefined);
     return this.getStudio(input.id);
+  }
+
+  /** Set the primary contact's login password (stored on the studio row). */
+  async setStudioPassword(studioId: string, passwordHash: string) {
+    await this.db.prepare(`UPDATE studio SET password_hash = ? WHERE id = ?`).bind(passwordHash, studioId).run();
   }
 
   // ─── Studio contacts (login users) ──────────────────────────────────────────
@@ -985,12 +1001,24 @@ export class Repository {
     return results;
   }
 
-  async addStudioContact(studioId: string, email: string, name?: string | null) {
+  async addStudioContact(studioId: string, email: string, name?: string | null, passwordHash?: string | null) {
     const id = crypto.randomUUID();
     await this.db
-      .prepare(`INSERT OR IGNORE INTO studio_contact (id, studio_id, email, name) VALUES (?, ?, ?, ?)`)
-      .bind(id, studioId, email.trim().toLowerCase(), name ?? null).run();
+      .prepare(`INSERT OR IGNORE INTO studio_contact (id, studio_id, email, name, password_hash) VALUES (?, ?, ?, ?, ?)`)
+      .bind(id, studioId, email.trim().toLowerCase(), name ?? null, passwordHash ?? null).run();
     return id;
+  }
+
+  async getStudioContact(contactId: string) {
+    return this.db.prepare(`SELECT * FROM studio_contact WHERE id = ?`).bind(contactId).first<StudioContactRow>();
+  }
+
+  async getStudioContactByEmail(studioId: string, email: string) {
+    return this.db.prepare(`SELECT * FROM studio_contact WHERE studio_id = ? AND lower(email) = lower(?)`).bind(studioId, email).first<StudioContactRow>();
+  }
+
+  async setStudioContactPassword(contactId: string, passwordHash: string) {
+    await this.db.prepare(`UPDATE studio_contact SET password_hash = ? WHERE id = ?`).bind(passwordHash, contactId).run();
   }
 
   async deleteStudioContact(studioId: string, contactId: string) {
@@ -1130,6 +1158,61 @@ export class Repository {
     return this.db.prepare(`DELETE FROM studio_asset WHERE id = ? RETURNING object_key`).bind(id).first<{ object_key: string }>();
   }
 
+  // ─── Shared asset library (admin-managed, visible to many studios) ────────────
+
+  async createSharedAsset(input: { name: string; objectKey: string; contentType: string; sizeBytes: number; uploadedBy: string; studioIds: string[] }) {
+    const id = crypto.randomUUID();
+    await this.db.prepare(
+      `INSERT INTO shared_asset (id, name, object_key, content_type, size_bytes, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(id, input.name, input.objectKey, input.contentType, input.sizeBytes, input.uploadedBy).run();
+    await this.setSharedAssetVisibility(id, input.studioIds);
+    return id;
+  }
+
+  /** Replace the visibility set. Empty array → visible to ALL studios. */
+  async setSharedAssetVisibility(assetId: string, studioIds: string[]) {
+    await this.db.prepare(`DELETE FROM shared_asset_visibility WHERE asset_id = ?`).bind(assetId).run();
+    const unique = [...new Set(studioIds)].filter(Boolean);
+    for (const sid of unique) {
+      await this.db.prepare(`INSERT OR IGNORE INTO shared_asset_visibility (asset_id, studio_id) VALUES (?, ?)`).bind(assetId, sid).run();
+    }
+  }
+
+  async getSharedAsset(id: string) {
+    return this.db.prepare(`SELECT * FROM shared_asset WHERE id = ?`).bind(id).first<SharedAssetRow>();
+  }
+
+  /** All shared assets with their visibility studioIds ([] = all studios). */
+  async listSharedAssets() {
+    const [{ results: assets }, { results: vis }] = await Promise.all([
+      this.db.prepare(`SELECT * FROM shared_asset ORDER BY created_at DESC`).all<SharedAssetRow>(),
+      this.db.prepare(`SELECT asset_id, studio_id FROM shared_asset_visibility`).all<{ asset_id: string; studio_id: string }>(),
+    ]);
+    const byAsset = new Map<string, string[]>();
+    for (const v of vis) {
+      const arr = byAsset.get(v.asset_id) ?? [];
+      arr.push(v.studio_id);
+      byAsset.set(v.asset_id, arr);
+    }
+    return assets.map((a) => ({ ...a, studioIds: byAsset.get(a.id) ?? [] }));
+  }
+
+  async deleteSharedAsset(id: string) {
+    return this.db.prepare(`DELETE FROM shared_asset WHERE id = ? RETURNING object_key`).bind(id).first<{ object_key: string }>();
+  }
+
+  /** Shared assets a given studio may see: those with no visibility rows (all),
+   *  or those explicitly targeted at this studio. */
+  async listSharedAssetsForStudio(studioId: string) {
+    const { results } = await this.db.prepare(
+      `SELECT a.* FROM shared_asset a
+       WHERE NOT EXISTS (SELECT 1 FROM shared_asset_visibility v WHERE v.asset_id = a.id)
+          OR EXISTS (SELECT 1 FROM shared_asset_visibility v WHERE v.asset_id = a.id AND v.studio_id = ?)
+       ORDER BY a.created_at DESC`
+    ).bind(studioId).all<SharedAssetRow>();
+    return results;
+  }
+
   async createStudioProductionFile(input: { studioId: string; name: string; objectKey: string; contentType: string; sizeBytes: number; uploadedBy: string; bookAuthor?: string | null; acqNotes?: string | null; acqMetadata?: string | null }) {
     const id = crypto.randomUUID();
     await this.db.prepare(
@@ -1242,6 +1325,10 @@ export class Repository {
     return this.db.prepare(`SELECT * FROM studio_sample WHERE id = ?`).bind(id).first<StudioSampleRow>();
   }
 
+  async deleteStudioSample(studioId: string, id: string) {
+    return this.db.prepare(`DELETE FROM studio_sample WHERE id = ? AND studio_id = ? RETURNING object_key`).bind(id, studioId).first<{ object_key: string }>();
+  }
+
   async createDriveUpload(input: { studioId: string; name: string; objectKey: string; audiobookId?: string | null; netFinalHours?: number | null; notes?: string | null; productionFileId?: string | null }) {
     const id = crypto.randomUUID();
     await this.db.prepare(
@@ -1304,12 +1391,16 @@ export class Repository {
 
   // ─── Acquisition users ───────────────────────────────────────────────────────
 
-  async createAcquisitionUser(input: { email: string; name: string; createdBy: string }) {
+  async createAcquisitionUser(input: { email: string; name: string; createdBy: string; passwordHash?: string | null }) {
     const id = crypto.randomUUID();
     await this.db.prepare(
-      `INSERT INTO acquisition_user (id, email, name, created_by) VALUES (?, ?, ?, ?)`
-    ).bind(id, input.email, input.name, input.createdBy).run();
+      `INSERT INTO acquisition_user (id, email, name, created_by, password_hash) VALUES (?, ?, ?, ?, ?)`
+    ).bind(id, input.email, input.name, input.createdBy, input.passwordHash ?? null).run();
     return id;
+  }
+
+  async setAcquisitionUserPassword(id: string, passwordHash: string) {
+    await this.db.prepare(`UPDATE acquisition_user SET password_hash = ? WHERE id = ?`).bind(passwordHash, id).run();
   }
 
   async getAcquisitionUser(id: string) {
@@ -1317,7 +1408,7 @@ export class Repository {
   }
 
   async getAcquisitionUserByEmail(email: string) {
-    return this.db.prepare(`SELECT * FROM acquisition_user WHERE email = ?`).bind(email).first<AcquisitionUserRow>();
+    return this.db.prepare(`SELECT * FROM acquisition_user WHERE lower(email) = lower(?)`).bind(email).first<AcquisitionUserRow>();
   }
 
   async listAcquisitionUsers() {
