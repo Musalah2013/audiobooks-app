@@ -53,7 +53,9 @@ function parseDelimited(text: string): string[][] {
 function parseStudios(text: string): { studios: ImportStudio[]; unmapped: string[] } {
   const grid = parseDelimited(text);
   if (grid.length < 2) return { studios: [], unmapped: [] };
-  const headers = grid[0].map((h) => h.trim().toLowerCase());
+  // Normalize underscores to spaces so header forms like `contact_email`,
+  // `book_title`, `net_hours` (used by the downloadable template) match the map.
+  const headers = grid[0].map((h) => h.trim().toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' '));
   const mapped = headers.map((h) => COLUMN_MAP[h]);
   const unmapped = headers.filter((h, i) => h && !mapped[i]);
   const byKey = new Map<string, ImportStudio>();
@@ -91,7 +93,9 @@ function parseStudios(text: string): { studios: ImportStudio[]; unmapped: string
 function parseProductions(text: string): { productions: Production[]; unmapped: string[] } {
   const grid = parseDelimited(text);
   if (grid.length < 2) return { productions: [], unmapped: [] };
-  const headers = grid[0].map((h) => h.trim().toLowerCase());
+  // Normalize underscores to spaces so header forms like `contact_email`,
+  // `book_title`, `net_hours` (used by the downloadable template) match the map.
+  const headers = grid[0].map((h) => h.trim().toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' '));
   const mapped = headers.map((h) => COLUMN_MAP[h]);
   const prodFields = new Set(['bookTitle', 'isbn', 'narrator', 'netHours', 'notes']);
   const unmapped = headers.filter((h, i) => h && (!mapped[i] || !prodFields.has(mapped[i])));

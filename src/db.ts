@@ -1347,6 +1347,17 @@ export class Repository {
     ).bind(patch.status, patch.driveFileId ?? null, patch.error ?? null, id).run();
   }
 
+  /** Operator-editable delivery fields: final net hours (drives cost) and notes. */
+  async setDriveUploadMeta(id: string, patch: { netFinalHours?: number | null; notes?: string | null }) {
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    if ('netFinalHours' in patch) { fields.push('net_final_hours = ?'); values.push(patch.netFinalHours ?? null); }
+    if ('notes' in patch) { fields.push('notes = ?'); values.push(patch.notes ?? null); }
+    if (!fields.length) return;
+    values.push(id);
+    await this.db.prepare(`UPDATE studio_drive_upload SET ${fields.join(', ')} WHERE id = ?`).bind(...values).run();
+  }
+
   async listDriveUploads(studioId: string) {
     const { results } = await this.db.prepare(`SELECT * FROM studio_drive_upload WHERE studio_id = ? ORDER BY created_at DESC`).bind(studioId).all<StudioDriveUploadRow>();
     return results;
