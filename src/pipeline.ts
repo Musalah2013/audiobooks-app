@@ -38,6 +38,8 @@ import {
   naturalSort,
   nowIso,
   signInternalArtifactUrl,
+  signDossierToken,
+  buildDossierLink,
   signMultipartUrl,
   similarity,
   slugify,
@@ -1896,23 +1898,15 @@ export async function syncAudiobookToClickUp(env: Env, repo: Repository, audiobo
 
   await repo.updateAudiobook(audiobook.id, { clickupSyncStatus: "syncing", clickupSyncError: null });
 
-  // No expiresAt — dossier files are retained permanently, links should never expire
-  const [workbookUrl, audioZipUrl] = await Promise.all([
-    signInternalArtifactUrl({
-      baseUrl: appBaseUrl,
-      path: `/api/files/${audiobook.dossierWorkbookKey}`,
-      key: audiobook.dossierWorkbookKey,
-      method: "GET",
-      secret: env.INTERNAL_API_SECRET,
-    }),
-    signInternalArtifactUrl({
-      baseUrl: appBaseUrl,
-      path: `/api/files/${audiobook.dossierAudioZipKey}`,
-      key: audiobook.dossierAudioZipKey,
-      method: "GET",
-      secret: env.INTERNAL_API_SECRET,
-    }),
+  // Stable, permanent per-book dossier links: the token signs only the book id +
+  // kind (not the R2 path), so links never expire, survive the dossier being
+  // regenerated under a new key, and avoid Arabic/slash path-signing fragility.
+  const [workbookToken, audioToken] = await Promise.all([
+    signDossierToken(env.INTERNAL_API_SECRET, audiobook.id, "workbook"),
+    signDossierToken(env.INTERNAL_API_SECRET, audiobook.id, "audio"),
   ]);
+  const workbookUrl = buildDossierLink(appBaseUrl, audiobook.id, "workbook", workbookToken);
+  const audioZipUrl = buildDossierLink(appBaseUrl, audiobook.id, "audio", audioToken);
   const extra = {
     appLink: buildAppBookUrl(appBaseUrl, audiobook.id),
     workbookUrl,

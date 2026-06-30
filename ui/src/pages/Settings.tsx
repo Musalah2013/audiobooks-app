@@ -40,6 +40,7 @@ export default function Settings() {
   const [aiSaving, setAiSaving] = useState(false);
   const [cuSaving, setCuSaving] = useState(false);
   const [cuResetting, setCuResetting] = useState(false);
+  const [cuResyncing, setCuResyncing] = useState(false);
   const [cuForm, setCuForm] = useState<ClickUpConfig | null>(null);
   const [tokenInput, setTokenInput] = useState('');
   const [tokenVisible, setTokenVisible] = useState(false);
@@ -97,6 +98,20 @@ export default function Settings() {
       addToast(err instanceof Error ? err : (isArabic ? 'فشل الحفظ' : 'Failed to save'), 'error');
     } finally {
       setCuSaving(false);
+    }
+  }
+
+  async function resyncAllClickUp() {
+    setCuResyncing(true);
+    try {
+      const r = await apiRequest<{ total: number; synced: number; failed: string[] }>('/api/books/clickup-resync-all', { method: 'POST', timeoutMs: 600_000 });
+      addToast(isArabic
+        ? `تمت إعادة مزامنة ${r.synced} من ${r.total} مهمة.${r.failed.length ? ' فشل: ' + r.failed.length : ''}`
+        : `Re-synced ${r.synced} of ${r.total} tasks.${r.failed.length ? ' Failed: ' + r.failed.length : ''}`, r.failed.length ? 'error' : 'success');
+    } catch (err) {
+      addToast(err instanceof Error ? err : (isArabic ? 'فشلت إعادة المزامنة' : 'Re-sync failed'), 'error');
+    } finally {
+      setCuResyncing(false);
     }
   }
 
@@ -385,6 +400,16 @@ export default function Settings() {
             >
               <RefreshCw className="h-3.5 w-3.5" />
               {isArabic ? 'إعادة تعيين للافتراضي' : 'Reset to defaults'}
+            </button>
+            <button
+              type="button"
+              className="btn-secondary text-xs px-3 py-1.5"
+              disabled={cuResyncing}
+              title={isArabic ? 'إعادة مزامنة جميع المهام لتحديث روابط الدوسيه' : 'Re-sync all tasks to refresh dossier links'}
+              onClick={resyncAllClickUp}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${cuResyncing ? 'animate-spin' : ''}`} />
+              {cuResyncing ? (isArabic ? 'جاري المزامنة…' : 'Re-syncing…') : (isArabic ? 'تحديث روابط الدوسيه' : 'Refresh dossier links')}
             </button>
             <button
               type="button"

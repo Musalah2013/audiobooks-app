@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Repository } from '../db';
 import type { Env, UserPermission, OperatorUser } from '../types';
 import { ALL_PERMISSIONS } from '../types';
-import { verifyInternalArtifactRequest, verifyMultipartRequest } from '../utils';
+import { verifyInternalArtifactRequest, verifyMultipartRequest, verifyDossierToken } from '../utils';
 import { createSessionCookie, verifySessionCookie, clearSessionCookie, hashPassword, verifyPassword, SESSION_COOKIE } from '../password';
 import { verifyStudioSessionCookie } from './studio-auth';
 import { RateLimiter, loginRateLimiter, bootstrapRateLimiter } from '../rate-limit';
@@ -60,6 +60,14 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
   const internalSecret = c.req.header('X-Internal-Secret');
   if (internalSecret === c.env.INTERNAL_API_SECRET) {
     return next();
+  }
+
+  // Permanent dossier links embedded in ClickUp tasks — public, validated by a
+  // per-book token (no expiry, no fragile path signing).
+  const dossierMatch = path.match(/^\/api\/books\/([^/]+)\/dossier\/([^/]+)$/);
+  if (dossierMatch && c.req.query('t')) {
+    const ok = await verifyDossierToken(c.env.INTERNAL_API_SECRET, dossierMatch[1], dossierMatch[2], c.req.query('t')!);
+    if (ok) return next();
   }
 
   // Signed links bypass auth (used by ClickUp file links and container downloads/uploads)
