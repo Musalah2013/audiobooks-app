@@ -7,8 +7,31 @@ import { createUploadUrl } from '../pipeline';
 import { signInternalArtifactUrl, signMultipartUrl } from '../utils';
 import { sendEmail, notifyEmail } from '../email';
 import { keySegments, nowIso } from '../utils';
+import { hashPassword, verifyPassword } from '../password';
 
 const studioPortal = new Hono<{ Bindings: Env }>();
+
+// A signed-in studio user changes their own password.
+studioPortal.post('/:slug/change-password', async (c) => {
+  const slug = c.req.param('slug');
+  const session = await verifyStudioSessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);
+  if (!session || session.slug !== slug) return c.json({ error: 'Unauthorized' }, 401);
+  const { currentPassword, newPassword } = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(8) }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudio(session.studioId);
+  if (!studio) return c.json({ error: 'Not found' }, 404);
+  // Resolve which credential this session represents.
+  const isPrimary = session.contactId == null;
+  const currentHash = isPrimary ? studio.password_hash : (await repo.getStudioContact(session.contactId!))?.password_hash ?? null;
+  if (!currentHash || !(await verifyPassword(currentPassword, currentHash))) {
+    return c.json({ error: 'Current password is incorrect.' }, 400);
+  }
+  const hash = await hashPassword(newPassword);
+  if (isPrimary) await repo.setStudioPassword(studio.id, hash);
+  else await repo.setStudioContactPassword(session.contactId!, hash);
+  await repo.audit('studio', studio.id, 'studio.password_changed', session.email || 'studio', {}).catch(() => undefined);
+  return c.json({ ok: true });
+});
 
 async function requireStudioSession(c: Context<{ Bindings: Env }>, slug: string) {
   const session = await verifyStudioSessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);
@@ -31,9 +54,15 @@ studioPortal.get('/:slug', async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudioBySlug(slug);
   if (!studio || !studio.is_active) return c.json({ error: 'Not found' }, 404);
+  // Log a "viewed portal" event, throttled to once per 5 min per user to avoid
+  // flooding the audit trail on refetches/navigation.
+  if (!(await repo.recentAuditExists('studio', studio.id, 'studio.viewed', session.email || 'studio', 5 * 60 * 1000))) {
+    await repo.audit('studio', studio.id, 'studio.viewed', session.email || 'studio', {}).catch(() => undefined);
+  }
   await repo.failStalePendingDeliveries().catch(() => undefined);
-  const [assets, productionFiles, samples, driveUploads] = await Promise.all([
+  const [assets, sharedAssets, productionFiles, samples, driveUploads] = await Promise.all([
     repo.listStudioAssets(studio.id),
+    repo.listSharedAssetsForStudio(studio.id),
     repo.listStudioProductionFiles(studio.id),
     repo.listStudioSamples(studio.id),
     repo.listDriveUploads(studio.id),
@@ -53,7 +82,10 @@ studioPortal.get('/:slug', async (c) => {
   const approvedFileIds = new Set(samples.filter((s) => s.status === 'approved' && s.book_id).map((s) => s.book_id!));
   return c.json({
     studio: { id: studio.id, name: studio.name, slug: studio.slug, contactEmail: studio.contact_email, logoObjectKey: studio.logo_object_key, isActive: !!studio.is_active, createdAt: studio.created_at, createdBy: studio.created_by, hourlyRateUsd: studio.hourly_rate_usd },
-    assets: assets.map((a) => ({ id: a.id, studioId: a.studio_id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at })),
+    assets: [
+      ...assets.map((a) => ({ id: a.id, studioId: a.studio_id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at, shared: false })),
+      ...sharedAssets.map((a) => ({ id: a.id, studioId: studio.id, name: a.name, objectKey: a.object_key, contentType: a.content_type, sizeBytes: a.size_bytes, uploadedBy: a.uploaded_by, createdAt: a.created_at, shared: true })),
+    ],
     productionFiles: productionFiles.map((f) => ({ id: f.id, studioId: f.studio_id, name: f.name, objectKey: f.object_key, contentType: f.content_type, sizeBytes: f.size_bytes, uploadedBy: f.uploaded_by, createdAt: f.created_at, audiobookId: f.audiobook_id, audiobookTitle: f.audiobook_id ? (titleById.get(f.audiobook_id) ?? null) : null, narrator: f.narrator, expectedNetHours: f.expected_net_hours, estimatedFinishHours: f.estimated_finish_hours, productionStatus: (f.production_status ?? 'backlog'), acqMetadata: f.acq_metadata ? safeJson(f.acq_metadata) : null, hasApprovedSample: approvedFileIds.has(f.id) })),
     samples: samples.map((s) => ({ id: s.id, studioId: s.studio_id, bookId: s.book_id ?? null, bookName: s.book_id ? (bookNameMap.get(s.book_id) ?? null) : null, name: s.name, objectKey: s.object_key, contentType: s.content_type, sizeBytes: s.size_bytes, status: s.status, reviewedBy: s.reviewed_by, reviewNote: s.review_note, reviewedAt: s.reviewed_at, createdAt: s.created_at })),
     driveUploads: driveUploads.map(driveUploadToApi),
@@ -67,9 +99,12 @@ studioPortal.post('/:slug/asset-download-url', async (c) => {
   const session = await requireStudioSession(c, slug);
   if (!session) return c.json({ error: 'Unauthorized' }, 401);
   const { objectKey } = z.object({ objectKey: z.string() }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudioBySlug(slug);
   const expiresAt = Date.now() + 60 * 60 * 1000;
   const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
   const url = await signInternalArtifactUrl({ baseUrl, path: `/api/files/${objectKey}`, key: objectKey, method: 'GET', secret: c.env.INTERNAL_API_SECRET, expiresAt });
+  if (studio) await repo.audit('studio', studio.id, 'asset.downloaded', session.email || 'studio', { objectKey: objectKey.split('/').pop() }).catch(() => undefined);
   return c.json({ url });
 });
 
@@ -78,9 +113,12 @@ studioPortal.post('/:slug/production-file-download-url', async (c) => {
   const session = await requireStudioSession(c, slug);
   if (!session) return c.json({ error: 'Unauthorized' }, 401);
   const { objectKey } = z.object({ objectKey: z.string() }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const studio = await repo.getStudioBySlug(slug);
   const expiresAt = Date.now() + 60 * 60 * 1000;
   const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
   const url = await signInternalArtifactUrl({ baseUrl, path: `/api/files/${objectKey}`, key: objectKey, method: 'GET', secret: c.env.INTERNAL_API_SECRET, expiresAt });
+  if (studio) await repo.audit('studio', studio.id, 'production_file.downloaded', session.email || 'studio', { objectKey: objectKey.split('/').pop() }).catch(() => undefined);
   return c.json({ url });
 });
 
@@ -173,6 +211,7 @@ studioPortal.post('/:slug/production-files/:fileId/plan', async (c) => {
     expectedNetHours: expectedNetHours ?? null,
     estimatedFinishHours: estimatedFinishHours ?? null,
   });
+  await repo.audit('studio', file.studio_id, 'production_file.plan_submitted', session.email || 'studio', { productionFileId: file.id, name: file.name, narrator, expectedNetHours }).catch(() => undefined);
   return c.json({ ok: true });
 });
 
@@ -190,6 +229,7 @@ studioPortal.post('/:slug/production-files/:fileId/status', async (c) => {
     return c.json({ error: 'This book is already delivered.' }, 400);
   }
   await repo.setStudioProductionFileStatus(file.id, status);
+  await repo.audit('studio', file.studio_id, 'production_file.status_changed', session.email || 'studio', { productionFileId: file.id, name: file.name, status }).catch(() => undefined);
   return c.json({ ok: true });
 });
 
@@ -218,7 +258,7 @@ studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
     const pf = await repo.getStudioProductionFile(upload.production_file_id);
     if (pf && pf.studio_id === studio.id) await repo.setStudioProductionFileStatus(pf.id, 'delivered');
   }
-  await repo.audit('studio', studio.id, 'delivery.received', 'studio_portal', { uploadId, objectKey: upload.object_key, audiobookId: upload.audiobook_id, productionFileId: upload.production_file_id });
+  await repo.audit('studio', studio.id, 'delivery.uploaded', session.email || 'studio', { uploadId, name: upload.name, audiobookId: upload.audiobook_id, productionFileId: upload.production_file_id, netFinalHours: upload.net_final_hours });
 
   const baseUrl = c.env.APP_BASE_URL ?? `https://audiobooks.samawy-ops.com`;
   const operators = (await repo.listOperatorUsers()).filter((op) => op.isActive);
@@ -249,6 +289,7 @@ studioPortal.post('/:slug/sample-upload-url', async (c) => {
   const key = keySegments('studios', studio.id, 'samples', `${Date.now()}-${fileName}`);
   const upload = await createUploadUrl(c.env, key, contentType);
   const sampleId = await repo.createStudioSample({ studioId: studio.id, bookId: bookId ?? null, name: fileName, objectKey: key, contentType, sizeBytes: sizeBytes ?? 0 });
+  await repo.audit('studio', studio.id, 'sample.uploaded', session.email || 'studio', { sampleId, name: fileName, bookId: bookId ?? null }).catch(() => undefined);
   // Notify operators
   const operators = await repo.listOperatorUsers();
   const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;

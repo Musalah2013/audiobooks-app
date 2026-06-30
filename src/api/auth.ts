@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Repository } from '../db';
 import type { Env, UserPermission, OperatorUser } from '../types';
 import { ALL_PERMISSIONS } from '../types';
-import { verifyInternalArtifactRequest, verifyMultipartRequest } from '../utils';
+import { verifyInternalArtifactRequest, verifyMultipartRequest, verifyDossierToken } from '../utils';
 import { createSessionCookie, verifySessionCookie, clearSessionCookie, hashPassword, verifyPassword, SESSION_COOKIE } from '../password';
 import { verifyStudioSessionCookie } from './studio-auth';
 import { RateLimiter, loginRateLimiter, bootstrapRateLimiter } from '../rate-limit';
@@ -44,14 +44,30 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
   const cookieHeader = c.req.header('Cookie') ?? null;
 
   // Public auth endpoints (mounted before middleware, but defense-in-depth)
-  if (path === '/api/studio-auth/request' || path === '/api/studio-auth/verify' ||
-      path === '/api/acquisition-auth/request' || path === '/api/acquisition-auth/verify') {
+  if (path === '/api/studio-auth/login' || path === '/api/studio-auth/logout' ||
+      path === '/api/acquisition-auth/login' || path === '/api/acquisition-auth/logout') {
+    return next();
+  }
+
+  // Portal routes enforce their OWN session auth inside each handler (returning a
+  // proper 401 Unauthorized). Let them through here so unauthenticated requests
+  // get the portal's login response instead of the operator "Authentication
+  // required" 401 — which the portal login screens would not recognise.
+  if (path.startsWith('/api/studio-portal/') || path.startsWith('/api/acquisition-portal/')) {
     return next();
   }
 
   const internalSecret = c.req.header('X-Internal-Secret');
   if (internalSecret === c.env.INTERNAL_API_SECRET) {
     return next();
+  }
+
+  // Permanent dossier links embedded in ClickUp tasks — public, validated by a
+  // per-book token (no expiry, no fragile path signing).
+  const dossierMatch = path.match(/^\/api\/books\/([^/]+)\/dossier\/([^/]+)$/);
+  if (dossierMatch && c.req.query('t')) {
+    const ok = await verifyDossierToken(c.env.INTERNAL_API_SECRET, dossierMatch[1], dossierMatch[2], c.req.query('t')!);
+    if (ok) return next();
   }
 
   // Signed links bypass auth (used by ClickUp file links and container downloads/uploads)
@@ -114,6 +130,18 @@ export function requirePermission(permission: UserPermission) {
     const user = c.get("user");
     if (!user || !hasPermission(user, permission)) {
       return c.json({ error: `Requires ${permission} permission` }, 403);
+    }
+    return next();
+  };
+}
+
+// The studios flow is gated by its own `studios` permission, granted per user in
+// Users settings (existing admins were backfilled so they keep access).
+export function requireStudiosAccess() {
+  return async (c: Context<{ Bindings: Env; Variables: { user: OperatorUser | null } }>, next: Next) => {
+    const user = c.get("user");
+    if (!user || !hasPermission(user, 'studios')) {
+      return c.json({ error: 'Requires studios permission' }, 403);
     }
     return next();
   };
@@ -244,7 +272,7 @@ auth.post('/users', async (c) => {
   const parsed = z.object({
     email: z.string().email(),
     name: z.string().optional(),
-    permissions: z.array(z.enum(['intake', 'metadata', 'matching', 'processing', 'dossier', 'users'])),
+    permissions: z.array(z.enum(['intake', 'metadata', 'matching', 'processing', 'dossier', 'users', 'studios'])),
   }).parse(body);
 
   const repo = new Repository(c.env.DB);
@@ -288,7 +316,7 @@ auth.patch('/users/:email', async (c) => {
   const body = await c.req.json();
   const parsed = z.object({
     name: z.string().optional(),
-    permissions: z.array(z.enum(['intake', 'metadata', 'matching', 'processing', 'dossier', 'users'])).optional(),
+    permissions: z.array(z.enum(['intake', 'metadata', 'matching', 'processing', 'dossier', 'users', 'studios'])).optional(),
     isActive: z.boolean().optional(),
   }).parse(body);
 

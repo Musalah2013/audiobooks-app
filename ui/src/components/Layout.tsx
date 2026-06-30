@@ -29,6 +29,7 @@ export default function Layout({ children, user, onLogout }: LayoutProps) {
   const location = useLocation();
   const { locale, isArabic, toggleLocale } = useLocale();
   const isAdmin = user?.permissions?.includes('users') ?? false;
+  const canStudios = user?.permissions?.includes('studios') ?? false;
   const [navOpen, setNavOpen] = useState(false);
 
   // Close the mobile drawer whenever the route changes.
@@ -47,8 +48,10 @@ export default function Layout({ children, user, onLogout }: LayoutProps) {
     { path: '/users', label: isArabic ? 'المستخدمون' : 'Users', icon: Users },
     { path: '/settings', label: isArabic ? 'الإعدادات' : 'Settings', icon: Settings },
     ...(isAdmin ? [
-      { path: '/studios', label: isArabic ? 'الاستوديوهات' : 'Studios', icon: Building2 },
       { path: '/legacy-import', label: isArabic ? 'استيراد كتب قديمة' : 'Legacy Books', icon: Upload },
+    ] : []),
+    ...(canStudios ? [
+      { path: '/studios', label: isArabic ? 'الاستوديوهات' : 'Studios', icon: Building2 },
       { path: '/legacy-studios-import', label: isArabic ? 'استيراد استوديوهات' : 'Legacy Studios', icon: Upload },
     ] : []),
   ];
