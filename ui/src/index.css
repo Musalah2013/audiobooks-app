@@ -196,7 +196,7 @@
 
   /* Main content area */
   .main-content {
-    @apply flex-1 px-4 py-5 overflow-y-auto md:px-6 md:py-6;
+    @apply flex-1 min-w-0 px-4 py-5 overflow-y-auto md:px-6 md:py-6;
   }
 
   .step-pill {
