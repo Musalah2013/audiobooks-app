@@ -78,6 +78,19 @@ export function ensureTrailingSlash(input: string): string {
   return input.endsWith("/") ? input : `${input}/`;
 }
 
+/** Make a user filename safe to embed in an R2 object key + presigned URL:
+ *  drops spaces and URL/S3-risky characters (which can break presigned-PUT
+ *  signatures / re-encoding) while keeping letters (incl. Arabic), digits,
+ *  dots and dashes. The original filename is kept separately for display. */
+export function safeStorageName(fileName: string): string {
+  return (fileName || "file")
+    .replace(/\s+/g, "_")
+    .replace(/[=?#%&+\\{}[\]^`"'<>|@:;,()*!$]/g, "_")
+    .replace(/_{2,}/g, "_")
+    .replace(/^[_-]+|[_-]+$/g, "")
+    || "file";
+}
+
 export function keySegments(...parts: Array<string | number | undefined | null>): string {
   return parts
     .filter((part) => part !== undefined && part !== null && `${part}`.length > 0)

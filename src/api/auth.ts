@@ -75,7 +75,7 @@ export async function authMiddleware(c: Context<{ Bindings: Env; Variables: { us
     const url = new URL(c.req.url);
     const secret = c.env.INTERNAL_API_SECRET;
     const method = c.req.method;
-    if (path.startsWith('/api/files/') || path === '/api/internal/artifacts') {
+    if (path.startsWith('/api/files/') || path === '/api/internal/artifacts' || path.startsWith('/api/local-upload/')) {
       const result = await verifyInternalArtifactRequest({ url, secret, method });
       if (result.ok) return next();
     } else if (path.startsWith('/api/internal/multipart-')) {

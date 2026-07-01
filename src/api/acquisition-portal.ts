@@ -5,7 +5,7 @@ import { Repository } from '../db';
 import { verifyAcquisitionSessionCookie } from './acquisition-auth';
 import { createUploadUrl } from '../pipeline';
 import { sendEmail, notifyEmail } from '../email';
-import { keySegments } from '../utils';
+import { keySegments, safeStorageName } from '../utils';
 import { searchSamawySellers, fetchSamawyGenres } from '../integrations';
 import { hashPassword, verifyPassword } from '../password';
 
@@ -79,7 +79,7 @@ acquisitionPortal.post('/studios/:studioId/production-file-upload-url', async (c
   const studio = await repo.getStudio(studioId);
   if (!studio || !studio.is_active) return c.json({ error: 'Studio not found' }, 404);
   // TODO: Add acquisition_user_studio junction table for fine-grained authorization
-  const key = keySegments('studios', studioId, 'production', `${Date.now()}-${fileName}`);
+  const key = keySegments('studios', studioId, 'production', `${Date.now()}-${safeStorageName(fileName)}`);
   const upload = await createUploadUrl(c.env, key, contentType);
   return c.json({ ...upload, objectKey: key });
 });
@@ -166,7 +166,7 @@ acquisitionPortal.delete('/studios/:studioId/production-files/:fileId', async (c
   if (!acqUser || !acqUser.is_active) return c.json({ error: 'Account inactive' }, 403);
   const file = await repo.getStudioProductionFile(c.req.param('fileId'));
   if (!file || file.studio_id !== c.req.param('studioId')) return c.json({ error: 'Production file not found' }, 404);
-  if (file.audiobook_id) return c.json({ error: 'This file is assigned to a catalog title and in production. Unassign it first.' }, 400);
+  if (file.audiobook_id) return c.json({ error: 'This file is linked to a catalog title in production and cannot be deleted.' }, 400);
   const deleted = await repo.deleteStudioProductionFile(file.id);
   if (deleted?.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key);
   return c.json({ ok: true });

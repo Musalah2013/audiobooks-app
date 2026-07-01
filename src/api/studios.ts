@@ -5,7 +5,7 @@ import { Repository } from '../db';
 import { requirePermission, requireStudiosAccess, actorEmail } from './auth';
 import { createUploadUrl } from '../pipeline';
 import { sendEmail, notifyEmail, sampleReviewedEmail } from '../email';
-import { keySegments, nowIso, buildCatalogStorageBasePath } from '../utils';
+import { keySegments, nowIso, buildCatalogStorageBasePath, safeStorageName } from '../utils';
 import { hashPassword } from '../password';
 
 const studios = new Hono<{ Bindings: Env }>();
@@ -216,7 +216,7 @@ studios.get('/shared-assets', requireStudiosAccess(), async (c) => {
 // Presigned URL only — the row is created on /complete (no ghost on abandon).
 studios.post('/shared-assets/upload-url', requireStudiosAccess(), async (c) => {
   const { fileName, contentType } = z.object({ fileName: z.string(), contentType: z.string().default('application/octet-stream'), sizeBytes: z.number().optional() }).parse(await c.req.json());
-  const key = keySegments('shared-assets', `${Date.now()}-${fileName}`);
+  const key = keySegments('shared-assets', `${Date.now()}-${safeStorageName(fileName)}`);
   const upload = await createUploadUrl(c.env, key, contentType);
   return c.json({ ...upload, objectKey: key });
 });
@@ -334,11 +334,20 @@ studios.post('/:id/deliveries/:uploadId/push', requirePermission('intake'), asyn
   const fileName = upload.object_key.split('/').pop() ?? upload.name;
   const sourceItem = { key: upload.object_key, name: fileName, mimeType: object.httpMetadata?.contentType ?? 'application/octet-stream', sizeBytes: object.size, parentPath: '' };
 
-  // ── Assigned → attach to the existing catalog title (metadata inherited). ──
-  if (upload.audiobook_id) {
-    const book = await repo.getAudiobook(upload.audiobook_id);
-    const candidate = book?.candidateId ? await repo.getCandidate(book.candidateId) : null;
-    if (!book || !candidate) return c.json({ error: 'Assigned title is no longer available.' }, 409);
+  // Resolve an existing catalog target: either set on the delivery itself, or
+  // inherited from the delivered book's production file (set by a prior push).
+  const linkedProductionFile = upload.production_file_id ? await repo.getStudioProductionFile(upload.production_file_id) : null;
+  const targetAudiobookId = upload.audiobook_id ?? (linkedProductionFile?.studio_id === studioId ? linkedProductionFile?.audiobook_id ?? null : null);
+
+  // ── Existing title → attach to it (metadata inherited, no duplicate record). ──
+  const targetBook = targetAudiobookId ? await repo.getAudiobook(targetAudiobookId) : null;
+  const targetCandidate = targetBook?.candidateId ? await repo.getCandidate(targetBook.candidateId) : null;
+  if (targetAudiobookId && upload.audiobook_id && (!targetBook || !targetCandidate)) {
+    return c.json({ error: 'Assigned title is no longer available.' }, 409);
+  }
+  if (targetBook && targetCandidate) {
+    const book = targetBook;
+    const candidate = targetCandidate;
     const newSourceGroup = {
       ...(candidate.sourceGroup ?? {}),
       items: [sourceItem],
@@ -396,6 +405,12 @@ studios.post('/:id/deliveries/:uploadId/push', requirePermission('intake'), asyn
     processingStatus: 'pending', isLegacy: false,
   });
   await repo.setDriveUploadAudiobook(uploadId, bookId);
+  // Auto-link the delivered book's production file to the new catalog title, so
+  // the book row shows its title and future re-deliveries attach instead of
+  // creating a duplicate record. (Replaces the removed manual assign feature.)
+  if (linkedProductionFile && linkedProductionFile.studio_id === studioId) {
+    await repo.setStudioProductionFileAudiobook(linkedProductionFile.id, bookId).catch(() => undefined);
+  }
   await repo.updateDriveUpload(uploadId, { status: 'pushed' });
   await repo.audit('audiobook_record', bookId, 'delivery.pushed_new', actorEmail(c.req.raw), { studioId, uploadId, batchId: batch.id });
   await repo.audit('studio', studioId, 'delivery.pushed', actorEmail(c.req.raw), { uploadId, audiobookId: bookId, title: meta.title }).catch(() => undefined);
@@ -534,7 +549,7 @@ studios.post('/:id/asset-upload-url', requireStudiosAccess(), async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(studioId);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
-  const key = keySegments('studios', studioId, 'assets', `${Date.now()}-${fileName}`);
+  const key = keySegments('studios', studioId, 'assets', `${Date.now()}-${safeStorageName(fileName)}`);
   const upload = await createUploadUrl(c.env, key, contentType);
   const assetId = await repo.createStudioAsset({ studioId, name: fileName, objectKey: key, contentType, sizeBytes: sizeBytes ?? 0, uploadedBy: actorEmail(c.req.raw) });
   return c.json({ ...upload, objectKey: key, assetId });
@@ -563,7 +578,7 @@ studios.post('/:id/production-file-upload-url', requireStudiosAccess(), async (c
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(studioId);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
-  const key = keySegments('studios', studioId, 'production', `${Date.now()}-${fileName}`);
+  const key = keySegments('studios', studioId, 'production', `${Date.now()}-${safeStorageName(fileName)}`);
   const upload = await createUploadUrl(c.env, key, contentType);
   return c.json({ ...upload, objectKey: key });
 });
@@ -607,30 +622,10 @@ studios.delete('/:id/production-files/:fileId', requireStudiosAccess(), async (c
   const repo = new Repository(c.env.DB);
   const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
   if (!file || file.studio_id !== c.req.param('id')) return c.json({ error: 'Production file not found' }, 404);
-  if (file.audiobook_id) return c.json({ error: 'This file is assigned to a catalog title and in production. Unassign it first.' }, 400);
+  if (file.audiobook_id) return c.json({ error: 'This file is linked to a catalog title in production and cannot be deleted.' }, 400);
   const deleted = await repo.deleteStudioProductionFile(file.id);
   if (deleted?.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key);
   return c.json({ ok: true });
-});
-
-// Assign (or clear) the catalog title a production file narrates.
-studios.patch('/:id/production-files/:fileId/assign', requireStudiosAccess(), async (c) => {
-  const { audiobookId } = z.object({ audiobookId: z.string().nullable() }).parse(await c.req.json());
-  const repo = new Repository(c.env.DB);
-  const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
-  if (!file || file.studio_id !== c.req.param('id')) return c.json({ error: 'Production file not found' }, 404);
-  let audiobookTitle: string | null = null;
-  if (audiobookId) {
-    const book = await repo.getAudiobook(audiobookId);
-    if (!book) return c.json({ error: 'Audiobook not found' }, 404);
-    audiobookTitle = book.title;
-  }
-  await repo.setStudioProductionFileAudiobook(file.id, audiobookId);
-  await repo.audit('studio', file.studio_id, audiobookId ? 'production_file.assigned' : 'production_file.unassigned', actorEmail(c.req.raw), {
-    productionFileId: file.id,
-    audiobookId,
-  });
-  return c.json({ ok: true, productionFile: productionFileToApi({ ...file, audiobook_id: audiobookId }, audiobookTitle) });
 });
 
 // ─── Samples ──────────────────────────────────────────────────────────────────
