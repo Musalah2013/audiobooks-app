@@ -1563,7 +1563,17 @@ export async function buildTrackDrafts(repo: Repository, audiobook: AudiobookRec
 
 export async function createUploadUrl(env: Env, key: string, contentType: string) {
   const signer = createR2Signer(env);
-  if (!signer || !env.R2_ACCOUNT_ID) return { uploadUrl: `/api/local-upload/${encodeURIComponent(key)}` };
+  if (!signer || !env.R2_ACCOUNT_ID) {
+    // No R2 S3 creds → upload streams through the worker. Sign the URL so
+    // portal (studio/acquisition) sessions — which aren't allowed on
+    // /api/local-upload by the operator auth middleware — can still PUT.
+    const baseUrl = env.APP_BASE_URL ?? "https://audiobooks.samawy-ops.com";
+    const uploadUrl = await signInternalArtifactUrl({
+      baseUrl, path: `/api/local-upload/${key}`, key, method: "PUT",
+      secret: env.INTERNAL_API_SECRET, expiresAt: Date.now() + 60 * 60 * 1000,
+    });
+    return { uploadUrl };
+  }
   const url = new URL(`https://${env.SOURCE_BUCKET_NAME}.${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${key}`);
   url.searchParams.set("X-Amz-Expires", "3600");
   const signed = await signer.sign(new Request(url, { method: "PUT", headers: { "Content-Type": contentType } }), {
