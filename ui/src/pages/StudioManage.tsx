@@ -5,7 +5,7 @@ import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { AudioPlayer } from '../components/AudioPlayer';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
-import type { Studio, StudioContact, StudioAsset, StudioProductionFile, StudioSample, StudioDriveUpload, StudioLegacyProduction, BooksResponse } from '@api';
+import type { Studio, StudioContact, StudioAsset, StudioProductionFile, StudioSample, StudioDriveUpload, StudioLegacyProduction } from '@api';
 
 interface ManageData {
   studio: Studio;
@@ -47,8 +47,6 @@ export default function StudioManage() {
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [confirmDeleteSample, setConfirmDeleteSample] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [assigning, setAssigning] = useState<string | null>(null);
-  const { data: booksData } = useApi<BooksResponse>('/api/books');
   const { data: genresData } = useApi<{ genres: { id: string | number | null; name: string }[] }>('/api/sellers/genres');
   const logoInputRef = useRef<HTMLInputElement>(null);
 
@@ -353,19 +351,6 @@ export default function StudioManage() {
     }
   }
 
-  async function assignBook(fileId: string, audiobookId: string | null) {
-    setAssigning(fileId);
-    try {
-      await apiRequest(`/api/studios/${id}/production-files/${fileId}/assign`, { method: 'PATCH', body: { audiobookId } });
-      addToast(audiobookId ? (isArabic ? 'تم ربط الملف بالعنوان.' : 'Linked to catalog title.') : (isArabic ? 'تم إلغاء الربط.' : 'Assignment cleared.'), 'success');
-      refetch();
-    } catch (err) {
-      addToast(err instanceof Error ? err : (isArabic ? 'فشل الربط' : 'Assign failed'), 'error');
-    } finally {
-      setAssigning(null);
-    }
-  }
-
   async function reviewSample(sampleId: string, status: 'approved' | 'refused') {
     setReviewing(sampleId);
     try {
@@ -625,26 +610,17 @@ export default function StudioManage() {
                     )}
                   </div>
                 </div>
-                {/* Catalog assignment */}
-                <div className="mt-2 flex items-center gap-2 pl-7">
-                  <Link2 className="h-3.5 w-3.5 text-[color:var(--fg-2)] shrink-0" />
-                  <select
-                    className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 max-w-[260px] disabled:opacity-50"
-                    value={f.audiobookId ?? ''}
-                    disabled={assigning === f.id}
-                    onChange={(e) => assignBook(f.id, e.target.value || null)}
-                  >
-                    <option value="">{isArabic ? '— غير مرتبط بعنوان —' : '— Not linked to a title —'}</option>
-                    {booksData?.books.map((b) => (
-                      <option key={b.id} value={b.id}>{b.title}{b.publisherName ? ` · ${b.publisherName}` : ''}</option>
-                    ))}
-                  </select>
-                  {f.audiobookId && (
+                {/* Existing catalog link (read-only — assigning was removed; new titles
+                    are created when the operator pushes a delivery with metadata) */}
+                {f.audiobookId && (
+                  <div className="mt-2 flex items-center gap-2 pl-7">
+                    <Link2 className="h-3.5 w-3.5 text-[color:var(--fg-2)] shrink-0" />
+                    <span className="text-xs text-[color:var(--fg-2)]">{isArabic ? 'مرتبط بعنوان:' : 'Linked title:'} <strong className="text-[color:var(--samawy-ink)]">{f.audiobookTitle ?? f.audiobookId}</strong></span>
                     <Link to={`/books/${f.audiobookId}`} className="text-xs text-[color:var(--samawy-blue)] underline shrink-0">
                       {isArabic ? 'عرض العنوان' : 'View title'}
                     </Link>
-                  )}
-                </div>
+                  </div>
+                )}
                 {/* Studio production plan (read-only) */}
                 {(f.narrator || f.expectedNetHours != null || f.estimatedFinishHours != null) && (
                   <div className="mt-2 ml-7 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[color:var(--fg-2)]">

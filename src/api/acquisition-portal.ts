@@ -166,7 +166,7 @@ acquisitionPortal.delete('/studios/:studioId/production-files/:fileId', async (c
   if (!acqUser || !acqUser.is_active) return c.json({ error: 'Account inactive' }, 403);
   const file = await repo.getStudioProductionFile(c.req.param('fileId'));
   if (!file || file.studio_id !== c.req.param('studioId')) return c.json({ error: 'Production file not found' }, 404);
-  if (file.audiobook_id) return c.json({ error: 'This file is assigned to a catalog title and in production. Unassign it first.' }, 400);
+  if (file.audiobook_id) return c.json({ error: 'This file is linked to a catalog title in production and cannot be deleted.' }, 400);
   const deleted = await repo.deleteStudioProductionFile(file.id);
   if (deleted?.object_key) await c.env.ASSET_BUCKET.delete(deleted.object_key);
   return c.json({ ok: true });

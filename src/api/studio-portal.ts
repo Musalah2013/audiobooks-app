@@ -202,7 +202,6 @@ studioPortal.post('/:slug/production-files/:fileId/plan', async (c) => {
   const repo = new Repository(c.env.DB);
   const file = await repo.getStudioProductionFile(c.req.param('fileId')!);
   if (!file || file.studio_id !== session.studioId) return c.json({ error: 'Not found' }, 404);
-  if (!file.audiobook_id) return c.json({ error: 'This file is not assigned to a title yet.' }, 400);
   const samples = await repo.listStudioSamples(session.studioId);
   const approved = samples.some((s) => s.book_id === file.id && s.status === 'approved');
   if (!approved) return c.json({ error: 'A sample must be approved before submitting the production plan.' }, 400);

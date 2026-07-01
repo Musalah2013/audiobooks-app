@@ -690,7 +690,7 @@ export default function StudioPortal() {
                     estimatedFinishHours: f.estimatedFinishHours != null ? String(f.estimatedFinishHours) : '',
                   };
                   const setField = (k: 'narrator' | 'expectedNetHours' | 'estimatedFinishHours', v: string) => setPlanDraft((prev) => ({ ...prev, [f.id]: { ...d, [k]: v } }));
-                  const showPlan = !!f.audiobookId && !!f.hasApprovedSample;
+                  const showPlan = !!f.hasApprovedSample;
                   return (
                     <div key={f.id} className="p-4 rounded-xl border border-slate-100 hover:border-slate-200 hover:shadow-sm transition-all bg-white">
                       <div className="flex items-center gap-4">
