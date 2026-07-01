@@ -278,6 +278,22 @@ studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
   return c.json({ ok: true });
 });
 
+// A studio deletes its own delivery (mistaken / incomplete upload). Not allowed
+// once an operator has pushed it into the system.
+studioPortal.delete('/:slug/drive-uploads/:uploadId', async (c) => {
+  const slug = c.req.param('slug');
+  const session = await requireStudioSession(c, slug);
+  if (!session) return c.json({ error: 'Unauthorized' }, 401);
+  const repo = new Repository(c.env.DB);
+  const upload = await repo.getDriveUpload(c.req.param('uploadId'));
+  if (!upload || upload.studio_id !== session.studioId) return c.json({ error: 'Not found' }, 404);
+  if (upload.status === 'pushed') return c.json({ error: 'This delivery is already in production and cannot be deleted.' }, 400);
+  if (upload.object_key) await c.env.ASSET_BUCKET.delete(upload.object_key).catch(() => undefined);
+  await repo.deleteDriveUpload(upload.id);
+  await repo.audit('studio', session.studioId, 'delivery.deleted', session.email || 'studio', { uploadId: upload.id, name: upload.name }).catch(() => undefined);
+  return c.json({ ok: true });
+});
+
 studioPortal.post('/:slug/sample-upload-url', async (c) => {
   const slug = c.req.param('slug');
   const session = await requireStudioSession(c, slug);

@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import {
   Download, Upload, CheckCircle2, FileText, Music, CloudUpload, Send, Loader2,
   Search, BookOpen, Package, Inbox, LogOut, Globe, ChevronDown,
-  FileAudio, Hash, Calendar, AlertCircle, Clock, KeyRound
+  FileAudio, Hash, Calendar, AlertCircle, Clock, KeyRound, Trash2
 } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { useLocale } from '../hooks/useLocale';
@@ -193,7 +193,9 @@ export default function StudioPortal() {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [selectedBookId, setSelectedBookId] = useState<string>('');
   const [deliveryTitleId, setDeliveryTitleId] = useState<string>('');
+  const [deliveryBookId, setDeliveryBookId] = useState<string>('');
   const [deliveryNetHours, setDeliveryNetHours] = useState<string>('');
+  const [confirmDeleteDelivery, setConfirmDeleteDelivery] = useState<string | null>(null);
   const [deliveryNotes, setDeliveryNotes] = useState<string>('');
   const [planDraft, setPlanDraft] = useState<Record<string, { narrator: string; expectedNetHours: string; estimatedFinishHours: string }>>({});
   const [savingPlan, setSavingPlan] = useState<string | null>(null);
@@ -345,6 +347,7 @@ export default function StudioPortal() {
   // Deliver a book directly from its row: upload the final audio tied to the book,
   // which marks it "delivered" server-side.
   async function deliverBook(fileId: string, file: File) {
+    if (uploading || deliveringBookId) { showNotice(t('يوجد رفع جارٍ بالفعل — انتظر حتى ينتهي.', 'An upload is already in progress — wait for it to finish.')); return; }
     setDeliveringBookId(fileId); setUploadProgress(0);
     const netFinalHours = bookDeliveryHours.trim() === '' ? null : Number(bookDeliveryHours);
     const notes = bookDeliveryNotes.trim() || null;
@@ -410,6 +413,7 @@ export default function StudioPortal() {
       body: {
         fileName: file.name, contentType: file.type || 'application/octet-stream',
         audiobookId: deliveryTitleId || null,
+        productionFileId: deliveryBookId || null,
         netFinalHours: deliveryNetHours.trim() === '' ? null : Number(deliveryNetHours),
         notes: deliveryNotes.trim() || null,
       },
@@ -441,6 +445,7 @@ export default function StudioPortal() {
   }
 
   async function handleDriveUpload(file: File) {
+    if (uploading || deliveringBookId) { showNotice(t('يوجد رفع جارٍ بالفعل — انتظر حتى ينتهي.', 'An upload is already in progress — wait for it to finish.')); return; }
     setUploading(true); setUploadProgress(0);
     const LARGE = 80 * 1024 * 1024; // 80 MB → switch to multipart
     try {
@@ -453,6 +458,7 @@ export default function StudioPortal() {
           body: {
             fileName: file.name, contentType: file.type, sizeBytes: file.size,
             audiobookId: deliveryTitleId || null,
+            productionFileId: deliveryBookId || null,
             netFinalHours: deliveryNetHours.trim() === '' ? null : Number(deliveryNetHours),
             notes: deliveryNotes.trim() || null,
           },
@@ -461,13 +467,24 @@ export default function StudioPortal() {
         uploadId = res.uploadId;
       }
       await apiRequest(`/api/studio-portal/${slug}/drive-uploads/${uploadId}/complete`, { method: 'POST' });
-      setDeliveryNetHours(''); setDeliveryNotes('');
-      showNotice(deliveryTitleId ? t('تم تسليم الصوت النهائي للعنوان المحدد بنجاح.', 'Final audio delivered for the selected title.') : t('تم رفع الملف بنجاح وسيراجعه الفريق.', 'File uploaded — the team will review it.'));
+      setDeliveryNetHours(''); setDeliveryNotes(''); setDeliveryBookId('');
+      showNotice(deliveryBookId ? t('تم تسليم الكتاب المحدد بنجاح.', 'Delivered the selected book.') : deliveryTitleId ? t('تم تسليم الصوت النهائي للعنوان المحدد بنجاح.', 'Final audio delivered for the selected title.') : t('تم رفع الملف بنجاح وسيراجعه الفريق.', 'File uploaded — the team will review it.'));
       refetch();
     } catch (err) {
       showNotice(err instanceof Error ? err.message : t('فشل الرفع', 'Upload failed'));
     } finally {
       setUploading(false); setUploadProgress(0);
+    }
+  }
+
+  async function deleteDelivery(uploadId: string) {
+    try {
+      await apiRequest(`/api/studio-portal/${slug}/drive-uploads/${uploadId}`, { method: 'DELETE' });
+      showNotice(t('تم حذف التسليم.', 'Delivery deleted.'));
+      setConfirmDeleteDelivery(null);
+      refetch();
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : t('فشل الحذف', 'Delete failed'));
     }
   }
 
@@ -782,7 +799,16 @@ export default function StudioPortal() {
           <div className="space-y-4">
             <div className="bg-white rounded-2xl border border-slate-100 p-6">
               <h2 className="text-base font-bold text-slate-900 mb-1">{t('تسليم الصوت النهائي', 'Deliver final audio')}</h2>
-              <p className="text-xs text-slate-400 mb-4">{t('ارفع ملفات الكتاب الصوتي النهائية. اختر العنوان المُسنَد إليك لإرساله مباشرةً إلى المعالجة، أو اتركه دون تحديد لمراجعة الفريق.', 'Upload the finished audiobook files. Pick an assigned title to send it straight to processing, or leave it unselected for the team to review.')}</p>
+              <p className="text-xs text-slate-400 mb-4">{t('ارفع ملفات الكتاب الصوتي النهائية. اختر الكتاب الذي يخصه هذا التسليم ليظهر أنه "تم التسليم" في صفحة الإنتاج.', 'Upload the finished audiobook files. Pick which book this delivery is for so it shows as "Delivered" on the Production tab.')}</p>
+              {productionFiles.length > 0 && (
+                <div className="mb-4">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">{t('الكتاب الذي يخصه هذا التسليم', 'Which book is this for')}</label>
+                  <select value={deliveryBookId} onChange={(e) => setDeliveryBookId(e.target.value)} className="w-full max-w-md rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" dir={dir}>
+                    <option value="">{t('— بدون تحديد (مراجعة الفريق) —', '— Not specified (team review) —')}</option>
+                    {productionFiles.filter((f) => f.productionStatus !== 'delivered').map((f) => (<option key={f.id} value={f.id}>{f.name}</option>))}
+                  </select>
+                </div>
+              )}
               {assignedTitles.length > 0 && (
                 <div className="mb-4">
                   <label className="block text-xs font-semibold text-slate-600 mb-1">{t('العنوان المُسنَد (اختياري)', 'Assigned title (optional)')}</label>
@@ -804,7 +830,7 @@ export default function StudioPortal() {
               </div>
               <input type="file" ref={driveInputRef} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleDriveUpload(f); }} />
               <div className="flex items-center gap-4">
-                <button disabled={uploading} onClick={() => driveInputRef.current?.click()} className="flex items-center gap-2 px-5 py-3 bg-[#0b80ff] text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:bg-blue-600 transition-all">
+                <button disabled={uploading || !!deliveringBookId} onClick={() => driveInputRef.current?.click()} className="flex items-center gap-2 px-5 py-3 bg-[#0b80ff] text-white rounded-xl text-sm font-semibold disabled:opacity-50 hover:bg-blue-600 transition-all">
                   <CloudUpload size={18} />
                   {uploading ? t('جاري الرفع…', 'Uploading…') : t('اختيار ملف', 'Choose file')}
                 </button>
@@ -830,8 +856,18 @@ export default function StudioPortal() {
                         <p className="text-sm font-semibold text-slate-800 truncate">{d.name}</p>
                         <p className="text-xs text-slate-400 mt-0.5">{fd(d.createdAt)}</p>
                       </div>
-                      <StatusBadge status={d.status} isArabic={isArabic} />
                       {d.error && (<span className="text-xs text-red-500 flex items-center gap-1"><AlertCircle size={12} /> {d.error}</span>)}
+                      <StatusBadge status={d.status} isArabic={isArabic} />
+                      {d.status !== 'pushed' && (
+                        confirmDeleteDelivery === d.id ? (
+                          <span className="flex items-center gap-1 shrink-0">
+                            <button onClick={() => deleteDelivery(d.id)} className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white">{t('تأكيد', 'Confirm')}</button>
+                            <button onClick={() => setConfirmDeleteDelivery(null)} className="text-[10px] text-slate-500">{t('إلغاء', 'Cancel')}</button>
+                          </span>
+                        ) : (
+                          <button onClick={() => setConfirmDeleteDelivery(d.id)} className="text-red-400 hover:text-red-600 shrink-0" title={t('حذف', 'Delete')}><Trash2 size={15} /></button>
+                        )
+                      )}
                     </div>
                   ))}
                 </div>
