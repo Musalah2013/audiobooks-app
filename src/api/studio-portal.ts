@@ -6,7 +6,7 @@ import { verifyStudioSessionCookie } from './studio-auth';
 import { createUploadUrl } from '../pipeline';
 import { signInternalArtifactUrl, signMultipartUrl } from '../utils';
 import { sendEmail, notifyEmail } from '../email';
-import { keySegments, nowIso } from '../utils';
+import { keySegments, nowIso, safeStorageName } from '../utils';
 import { hashPassword, verifyPassword } from '../password';
 
 const studioPortal = new Hono<{ Bindings: Env }>();
@@ -147,7 +147,7 @@ studioPortal.post('/:slug/drive-upload-url', async (c) => {
     const pf = await repo.getStudioProductionFile(productionFileId);
     if (!pf || pf.studio_id !== studio.id) return c.json({ error: 'That book is not part of your studio.' }, 403);
   }
-  const key = keySegments('studios', studio.id, 'deliveries', `${Date.now()}-${fileName}`);
+  const key = keySegments('studios', studio.id, 'deliveries', `${Date.now()}-${safeStorageName(fileName)}`);
   const upload = await createUploadUrl(c.env, key, contentType);
   const uploadId = await repo.createDriveUpload({ studioId: studio.id, name: fileName, objectKey: key, audiobookId: audiobookId ?? null, netFinalHours: netFinalHours ?? null, notes: notes ?? null, productionFileId: productionFileId ?? null });
   return c.json({ ...upload, objectKey: key, uploadId });
@@ -179,7 +179,7 @@ studioPortal.post('/:slug/delivery-multipart-start', async (c) => {
     const pf = await repo.getStudioProductionFile(productionFileId);
     if (!pf || pf.studio_id !== studio.id) return c.json({ error: 'That book is not part of your studio.' }, 403);
   }
-  const key = keySegments('studios', studio.id, 'deliveries', `${Date.now()}-${fileName}`);
+  const key = keySegments('studios', studio.id, 'deliveries', `${Date.now()}-${safeStorageName(fileName)}`);
   const uploadId = await repo.createDriveUpload({ studioId: studio.id, name: fileName, objectKey: key, audiobookId: audiobookId ?? null, netFinalHours: netFinalHours ?? null, notes: notes ?? null, productionFileId: productionFileId ?? null });
   const baseUrl = c.env.APP_BASE_URL ?? `https://${new URL(c.req.url).host}`;
   const multipartStartUrl = await signMultipartUrl({
@@ -286,7 +286,7 @@ studioPortal.post('/:slug/sample-upload-url', async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudioBySlug(slug);
   if (!studio) return c.json({ error: 'Not found' }, 404);
-  const key = keySegments('studios', studio.id, 'samples', `${Date.now()}-${fileName}`);
+  const key = keySegments('studios', studio.id, 'samples', `${Date.now()}-${safeStorageName(fileName)}`);
   const upload = await createUploadUrl(c.env, key, contentType);
   const sampleId = await repo.createStudioSample({ studioId: studio.id, bookId: bookId ?? null, name: fileName, objectKey: key, contentType, sizeBytes: sizeBytes ?? 0 });
   await repo.audit('studio', studio.id, 'sample.uploaded', session.email || 'studio', { sampleId, name: fileName, bookId: bookId ?? null }).catch(() => undefined);

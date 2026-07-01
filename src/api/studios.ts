@@ -5,7 +5,7 @@ import { Repository } from '../db';
 import { requirePermission, requireStudiosAccess, actorEmail } from './auth';
 import { createUploadUrl } from '../pipeline';
 import { sendEmail, notifyEmail, sampleReviewedEmail } from '../email';
-import { keySegments, nowIso, buildCatalogStorageBasePath } from '../utils';
+import { keySegments, nowIso, buildCatalogStorageBasePath, safeStorageName } from '../utils';
 import { hashPassword } from '../password';
 
 const studios = new Hono<{ Bindings: Env }>();
@@ -216,7 +216,7 @@ studios.get('/shared-assets', requireStudiosAccess(), async (c) => {
 // Presigned URL only — the row is created on /complete (no ghost on abandon).
 studios.post('/shared-assets/upload-url', requireStudiosAccess(), async (c) => {
   const { fileName, contentType } = z.object({ fileName: z.string(), contentType: z.string().default('application/octet-stream'), sizeBytes: z.number().optional() }).parse(await c.req.json());
-  const key = keySegments('shared-assets', `${Date.now()}-${fileName}`);
+  const key = keySegments('shared-assets', `${Date.now()}-${safeStorageName(fileName)}`);
   const upload = await createUploadUrl(c.env, key, contentType);
   return c.json({ ...upload, objectKey: key });
 });
@@ -534,7 +534,7 @@ studios.post('/:id/asset-upload-url', requireStudiosAccess(), async (c) => {
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(studioId);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
-  const key = keySegments('studios', studioId, 'assets', `${Date.now()}-${fileName}`);
+  const key = keySegments('studios', studioId, 'assets', `${Date.now()}-${safeStorageName(fileName)}`);
   const upload = await createUploadUrl(c.env, key, contentType);
   const assetId = await repo.createStudioAsset({ studioId, name: fileName, objectKey: key, contentType, sizeBytes: sizeBytes ?? 0, uploadedBy: actorEmail(c.req.raw) });
   return c.json({ ...upload, objectKey: key, assetId });
@@ -563,7 +563,7 @@ studios.post('/:id/production-file-upload-url', requireStudiosAccess(), async (c
   const repo = new Repository(c.env.DB);
   const studio = await repo.getStudio(studioId);
   if (!studio) return c.json({ error: 'Studio not found' }, 404);
-  const key = keySegments('studios', studioId, 'production', `${Date.now()}-${fileName}`);
+  const key = keySegments('studios', studioId, 'production', `${Date.now()}-${safeStorageName(fileName)}`);
   const upload = await createUploadUrl(c.env, key, contentType);
   return c.json({ ...upload, objectKey: key });
 });

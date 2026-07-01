@@ -5,7 +5,7 @@ import { Repository } from '../db';
 import { verifyAcquisitionSessionCookie } from './acquisition-auth';
 import { createUploadUrl } from '../pipeline';
 import { sendEmail, notifyEmail } from '../email';
-import { keySegments } from '../utils';
+import { keySegments, safeStorageName } from '../utils';
 import { searchSamawySellers, fetchSamawyGenres } from '../integrations';
 import { hashPassword, verifyPassword } from '../password';
 
@@ -79,7 +79,7 @@ acquisitionPortal.post('/studios/:studioId/production-file-upload-url', async (c
   const studio = await repo.getStudio(studioId);
   if (!studio || !studio.is_active) return c.json({ error: 'Studio not found' }, 404);
   // TODO: Add acquisition_user_studio junction table for fine-grained authorization
-  const key = keySegments('studios', studioId, 'production', `${Date.now()}-${fileName}`);
+  const key = keySegments('studios', studioId, 'production', `${Date.now()}-${safeStorageName(fileName)}`);
   const upload = await createUploadUrl(c.env, key, contentType);
   return c.json({ ...upload, objectKey: key });
 });
