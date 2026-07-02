@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2, CloudUpload, Mail, DollarSign, Plus, Pencil, Search, ChevronDown, BookOpen, KeyRound } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { AudioPlayer } from '../components/AudioPlayer';
+import { AcqMetadata } from '../components/AcqMetadata';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
 import type { Studio, StudioContact, StudioAsset, StudioProductionFile, StudioSample, StudioDriveUpload, StudioLegacyProduction } from '@api';
@@ -591,9 +592,10 @@ export default function StudioManage() {
                           </span>
                         )}
                       </div>
-                      {f.bookAuthor && <p className="text-xs text-[color:var(--fg-2)] truncate">{isArabic ? 'المؤلف:' : 'Author:'} {f.bookAuthor}</p>}
                       <p className="text-xs text-[color:var(--fg-2)]">{formatBytes(f.sizeBytes)} · {f.uploadedBy} · {new Date(f.createdAt).toLocaleDateString()}</p>
-                      {f.acqNotes && <p className="text-xs text-[color:var(--fg-2)] mt-0.5 italic">{f.acqNotes}</p>}
+                      {/* All metadata entered by the acquisition team, rendered dynamically. */}
+                      {f.acqMetadata ? <AcqMetadata data={f.acqMetadata} className="mt-1" /> : (f.bookAuthor && <p className="text-xs text-[color:var(--fg-2)] truncate">{isArabic ? 'المؤلف:' : 'Author:'} {f.bookAuthor}</p>)}
+                      {f.acqNotes && <p className="text-xs text-[color:var(--fg-2)] mt-1 italic">{f.acqNotes}</p>}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -994,6 +996,7 @@ function auditMeta(action: string, isArabic: boolean): { label: string; dot: str
     'sample.reviewed':              { ar: 'تمت مراجعة عينة', en: 'Sample reviewed', dot: 'bg-emerald-500' },
     'sample.deleted':               { ar: 'حُذفت عينة', en: 'Sample deleted', dot: 'bg-red-500' },
     'delivery.uploaded':            { ar: 'رفع تسليماً', en: 'Uploaded a delivery', dot: 'bg-emerald-600' },
+    'delivery.meta_edited':         { ar: 'عدّل ساعات/ملاحظات التسليم', en: 'Edited delivery hours/notes', dot: 'bg-amber-500' },
     'delivery.received':            { ar: 'تم استلام تسليم', en: 'Delivery received', dot: 'bg-emerald-600' },
     'delivery.pushed':              { ar: 'دُفع التسليم للنظام', en: 'Delivery pushed to system', dot: 'bg-violet-600' },
     'delivery.deleted':             { ar: 'حُذف تسليم', en: 'Delivery deleted', dot: 'bg-red-500' },
@@ -1015,6 +1018,13 @@ function auditDetailText(ev: AuditEvent, isArabic: boolean): string {
   if (ev.action === 'sample.reviewed') {
     const st = pick('status');
     return [name, st === 'approved' ? (isArabic ? 'موافقة' : 'Approved') : (isArabic ? 'مرفوضة' : 'Refused')].filter(Boolean).join(' — ');
+  }
+  if (ev.action === 'delivery.meta_edited') {
+    const from = (d.from ?? {}) as { netFinalHours?: number | null; notes?: string | null };
+    const to = (d.to ?? {}) as { netFinalHours?: number | null; notes?: string | null };
+    const h = (from.netFinalHours ?? '—') !== (to.netFinalHours ?? '—') ? `${isArabic ? 'ساعات' : 'hrs'}: ${from.netFinalHours ?? '—'} → ${to.netFinalHours ?? '—'}` : '';
+    const n = (from.notes ?? '') !== (to.notes ?? '') ? (isArabic ? 'تغيّرت الملاحظات' : 'notes changed') : '';
+    return [name, [h, n].filter(Boolean).join(', ')].filter(Boolean).join(' — ');
   }
   return name ?? '';
 }

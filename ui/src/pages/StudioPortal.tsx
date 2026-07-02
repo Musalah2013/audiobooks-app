@@ -8,6 +8,7 @@ import {
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { useLocale } from '../hooks/useLocale';
 import { AudioPlayer } from '../components/AudioPlayer';
+import { AcqMetadata } from '../components/AcqMetadata';
 import type { StudioPortalResponse } from '@api';
 
 const API_BASE_URL = typeof API_BASE === 'string' ? API_BASE : '';
@@ -196,6 +197,10 @@ export default function StudioPortal() {
   const [deliveryBookId, setDeliveryBookId] = useState<string>('');
   const [deliveryNetHours, setDeliveryNetHours] = useState<string>('');
   const [confirmDeleteDelivery, setConfirmDeleteDelivery] = useState<string | null>(null);
+  const [editingDelivery, setEditingDelivery] = useState<string | null>(null);
+  const [editHours, setEditHours] = useState<string>('');
+  const [editNotes, setEditNotes] = useState<string>('');
+  const [savingDelivery, setSavingDelivery] = useState<string | null>(null);
   const [deliveryNotes, setDeliveryNotes] = useState<string>('');
   const [planDraft, setPlanDraft] = useState<Record<string, { narrator: string; expectedNetHours: string; estimatedFinishHours: string }>>({});
   const [savingPlan, setSavingPlan] = useState<string | null>(null);
@@ -477,6 +482,20 @@ export default function StudioPortal() {
     }
   }
 
+  async function saveDeliveryMeta(uploadId: string) {
+    setSavingDelivery(uploadId);
+    try {
+      const v = editHours.trim() === '' ? null : Number(editHours);
+      if (v != null && (!Number.isFinite(v) || v < 0)) throw new Error(t('قيمة ساعات غير صالحة', 'Invalid hours value'));
+      await apiRequest(`/api/studio-portal/${slug}/drive-uploads/${uploadId}`, { method: 'PATCH', body: { netFinalHours: v, notes: editNotes.trim() || null } });
+      showNotice(t('تم تحديث التسليم.', 'Delivery updated.'));
+      setEditingDelivery(null);
+      refetch();
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : t('فشل الحفظ', 'Failed to save'));
+    } finally { setSavingDelivery(null); }
+  }
+
   async function deleteDelivery(uploadId: string) {
     try {
       await apiRequest(`/api/studio-portal/${slug}/drive-uploads/${uploadId}`, { method: 'DELETE' });
@@ -702,6 +721,8 @@ export default function StudioPortal() {
                             <span className="text-xs text-slate-400 flex items-center gap-1"><Hash size={12} /> {formatBytes(f.sizeBytes)}</span>
                             <span className="text-xs text-slate-400 flex items-center gap-1"><Calendar size={12} /> {fd(f.createdAt)}</span>
                           </div>
+                          {/* Book details entered by the acquisition team (dynamic). */}
+                          {f.acqMetadata && <AcqMetadata data={f.acqMetadata} className="mt-2" />}
                         </div>
                         <button onClick={async () => { const url = await getPdfDownloadUrl(f.objectKey); window.open(url, '_blank'); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-lg transition-all flex-shrink-0">
                           <Download size={14} /> {t('تنزيل', 'Download')}
@@ -850,22 +871,48 @@ export default function StudioPortal() {
               ) : (
                 <div className="grid gap-3">
                   {driveUploads.map((d) => (
-                    <div key={d.id} className="flex items-center gap-4 p-4 rounded-xl border border-slate-100 hover:border-slate-200 transition-all">
-                      <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0"><CloudUpload size={18} className="text-emerald-500" /></div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 truncate">{d.name}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">{fd(d.createdAt)}</p>
+                    <div key={d.id} className="p-4 rounded-xl border border-slate-100 hover:border-slate-200 transition-all">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0"><CloudUpload size={18} className="text-emerald-500" /></div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 truncate">{d.name}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{fd(d.createdAt)}</p>
+                        </div>
+                        {d.error && (<span className="text-xs text-red-500 flex items-center gap-1"><AlertCircle size={12} /> {d.error}</span>)}
+                        <StatusBadge status={d.status} isArabic={isArabic} />
+                        <button onClick={() => { setEditingDelivery(editingDelivery === d.id ? null : d.id); setEditHours(d.netFinalHours != null ? String(d.netFinalHours) : ''); setEditNotes(d.notes ?? ''); }} className="text-xs text-slate-500 hover:text-[#0b80ff] underline shrink-0" title={t('تعديل الساعات/الملاحظات', 'Edit hours/notes')}>{t('تعديل', 'Edit')}</button>
+                        {d.status !== 'pushed' && (
+                          confirmDeleteDelivery === d.id ? (
+                            <span className="flex items-center gap-1 shrink-0">
+                              <button onClick={() => deleteDelivery(d.id)} className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white">{t('تأكيد', 'Confirm')}</button>
+                              <button onClick={() => setConfirmDeleteDelivery(null)} className="text-[10px] text-slate-500">{t('إلغاء', 'Cancel')}</button>
+                            </span>
+                          ) : (
+                            <button onClick={() => setConfirmDeleteDelivery(d.id)} className="text-red-400 hover:text-red-600 shrink-0" title={t('حذف', 'Delete')}><Trash2 size={15} /></button>
+                          )
+                        )}
                       </div>
-                      {d.error && (<span className="text-xs text-red-500 flex items-center gap-1"><AlertCircle size={12} /> {d.error}</span>)}
-                      <StatusBadge status={d.status} isArabic={isArabic} />
-                      {d.status !== 'pushed' && (
-                        confirmDeleteDelivery === d.id ? (
-                          <span className="flex items-center gap-1 shrink-0">
-                            <button onClick={() => deleteDelivery(d.id)} className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-medium text-white">{t('تأكيد', 'Confirm')}</button>
-                            <button onClick={() => setConfirmDeleteDelivery(null)} className="text-[10px] text-slate-500">{t('إلغاء', 'Cancel')}</button>
-                          </span>
-                        ) : (
-                          <button onClick={() => setConfirmDeleteDelivery(d.id)} className="text-red-400 hover:text-red-600 shrink-0" title={t('حذف', 'Delete')}><Trash2 size={15} /></button>
+                      {editingDelivery === d.id ? (
+                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-[130px_1fr_auto] gap-2 items-end">
+                          <div>
+                            <label className="block text-[11px] text-slate-500 mb-1">{t('الساعات الصافية', 'Net hours')}</label>
+                            <input className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" type="number" min="0" step="0.1" value={editHours} onChange={(e) => setEditHours(e.target.value)} placeholder="0" />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-slate-500 mb-1">{t('ملاحظات', 'Notes')}</label>
+                            <input className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder={t('أي ملاحظات', 'Any notes')} />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button disabled={savingDelivery === d.id} onClick={() => saveDeliveryMeta(d.id)} className="px-4 py-2 bg-[#0b80ff] text-white rounded-lg text-xs font-semibold disabled:opacity-50">{t('حفظ', 'Save')}</button>
+                            <button onClick={() => setEditingDelivery(null)} className="text-xs text-slate-500">{t('إلغاء', 'Cancel')}</button>
+                          </div>
+                        </div>
+                      ) : (
+                        (d.netFinalHours != null || d.notes) && (
+                          <div className="mt-2 ml-14 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                            {d.netFinalHours != null && <span>{t('ساعات صافية:', 'Net hours:')} <strong className="text-slate-700">{d.netFinalHours} h</strong></span>}
+                            {d.notes && <span className="italic">“{d.notes}”</span>}
+                          </div>
                         )
                       )}
                     </div>

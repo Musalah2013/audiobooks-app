@@ -39,7 +39,7 @@ const acqMetadataSchema = z.object({
   pubYear: z.string().nullish(),
   sellingType: z.enum(['subscription', 'a_la_carte']).nullish(),
   price: z.number().nullish(),
-});
+}).passthrough(); // keep any future fields so the dynamic display picks them up
 
 async function requireAcquisitionSession(c: Context<{ Bindings: Env }>) {
   return verifyAcquisitionSessionCookie(c.req.header('Cookie') ?? null, c.env.INTERNAL_API_SECRET);
