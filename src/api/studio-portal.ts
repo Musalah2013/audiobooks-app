@@ -43,8 +43,8 @@ function safeJson(raw: string) {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
-function driveUploadToApi(d: { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; production_file_id?: string | null }) {
-  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed' | 'pushed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id, productionFileId: d.production_file_id ?? null };
+function driveUploadToApi(d: { id: string; studio_id: string; name: string; object_key: string; drive_file_id: string | null; status: string; error: string | null; created_at: string; batch_id: string | null; audiobook_id: string | null; production_file_id?: string | null; net_final_hours?: number | null; notes?: string | null }) {
+  return { id: d.id, studioId: d.studio_id, name: d.name, status: d.status as 'pending' | 'uploading' | 'completed' | 'failed' | 'pushed', driveFileId: d.drive_file_id, error: d.error, createdAt: d.created_at, batchId: d.batch_id, audiobookId: d.audiobook_id, productionFileId: d.production_file_id ?? null, netFinalHours: d.net_final_hours ?? null, notes: d.notes ?? null };
 }
 
 studioPortal.get('/:slug', async (c) => {
@@ -274,6 +274,32 @@ studioPortal.post('/:slug/drive-uploads/:uploadId/complete', async (c) => {
       emailBinding: c.env.EMAIL,
     }),
   ));
+  return c.json({ ok: true });
+});
+
+// A studio edits the net hours / notes on its own delivery (allowed even after
+// the delivery is pushed, so billing can be corrected). Every change is logged
+// to the audit trail so operators see the history in Studio Management.
+studioPortal.patch('/:slug/drive-uploads/:uploadId', async (c) => {
+  const slug = c.req.param('slug');
+  const session = await requireStudioSession(c, slug);
+  if (!session) return c.json({ error: 'Unauthorized' }, 401);
+  const { netFinalHours, notes } = z.object({
+    netFinalHours: z.number().nonnegative().nullable().optional(),
+    notes: z.string().nullable().optional(),
+  }).parse(await c.req.json());
+  const repo = new Repository(c.env.DB);
+  const upload = await repo.getDriveUpload(c.req.param('uploadId'));
+  if (!upload || upload.studio_id !== session.studioId) return c.json({ error: 'Not found' }, 404);
+  const patch: { netFinalHours?: number | null; notes?: string | null } = {};
+  if (netFinalHours !== undefined) patch.netFinalHours = netFinalHours;
+  if (notes !== undefined) patch.notes = notes;
+  await repo.setDriveUploadMeta(upload.id, patch);
+  await repo.audit('studio', session.studioId, 'delivery.meta_edited', session.email || 'studio', {
+    uploadId: upload.id, name: upload.name,
+    from: { netFinalHours: upload.net_final_hours, notes: upload.notes },
+    to: { netFinalHours: patch.netFinalHours ?? upload.net_final_hours, notes: patch.notes ?? upload.notes },
+  }).catch(() => undefined);
   return c.json({ ok: true });
 });
 

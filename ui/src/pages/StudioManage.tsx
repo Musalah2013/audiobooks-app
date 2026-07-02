@@ -994,6 +994,7 @@ function auditMeta(action: string, isArabic: boolean): { label: string; dot: str
     'sample.reviewed':              { ar: 'تمت مراجعة عينة', en: 'Sample reviewed', dot: 'bg-emerald-500' },
     'sample.deleted':               { ar: 'حُذفت عينة', en: 'Sample deleted', dot: 'bg-red-500' },
     'delivery.uploaded':            { ar: 'رفع تسليماً', en: 'Uploaded a delivery', dot: 'bg-emerald-600' },
+    'delivery.meta_edited':         { ar: 'عدّل ساعات/ملاحظات التسليم', en: 'Edited delivery hours/notes', dot: 'bg-amber-500' },
     'delivery.received':            { ar: 'تم استلام تسليم', en: 'Delivery received', dot: 'bg-emerald-600' },
     'delivery.pushed':              { ar: 'دُفع التسليم للنظام', en: 'Delivery pushed to system', dot: 'bg-violet-600' },
     'delivery.deleted':             { ar: 'حُذف تسليم', en: 'Delivery deleted', dot: 'bg-red-500' },
@@ -1015,6 +1016,13 @@ function auditDetailText(ev: AuditEvent, isArabic: boolean): string {
   if (ev.action === 'sample.reviewed') {
     const st = pick('status');
     return [name, st === 'approved' ? (isArabic ? 'موافقة' : 'Approved') : (isArabic ? 'مرفوضة' : 'Refused')].filter(Boolean).join(' — ');
+  }
+  if (ev.action === 'delivery.meta_edited') {
+    const from = (d.from ?? {}) as { netFinalHours?: number | null; notes?: string | null };
+    const to = (d.to ?? {}) as { netFinalHours?: number | null; notes?: string | null };
+    const h = (from.netFinalHours ?? '—') !== (to.netFinalHours ?? '—') ? `${isArabic ? 'ساعات' : 'hrs'}: ${from.netFinalHours ?? '—'} → ${to.netFinalHours ?? '—'}` : '';
+    const n = (from.notes ?? '') !== (to.notes ?? '') ? (isArabic ? 'تغيّرت الملاحظات' : 'notes changed') : '';
+    return [name, [h, n].filter(Boolean).join(', ')].filter(Boolean).join(' — ');
   }
   return name ?? '';
 }

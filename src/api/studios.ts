@@ -427,6 +427,11 @@ studios.patch('/:id/deliveries/:uploadId', requireStudiosAccess(), async (c) => 
   const upload = await repo.getDriveUpload(c.req.param('uploadId')!);
   if (!upload || upload.studio_id !== c.req.param('id')) return c.json({ error: 'Delivery not found' }, 404);
   await repo.setDriveUploadMeta(upload.id, { netFinalHours, notes });
+  await repo.audit('studio', c.req.param('id')!, 'delivery.meta_edited', actorEmail(c.req.raw), {
+    uploadId: upload.id, name: upload.name,
+    from: { netFinalHours: upload.net_final_hours, notes: upload.notes },
+    to: { netFinalHours: netFinalHours ?? upload.net_final_hours, notes: notes ?? upload.notes },
+  }).catch(() => undefined);
   return c.json({ ok: true });
 });
 
