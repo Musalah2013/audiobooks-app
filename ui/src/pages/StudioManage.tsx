@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Upload, Trash2, Download, CheckCircle2, XCircle, ImageIcon, FileText, Music, Link2, CloudUpload, Mail, DollarSign, Plus, Pencil, Search, ChevronDown, BookOpen, KeyRound } from 'lucide-react';
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { AudioPlayer } from '../components/AudioPlayer';
+import { AcqMetadata } from '../components/AcqMetadata';
 import { useToast } from '../hooks/useToast.tsx';
 import { useLocale } from '../hooks/useLocale';
 import type { Studio, StudioContact, StudioAsset, StudioProductionFile, StudioSample, StudioDriveUpload, StudioLegacyProduction } from '@api';
@@ -591,9 +592,10 @@ export default function StudioManage() {
                           </span>
                         )}
                       </div>
-                      {f.bookAuthor && <p className="text-xs text-[color:var(--fg-2)] truncate">{isArabic ? 'المؤلف:' : 'Author:'} {f.bookAuthor}</p>}
                       <p className="text-xs text-[color:var(--fg-2)]">{formatBytes(f.sizeBytes)} · {f.uploadedBy} · {new Date(f.createdAt).toLocaleDateString()}</p>
-                      {f.acqNotes && <p className="text-xs text-[color:var(--fg-2)] mt-0.5 italic">{f.acqNotes}</p>}
+                      {/* All metadata entered by the acquisition team, rendered dynamically. */}
+                      {f.acqMetadata ? <AcqMetadata data={f.acqMetadata} className="mt-1" /> : (f.bookAuthor && <p className="text-xs text-[color:var(--fg-2)] truncate">{isArabic ? 'المؤلف:' : 'Author:'} {f.bookAuthor}</p>)}
+                      {f.acqNotes && <p className="text-xs text-[color:var(--fg-2)] mt-1 italic">{f.acqNotes}</p>}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">

@@ -3,6 +3,7 @@ import { CloudUpload, FileText, Send, Loader2, CheckCircle2, Pencil, Trash2, Glo
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { useLocale } from '../hooks/useLocale';
 import type { AcquisitionPortalResponse, AcqBookMetadata } from '@api';
+import { AcqMetadata } from '../components/AcqMetadata';
 
 const API_BASE_URL = typeof API_BASE === 'string' ? API_BASE : '';
 
@@ -426,8 +427,7 @@ export default function AcquisitionPortal() {
                               <p className="text-[13px] truncate font-medium">{f.name}</p>
                               <ProdStatusBadge status={f.productionStatus ?? 'backlog'} isArabic={isArabic} />
                             </div>
-                            {f.acqMetadata?.author && <p className="text-[11px] text-[#718096] truncate">{t('المؤلف:', 'Author:')} {f.acqMetadata.author}</p>}
-                            {f.acqMetadata?.sellerName && <p className="text-[11px] text-[#718096] truncate">{t('الناشر:', 'Publisher:')} {f.acqMetadata.sellerName}</p>}
+                            {f.acqMetadata && <AcqMetadata data={f.acqMetadata} className="mt-1" />}
                             <p className="text-[11px] text-[#a0aec0] mt-0.5">{formatBytes(f.sizeBytes)}{f.audiobookId ? ` · ${t('في الإنتاج', 'in production')}` : ''}</p>
                           </div>
                           {!f.audiobookId && (

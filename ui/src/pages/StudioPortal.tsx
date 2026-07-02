@@ -8,6 +8,7 @@ import {
 import { useApi, apiRequest, API_BASE } from '../hooks/useApi';
 import { useLocale } from '../hooks/useLocale';
 import { AudioPlayer } from '../components/AudioPlayer';
+import { AcqMetadata } from '../components/AcqMetadata';
 import type { StudioPortalResponse } from '@api';
 
 const API_BASE_URL = typeof API_BASE === 'string' ? API_BASE : '';
@@ -720,6 +721,8 @@ export default function StudioPortal() {
                             <span className="text-xs text-slate-400 flex items-center gap-1"><Hash size={12} /> {formatBytes(f.sizeBytes)}</span>
                             <span className="text-xs text-slate-400 flex items-center gap-1"><Calendar size={12} /> {fd(f.createdAt)}</span>
                           </div>
+                          {/* Book details entered by the acquisition team (dynamic). */}
+                          {f.acqMetadata && <AcqMetadata data={f.acqMetadata} className="mt-2" />}
                         </div>
                         <button onClick={async () => { const url = await getPdfDownloadUrl(f.objectKey); window.open(url, '_blank'); }} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-lg transition-all flex-shrink-0">
                           <Download size={14} /> {t('تنزيل', 'Download')}
